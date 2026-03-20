@@ -352,12 +352,74 @@ Project → Session（加载）：
 
 ---
 
+## 经验技能化机制
+
+### 核心理念
+
+```
+经验（数据）→ 时间验证 → 提炼 → 技能（能力）→ 持续成长
+```
+
+### 技能化评分
+
+**评分公式：**
+```
+技能化评分 = 时间权重(0.3) + 频率权重(0.3) + 跨Session权重(0.2) + 热度权重(0.2)
+
+其中：
+- 时间权重 = min(days_since_created / 30, 1)
+- 频率权重 = min(access_count / 10, 1)
+- 跨Session权重 = min(access_sessions.length / 5, 1)
+- 热度权重 = heat / 100
+
+评分 >= 0.7 且创建 >= 7天 → 建议技能化
+```
+
+### Heartbeat 检查
+
+```
+1. 执行 skillification-score.js 计算评分
+2. 识别高评分经验
+3. 输出建议：
+   "发现可技能化的经验：
+    - 经验：{summary}
+    - 评分：{score}
+    - 建议技能名：{suggested_name}
+    是否创建技能？"
+```
+
+### 技能创建流程
+
+```
+用户确认后：
+1. 执行 skill-create.js 创建技能
+2. 在 openclaw_project/openclaw/{skill-name}/ 创建目录
+3. 生成 SKILL.md（从经验提炼）
+4. 初始化 git 仓库
+5. 通过 extraDirs 自动加载
+```
+
+### 强制技能化
+
+用户可以跳过时间验证，直接请求：
+```
+"把 xxx 经验转化成技能"
+```
+
+### 技能创建后
+
+- 原经验保留，标记 `skill_name` 关联
+- 不再参与技能化评分
+- 技能自动加载到 available_skills
+
+---
+
 ## Agent Playbook
 
 ### 必须执行
 
 1. **Session Start** → 加载项目和全局记忆
-2. **Heartbeat** → 评估热度、检查承诺、触发流动、自我提升
+2. **Heartbeat** → 评估热度、检查承诺、触发流动、技能化建议
 3. **重要决策** → 写入项目级 decisions.json
 4. **用户偏好** → 写入项目级 state.json
 5. **错误/经验** → 写入项目级 experiences.json
@@ -376,6 +438,7 @@ Project → Session（加载）：
 3. **Self-improve continuously** - 每次错误都是学习机会
 4. **Respect project boundaries** - 不同项目的记忆隔离
 5. **Share globally when appropriate** - 用户偏好、通用经验放全局
+6. **Skillify valuable experiences** - 高评分经验及时转化为技能
 
 ---
 
@@ -389,6 +452,7 @@ Project → Session（加载）：
 **沉淀工具经验：**
 - 发现高效/创新的工具用法 → 记录到 experiences.json (type: tool-pattern)
 - 跨领域通用的经验 → 同步到 projects/_global/
+- 高评分经验 → 转化为技能
 
 ---
 
