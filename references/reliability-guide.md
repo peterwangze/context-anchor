@@ -1,4 +1,4 @@
-# Context Anchor — 可靠性保障参考
+# Context Anchor — 可靠性保障参考（多 Session 多 Project 版）
 
 ## 承诺追踪最佳实践
 
@@ -23,6 +23,22 @@ pending → delayed     # 延误，需说明原因
 pending → cancelled   # 无法完成，需告知用户
 delayed → done        # 延误后完成
 delayed → cancelled   # 延误后取消
+```
+
+### 承诺存储位置
+
+```json
+// sessions/{session-key}/state.json
+{
+  "commitments": [
+    {
+      "id": "commit-001",
+      "what": "承诺内容",
+      "when": "2026-03-20T10:15:00+08:00",
+      "status": "pending"
+    }
+  ]
+}
 ```
 
 ### 延误处理模板
@@ -101,7 +117,8 @@ delayed → cancelled   # 延误后取消
    - 如果需要用户确认，先说明再行动
 
 3. 记录经验
-   - 记录到 self-improvement skill
+   - 记录到 projects/{project-id}/experiences.json
+   - 类型为 lesson
    - 说明错误原因和预防方法
 
 4. 验证修复
@@ -119,6 +136,23 @@ delayed → cancelled   # 延误后取消
 预防：{以后如何避免}
 
 {如果影响用户} 对此造成的不便，抱歉。
+```
+
+### 错误记录格式
+
+```json
+// projects/{project-id}/experiences.json
+{
+  "id": "exp-001",
+  "type": "lesson",
+  "summary": "Move-Item 不会移动隐藏目录",
+  "details": "使用 Move-Item 迁移目录时，隐藏目录（如 .git）可能不会被一起移动",
+  "solution": "使用 Copy-Item + Remove-Item，或显式指定 -Force 参数",
+  "session_key": "feishu:direct:ou_xxx",
+  "created_at": "2026-03-20T08:29:00+08:00",
+  "heat": 95,
+  "tags": ["powershell", "safety", "file-operations"]
+}
 ```
 
 ## Session 结束自检
@@ -142,11 +176,52 @@ delayed → cancelled   # 延误后取消
 
 ### 状态保存检查
 - [ ] checkpoint.md 已更新
-- [ ] state.json 已更新
+- [ ] sessions/{session-key}/state.json 已更新
+
+### 项目同步检查
+- [ ] 高价值记忆已同步到 projects/{project-id}/
+- [ ] 用户偏好已更新
+- [ ] 热度索引已更新
 
 ### 经验记录检查
-- [ ] 遇到的问题已记录到 self-improvement
+- [ ] 遇到的问题已记录到 experiences.json
 - [ ] 新发现已记录到相关文档
+```
+
+---
+
+## 多 Session 多 Project 可靠性
+
+### Session 隔离
+
+- 每个 Session 有独立的状态文件
+- Session 之间不会互相覆盖
+- 承诺追踪限定在当前 Session
+
+### Project 隔离
+
+- 不同项目的记忆完全隔离
+- 项目级决策和经验只在本项目内共享
+- 全局偏好存储在 `projects/_global/`
+
+### 跨 Session 共享
+
+- 通过 `access_sessions` 数组追踪
+- 跨 Session 访问自动增加热度
+- 高价值记忆自动晋升
+
+### 自我提升闭环
+
+```
+错误发生 → 记录到 experiences.json (type: lesson)
+    ↓
+Heartbeat 检测 → 分析错误模式
+    ↓
+提炼经验 → 更新 heat-index.json
+    ↓
+下次遇到类似情况 → 检索经验 → 避免重复错误
+    ↓
+成功避免 → access_count++ → heat += 5
 ```
 
 ---
@@ -158,3 +233,6 @@ delayed → cancelled   # 延误后取消
 3. **验证再确认** — 重要操作要验证，不假设成功
 4. **错了就认** — 承认错误，立即修复，记录预防
 5. **状态透明** — 用户随时知道我在做什么
+6. **Session 隔离** — 多会话并行不干扰
+7. **Project 隔离** — 项目记忆不混淆
+8. **持续改进** — 每个错误都是学习机会
