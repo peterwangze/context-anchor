@@ -40,6 +40,14 @@ gateway:startup hook 触发
 需要继续吗？"
 ```
 
+### Hook 事件处理
+
+| 事件 | 触发时机 | 操作 |
+|------|----------|------|
+| `gateway:startup` | Gateway 启动时 | 加载记忆，发送恢复消息 |
+| `command:stop` | 用户发送 `/stop` 时 | 创建检查点，保存会话状态 |
+| `session:end` | Session 结束时 | 创建最终检查点，同步到项目级 |
+
 ### Hook 位置
 
 ```
@@ -50,15 +58,14 @@ gateway:startup hook 触发
 
 ### 触发条件
 
-- Gateway 启动时（`gateway:startup` 事件）
-- 存在最近 2 小时内活跃的 session
-- 有未完成的任务或承诺
+- **gateway:startup**：Gateway 启动时，存在最近 2 小时内活跃的 session
+- **command:stop**：用户发送 `/stop` 命令
+- **session:end**：Session 结束（超时、手动关闭等）
 
 ### 不触发的情况
 
-- 正常对话中收到消息（不使用 `message:received` hook）
-- 没有最近的 session
-- 没有需要报告的内容
+- 正常对话收到消息时不会触发
+- 没有最近的 session 时不发送恢复消息
 
 ---
 
