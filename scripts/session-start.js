@@ -1,125 +1,190 @@
 #!/usr/bin/env node
 /**
- * Session Start Script
- * Loads yesterday's memory and high-heat entries
+ * Session Start Script (Multi-Session Multi-Project Support)
+ * Loads project-level and global memories
  *
- * Usage: node session-start.js <workspace>
+ * Usage: node session-start.js <workspace> <session-key> [project-id]
  */
 
 const fs = require('fs');
 const path = require('path');
 
 const workspace = process.argv[2] || process.cwd();
-const memoryDir = path.join(workspace, 'memory');
-const memoryFile = path.join(workspace, 'MEMORY.md');
-const stateDir = path.join(workspace, '.context-anchor');
-const heatIndexFile = path.join(stateDir, 'heat-index.json');
+const sessionKey = process.argv[3] || 'default';
+const projectId = process.argv[4] || 'default';
 
-function getYesterday() {
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  return yesterday.toISOString().split('T')[0];
-}
+const anchorDir = path.join(workspace, '.context-anchor');
+const sessionsDir = path.join(anchorDir, 'sessions');
+const projectsDir = path.join(anchorDir, 'projects');
 
-function getToday() {
-  return new Date().toISOString().split('T')[0];
-}
-
-function parseMemoryEntries(content) {
-  const entries = [];
-  const regex = /## (MEM-[^\n]+)\n([\s\S]*?)(?=## MEM-|$)/g;
-  let match;
-
-  while ((match = regex.exec(content)) !== null) {
-    const id = match[1];
-    const body = match[2];
-
-    // Parse metadata
-    const typeMatch = body.match(/type:\s*(\w+)/);
-    const heatMatch = body.match(/heat:\s*(\d+)/);
-    const tagsMatch = body.match(/tags:\s*\[([^\]]+)\]/);
-
-    entries.push({
-      id,
-      type: typeMatch ? typeMatch[1] : 'unknown',
-      heat: heatMatch ? parseInt(heatMatch[1]) : 50,
-      tags: tagsMatch ? tagsMatch[1].split(',').map(t => t.trim()) : [],
-      content: body.trim()
-    });
+function ensureDir(dir) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
-
-  return entries;
 }
 
-function loadMemories() {
-  const result = {
-    today: { file: null, entries: [] },
-    yesterday: { file: null, entries: [] },
-    highHeat: []
+function readJson(file, defaultValue = {}) {
+  if (!fs.existsSync(file)) {
+    return defaultValue;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return defaultValue;
+  }
+}
+
+function writeJson(file, data) {
+  ensureDir(path.dirname(file));
+  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+}
+
+function initSession() {
+  const sessionDir = path.join(sessionsDir, sessionKey);
+  const sessionStateFile = path.join(sessionDir, 'state.json');
+
+  // Initialize session state
+  const sessionState = {
+    session_key: sessionKey,
+    project_id: projectId,
+    started_at: new Date().toISOString(),
+    last_active: new Date().toISOString(),
+    commitments: [],
+    active_task: null,
+    errors_count: 0,
+    experiences_count: 0
   };
 
-  // Check today's memory
-  const todayFile = path.join(memoryDir, `${getToday()}.md`);
-  if (fs.existsSync(todayFile)) {
-    result.today.file = todayFile;
-    result.today.entries = parseMemoryEntries(fs.readFileSync(todayFile, 'utf8'));
+  writeJson(sessionStateFile, sessionState);
+
+  // Update session index
+  const indexFile = path.join(sessionsDir, '_index.json');
+  const index = readJson(indexFile, { sessions: [] });
+
+  const existingIdx = index.sessions.findIndex(s => s.session_key === sessionKey);
+  const sessionInfo = {
+    session_key: sessionKey,
+    project_id: projectId,
+    started_at: sessionState.started_at,
+    last_active: sessionState.last_active
+  };
+
+  if (existingIdx >= 0) {
+    index.sessions[existingIdx] = sessionInfo;
+  } else {
+    index.sessions.push(sessionInfo);
   }
 
-  // Check yesterday's memory
-  const yesterdayFile = path.join(memoryDir, `${getYesterday()}.md`);
-  if (fs.existsSync(yesterdayFile)) {
-    result.yesterday.file = yesterdayFile;
-    result.yesterday.entries = parseMemoryEntries(fs.readFileSync(yesterdayFile, 'utf8'));
-  }
+  writeJson(indexFile, index);
 
-  // Check MEMORY.md for high-heat entries
-  if (fs.existsSync(memoryFile)) {
-    const diskEntries = parseMemoryEntries(fs.readFileSync(memoryFile, 'utf8'));
-    result.highHeat = diskEntries.filter(e => e.heat > 70);
-  }
+  return sessionState;
+}
 
-  // Generate summary
+function loadProjectMemories() {
+  const projectDir = path.join(projectsDir, projectId);
+  const projectStateFile = path.join(projectDir, 'state.json');
+  const decisionsFile = path.join(projectDir, 'decisions.json');
+  const experiencesFile = path.join(projectDir, 'experiences.json');
+  const heatIndexFile = path.join(projectDir, 'heat-index.json');
+
+  const result = {
+    project: {
+      id: projectId,
+      state: readJson(projectStateFile, { project_id: projectId, name: projectId }),
+      decisions: readJson(decisionsFile, { decisions: [] }).decisions,
+      experiences: readJson(experiencesFile, { experiences: [] }).experiences,
+      heatIndex: readJson(heatIndexFile, { entries: [] }).entries
+    }
+  };
+
+  // Get high-heat decisions and experiences
+  result.project.highHeatDecisions = result.project.decisions
+    .filter(d => d.heat > 70)
+    .slice(0, 5);
+
+  result.project.highHeatExperiences = result.project.experiences
+    .filter(e => e.heat > 60)
+    .slice(0, 5);
+
+  return result;
+}
+
+function loadGlobalMemories() {
+  const globalDir = path.join(projectsDir, '_global');
+  const globalStateFile = path.join(globalDir, 'state.json');
+
+  return {
+    global: readJson(globalStateFile, {
+      user_preferences: {},
+      important_facts: []
+    })
+  };
+}
+
+function generateSummary(sessionState, projectMemories, globalMemories) {
   const summary = {
-    status: 'loaded',
-    today_count: result.today.entries.length,
-    yesterday_count: result.yesterday.entries.length,
-    high_heat_count: result.highHeat.length,
+    status: 'initialized',
+    session: {
+      key: sessionKey,
+      project: projectId
+    },
+    project: {
+      id: projectId,
+      decisions_count: projectMemories.project.decisions.length,
+      experiences_count: projectMemories.project.experiences.length,
+      high_heat_decisions: projectMemories.project.highHeatDecisions.length,
+      high_heat_experiences: projectMemories.project.highHeatExperiences.length
+    },
     memories_to_inject: []
   };
 
-  // Collect memories to inject
-  // Yesterday's important decisions and todos
-  const yesterdayImportant = result.yesterday.entries.filter(e =>
-    e.type === 'decision' || e.type === 'todo' || e.heat > 80
-  );
-
-  // High heat from disk
-  const diskHighHeat = result.highHeat.slice(0, 5); // Top 5
-
-  if (yesterdayImportant.length > 0) {
+  // Add high-heat decisions
+  if (projectMemories.project.highHeatDecisions.length > 0) {
     summary.memories_to_inject.push({
-      source: 'yesterday',
-      entries: yesterdayImportant.map(e => ({
-        id: e.id,
-        type: e.type,
-        preview: e.content.split('\n').slice(0, 3).join('\n').substring(0, 200)
+      source: 'project_decisions',
+      entries: projectMemories.project.highHeatDecisions.map(d => ({
+        id: d.id,
+        decision: d.decision,
+        heat: d.heat
       }))
     });
   }
 
-  if (diskHighHeat.length > 0) {
+  // Add high-heat experiences
+  if (projectMemories.project.highHeatExperiences.length > 0) {
     summary.memories_to_inject.push({
-      source: 'disk_high_heat',
-      entries: diskHighHeat.map(e => ({
+      source: 'project_experiences',
+      entries: projectMemories.project.highHeatExperiences.map(e => ({
         id: e.id,
         type: e.type,
-        heat: e.heat,
-        preview: e.content.split('\n').slice(0, 3).join('\n').substring(0, 200)
+        summary: e.summary,
+        heat: e.heat
       }))
     });
   }
 
-  console.log(JSON.stringify(summary, null, 2));
+  // Add global preferences
+  if (Object.keys(globalMemories.global.user_preferences).length > 0) {
+    summary.memories_to_inject.push({
+      source: 'global_preferences',
+      entries: Object.entries(globalMemories.global.user_preferences).map(([k, v]) => ({
+        key: k,
+        value: v
+      }))
+    });
+  }
+
+  return summary;
 }
 
-loadMemories();
+// Main execution
+ensureDir(anchorDir);
+ensureDir(sessionsDir);
+ensureDir(projectsDir);
+
+const sessionState = initSession();
+const projectMemories = loadProjectMemories();
+const globalMemories = loadGlobalMemories();
+const summary = generateSummary(sessionState, projectMemories, globalMemories);
+
+console.log(JSON.stringify(summary, null, 2));
