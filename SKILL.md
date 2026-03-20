@@ -514,18 +514,98 @@ Session Start 时检查旧格式文件：
 
 ---
 
+## 工具使用原则（核心行为准则）
+
+### 1. 主动发现工具
+
+**接到任务时的标准流程：**
+
+```
+1. 扫描 <available_skills> 列表
+2. 搜索 ClawHub 是否有现成技能
+3. 检查 openclaw_project/openclaw/ 是否有相关技能
+4. 评估每个工具/技能的适用性
+5. 选择最合适的工具执行任务
+```
+
+**评估标准：**
+
+| 优先级 | 来源 | 说明 |
+|--------|------|------|
+| 1 | `<available_skills>` | 已加载，立即可用 |
+| 2 | ClawHub | 可安装，社区验证 |
+| 3 | openclaw_project | 本地开发，可定制 |
+| 4 | 手动实现 | 最后选择 |
+
+### 2. 使用工具后必须总结
+
+**每次使用工具后：**
+
+```
+1. 记录工具名称和用途
+2. 总结使用场景
+3. 记录高效用法或发现的问题
+4. 写入 experiences.json (type: tool-pattern)
+```
+
+**记录格式：**
+
+```json
+{
+  "type": "tool-pattern",
+  "tool": "工具名称",
+  "summary": "使用场景摘要",
+  "pattern": "使用模式",
+  "steps": ["步骤1", "步骤2"],
+  "effect": "效果说明",
+  "gotchas": ["注意事项"]
+}
+```
+
+### 3. 沉淀成技能
+
+**工具经验技能化流程：**
+
+```
+1. 使用工具 → 记录到 experiences.json
+2. 多次使用 → 热度上升
+3. 跨 Session 使用 → 评分上升
+4. 评分 >= 0.7 → 建议技能化
+5. 创建技能 → 自动加载
+```
+
+### 4. 工具使用检查清单
+
+**每次任务前检查：**
+
+- [ ] 是否有现成技能可用？
+- [ ] ClawHub 是否有相关技能？
+- [ ] 是否需要安装新技能？
+- [ ] 是否需要创建新技能？
+
+**每次任务后记录：**
+
+- [ ] 使用了哪些工具？
+- [ ] 有什么高效用法？
+- [ ] 有什么坑需要避免？
+- [ ] 是否值得技能化？
+
+---
+
 ## Agent Playbook
 
 ### 必须执行
 
 1. **Session Start** → 加载项目和全局记忆，检查旧格式迁移
 2. **Heartbeat** → 评估热度、检查承诺、触发流动、技能化建议
-3. **重要决策** → 写入项目级 decisions.json
-4. **用户偏好** → 写入项目级 state.json
-5. **错误捕获** → 自动记录到 experiences.json (type: lesson)
-6. **学习记录** → 发现最佳实践时记录到 experiences.json
-7. **功能请求** → 用户请求不存在功能时记录
-8. **Session End** → 同步到项目级，更新热度索引
+3. **任务前** → 扫描可用工具，优先使用现成技能
+4. **任务后** → 总结工具使用，记录到 experiences.json
+5. **重要决策** → 写入项目级 decisions.json
+6. **用户偏好** → 写入项目级 state.json
+7. **错误捕获** → 自动记录到 experiences.json (type: lesson)
+8. **学习记录** → 发现最佳实践时记录到 experiences.json
+9. **功能请求** → 用户请求不存在功能时记录
+10. **Session End** → 同步到项目级，更新热度索引
 
 ### 自动捕获触发词
 
@@ -536,6 +616,7 @@ Session Start 时检查旧格式文件：
 | API 调用失败 | 记录 lesson |
 | "记住这个"、"这个很重要" | 记录 best_practice |
 | "我想要...功能" | 记录 feature_request |
+| 完成任务 | 记录 tool-pattern |
 
 ### 禁止操作
 
@@ -543,29 +624,19 @@ Session Start 时检查旧格式文件：
 2. **不要删除** 记忆条目 - 只能标记 archived
 3. **不要忽略** 跨 Session 访问 - 记录到 access_sessions
 4. **不要忽略** 错误 - 必须记录到 experiences.json
+5. **不要跳过工具扫描** - 接到任务必须先找工具
+6. **不要忘记总结** - 使用工具后必须记录经验
 
 ### 最佳实践
 
-1. **Prefer project over session** - 有价值的记忆及时同步到项目级
-2. **Track cross-session access** - 记录哪些 Session 访问了哪些记忆
-3. **Self-improve continuously** - 每次错误都是学习机会
-4. **Respect project boundaries** - 不同项目的记忆隔离
-5. **Share globally when appropriate** - 用户偏好、通用经验放全局
-6. **Skillify valuable experiences** - 高评分经验及时转化为技能
-
----
-
-## 工具使用原则
-
-**主动发现工具：**
-- 接到任务时，先扫描 `<available_skills>` 和已有工具
-- 评估是否有现成工具适合当前任务
-- 优先使用已有工具，而非手动实现
-
-**沉淀工具经验：**
-- 发现高效/创新的工具用法 → 记录到 experiences.json (type: tool-pattern)
-- 跨领域通用的经验 → 同步到 projects/_global/
-- 高评分经验 → 转化为技能
+1. **Tool-first mindset** - 先找工具，再动手实现
+2. **Prefer project over session** - 有价值的记忆及时同步到项目级
+3. **Track cross-session access** - 记录哪些 Session 访问了哪些记忆
+4. **Self-improve continuously** - 每次错误都是学习机会
+5. **Respect project boundaries** - 不同项目的记忆隔离
+6. **Share globally when appropriate** - 用户偏好、通用经验放全局
+7. **Skillify valuable experiences** - 高评分经验及时转化为技能
+8. **Document tool patterns** - 每次工具使用都要总结沉淀
 
 ---
 
