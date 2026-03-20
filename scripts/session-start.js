@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 
 const workspace = process.argv[2] || process.cwd();
-const sessionKey = process.argv[3] || 'default';
+const sessionKey = (process.argv[3] || 'default').replace(/[:/]/g, '-');
 const projectId = process.argv[4] || 'default';
 
 const anchorDir = path.join(workspace, '.context-anchor');

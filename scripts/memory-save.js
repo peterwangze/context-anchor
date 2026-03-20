@@ -13,7 +13,7 @@ const fs = require('fs');
 const path = require('path');
 
 const workspace = process.argv[2] || process.cwd();
-const sessionKey = process.argv[3] || 'default';
+const sessionKey = (process.argv[3] || 'default').replace(/[:/]/g, '-');
 const scope = process.argv[4] || 'project';
 const type = process.argv[5] || 'fact';
 const content = process.argv[6] || '';

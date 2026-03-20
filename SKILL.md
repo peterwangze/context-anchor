@@ -352,6 +352,106 @@ Project → Session（加载）：
 
 ---
 
+## 错误捕获与学习记录（整合 self-improvement）
+
+### 自动触发条件
+
+| 触发条件 | 记录类型 | 初始热度 | 说明 |
+|----------|----------|----------|------|
+| 命令执行失败（退出码 != 0） | lesson | 60 | 自动捕获 |
+| 用户纠正（"不对"、"错了"、"Actually..."） | lesson | 70 | 高优先级 |
+| API 调用失败 | lesson | 60 | 自动捕获 |
+| 发现更好的方法 | best_practice | 50 | 主动记录 |
+| 用户表扬 | best_practice | 60 | 正向反馈 |
+| 功能请求 | feature_request | 40 | 用户需求 |
+
+### 错误记录流程
+
+```
+1. 检测到错误
+2. 记录到 experiences.json：
+   {
+     "type": "lesson",
+     "summary": "错误摘要",
+     "details": "详细说明",
+     "solution": "解决方案（如有）",
+     "error_context": {
+       "command": "执行的命令",
+       "exit_code": 1,
+       "output": "错误输出"
+     }
+   }
+3. 设置初始热度
+4. 触发技能化检查（Heartbeat）
+```
+
+### 学习记录流程
+
+```
+1. 发现最佳实践或用户表扬
+2. 记录到 experiences.json：
+   {
+     "type": "best_practice",
+     "summary": "实践摘要",
+     "details": "详细说明",
+     "applied_count": 0
+   }
+3. 设置初始热度
+```
+
+### 功能请求记录
+
+```
+1. 用户请求不存在的功能
+2. 记录到 experiences.json：
+   {
+     "type": "feature_request",
+     "summary": "功能描述",
+     "status": "pending"
+   }
+```
+
+---
+
+## 兼容性支持（整合 openclaw-mem）
+
+### 双格式支持
+
+context-anchor 同时支持两种格式：
+
+| 格式 | 位置 | 说明 |
+|------|------|------|
+| **新格式** | `.context-anchor/` | 推荐，支持多 Session 多 Project |
+| **旧格式** | `MEMORY.md`, `memory/` | 兼容 openclaw-mem |
+
+### 迁移检测
+
+Session Start 时检查旧格式文件：
+
+```
+1. 检查 MEMORY.md 是否存在
+2. 检查 memory/ 目录是否存在
+3. 如果存在，输出提示：
+   "检测到旧格式记忆文件：
+    - MEMORY.md
+    - memory/YYYY-MM-DD.md
+    建议迁移到 .context-anchor/ 格式以获得更好的多 Session 支持。
+    是否执行迁移？"
+```
+
+### 迁移脚本
+
+执行 `scripts/migrate-memory.js` 将旧格式迁移到新格式：
+
+```
+1. 读取 MEMORY.md 条目 → projects/{project-id}/decisions.json
+2. 读取 memory/YYYY-MM-DD.md → projects/{project-id}/experiences.json
+3. 保留原文件（不删除）
+4. 记录迁移日志
+```
+
+---
+
 ## 经验技能化机制
 
 ### 核心理念
@@ -418,18 +518,31 @@ Project → Session（加载）：
 
 ### 必须执行
 
-1. **Session Start** → 加载项目和全局记忆
+1. **Session Start** → 加载项目和全局记忆，检查旧格式迁移
 2. **Heartbeat** → 评估热度、检查承诺、触发流动、技能化建议
 3. **重要决策** → 写入项目级 decisions.json
 4. **用户偏好** → 写入项目级 state.json
-5. **错误/经验** → 写入项目级 experiences.json
-6. **Session End** → 同步到项目级，更新热度索引
+5. **错误捕获** → 自动记录到 experiences.json (type: lesson)
+6. **学习记录** → 发现最佳实践时记录到 experiences.json
+7. **功能请求** → 用户请求不存在功能时记录
+8. **Session End** → 同步到项目级，更新热度索引
+
+### 自动捕获触发词
+
+| 触发词/场景 | 动作 |
+|-------------|------|
+| 命令失败（退出码 != 0） | 记录 lesson |
+| "不对"、"错了"、"Actually..." | 记录 lesson（高优先级） |
+| API 调用失败 | 记录 lesson |
+| "记住这个"、"这个很重要" | 记录 best_practice |
+| "我想要...功能" | 记录 feature_request |
 
 ### 禁止操作
 
 1. **不要覆盖** 项目级文件 - 只能追加
 2. **不要删除** 记忆条目 - 只能标记 archived
 3. **不要忽略** 跨 Session 访问 - 记录到 access_sessions
+4. **不要忽略** 错误 - 必须记录到 experiences.json
 
 ### 最佳实践
 
