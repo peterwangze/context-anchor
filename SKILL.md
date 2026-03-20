@@ -7,12 +7,58 @@ description: Session memory persistence system with layered architecture
 
 Session 记忆永续系统。通过分层记忆架构和热度流动机制，确保主 agent 的记忆永续，支持**多 Session 多 Project 并行**，支持切换模型、退出会话后保持记忆连续性。
 
+**Gateway 重启自动恢复：** 通过 `context-anchor-hook` 实现 Gateway 重启后自动加载记忆并发送恢复消息。
+
 ## 设计哲学
 
 **类人，但超人。**
 
 - 类人：模拟人类记忆的分层结构（感官 → 工作记忆 → 长期记忆）
 - 超人：数据可流动、可检索、可持久化、可恢复、可跨 Session 共享
+
+---
+
+## 自动恢复机制（context-anchor-hook）
+
+### 工作原理
+
+```
+Gateway 重启
+    ↓
+gateway:startup hook 触发
+    ↓
+读取 .context-anchor/sessions/_index.json
+    ↓
+找到最近活跃的 session（2 小时内）
+    ↓
+检查未完成任务和承诺
+    ↓
+自动发送恢复消息：
+"🧠 我回来了！
+上次任务：xxx
+待完成承诺：yyy
+需要继续吗？"
+```
+
+### Hook 位置
+
+```
+~/.openclaw/hooks/context-anchor-hook/
+├── HOOK.md           # Hook 元数据
+└── handler.ts        # 处理逻辑
+```
+
+### 触发条件
+
+- Gateway 启动时（`gateway:startup` 事件）
+- 存在最近 2 小时内活跃的 session
+- 有未完成的任务或承诺
+
+### 不触发的情况
+
+- 正常对话中收到消息（不使用 `message:received` hook）
+- 没有最近的 session
+- 没有需要报告的内容
 
 ---
 
