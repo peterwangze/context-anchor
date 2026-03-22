@@ -12,6 +12,9 @@ triggers:
 
 `context-anchor` 用于把 OpenClaw 的会话记忆、项目记忆、上下文压力处理、经验校验和技能沉淀接成一条闭环。
 
+OpenClaw 的安装、接入、验证和排错请先看 [README.md](README.md)。  
+本文件主要描述 skill 的运行边界、状态模型和行为约束。
+
 ## 目标
 
 - 让 Session 状态在 `.context-anchor/` 中持续存在，不因压缩、重启或切换会话而丢失。
