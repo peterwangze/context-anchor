@@ -1,23 +1,15 @@
 #!/usr/bin/env node
-/**
- * Skillification Score Calculator
- * Calculates skillification score for experiences
- *
- * Usage: node skillification-score.js <workspace> [project-id]
- */
 
-const fs = require('fs');
-const path = require('path');
+const {
+  DEFAULTS,
+  calculateDaysSince,
+  createPaths,
+  ensureExperienceValidation,
+  loadProjectExperiences,
+  normalizeValidation,
+  writeProjectExperiences
+} = require('./lib/context-anchor');
 
-const workspace = process.argv[2] || process.cwd();
-const projectId = process.argv[3] || 'default';
-
-const anchorDir = path.join(workspace, '.context-anchor');
-const projectsDir = path.join(anchorDir, 'projects');
-const projectDir = path.join(projectsDir, projectId);
-const experiencesFile = path.join(projectDir, 'experiences.json');
-
-// Weights
 const WEIGHTS = {
   time: 0.3,
   frequency: 0.3,
@@ -25,65 +17,28 @@ const WEIGHTS = {
   heat: 0.2
 };
 
-// Thresholds
 const THRESHOLDS = {
-  minDays: 7,
+  minDays: DEFAULTS.autoValidation.minDays,
   minScore: 0.7,
   maxDaysForFullWeight: 30,
   maxCountForFullWeight: 10,
   maxSessionsForFullWeight: 5
 };
 
-function ensureDir(dir) {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-}
-
-function readJson(file, defaultValue = {}) {
-  if (!fs.existsSync(file)) {
-    return defaultValue;
-  }
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return defaultValue;
-  }
-}
-
-function writeJson(file, data) {
-  ensureDir(path.dirname(file));
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
-}
-
-function calculateDaysSinceCreated(createdAt) {
-  const now = Date.now();
-  const created = new Date(createdAt).getTime();
-  return (now - created) / (1000 * 60 * 60 * 24);
-}
-
 function calculateSkillificationScore(experience) {
-  const daysSinceCreated = calculateDaysSinceCreated(experience.created_at);
-  
-  // Time weight: 30 days for full weight
+  const daysSinceCreated = calculateDaysSince(experience.created_at);
+  const accessCount = Number(experience.access_count || experience.applied_count || 0);
+  const sessionCount = (experience.access_sessions || []).length;
   const timeWeight = Math.min(daysSinceCreated / THRESHOLDS.maxDaysForFullWeight, 1);
-  
-  // Frequency weight: 10 accesses for full weight
-  const frequencyWeight = Math.min((experience.access_count || 0) / THRESHOLDS.maxCountForFullWeight, 1);
-  
-  // Cross-session weight: 5 sessions for full weight
-  const crossSessionWeight = Math.min((experience.access_sessions?.length || 0) / THRESHOLDS.maxSessionsForFullWeight, 1);
-  
-  // Heat weight: 100 for full weight
-  const heatWeight = (experience.heat || 0) / 100;
-  
-  // Calculate total score
-  const score = 
+  const frequencyWeight = Math.min(accessCount / THRESHOLDS.maxCountForFullWeight, 1);
+  const crossSessionWeight = Math.min(sessionCount / THRESHOLDS.maxSessionsForFullWeight, 1);
+  const heatWeight = Number(experience.heat || 0) / 100;
+  const score =
     timeWeight * WEIGHTS.time +
     frequencyWeight * WEIGHTS.frequency +
     crossSessionWeight * WEIGHTS.crossSession +
     heatWeight * WEIGHTS.heat;
-  
+
   return {
     score: Math.round(score * 100) / 100,
     breakdown: {
@@ -98,83 +53,107 @@ function calculateSkillificationScore(experience) {
 }
 
 function suggestSkillName(experience) {
-  const type = experience.type || 'general';
-  const tags = experience.tags || [];
-  
-  // Generate name based on type and tags
   const typePrefixes = {
-    'lesson': 'safe',
-    'best_practice': 'guide',
+    lesson: 'safe',
+    best_practice: 'guide',
     'tool-pattern': 'tool',
-    'gotcha': 'avoid'
+    gotcha: 'avoid',
+    feature_request: 'feature'
   };
-  
-  const prefix = typePrefixes[type] || 'skill';
-  
-  // Use first tag if available
+  const prefix = typePrefixes[experience.type] || 'skill';
+  const tags = experience.tags || [];
+
   if (tags.length > 0) {
-    const tag = tags[0].toLowerCase().replace(/[^a-z0-9]/g, '-');
-    return `${prefix}-${tag}`;
+    return `${prefix}-${String(tags[0]).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
   }
-  
-  // Fallback to type-based name
-  return `${prefix}-${type}`;
+
+  const words = String(experience.summary || 'general')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]+/g, '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('-');
+
+  return `${prefix}-${words || experience.type || 'general'}`;
 }
 
-function evaluateSkillification() {
-  ensureDir(projectDir);
-  
-  const experiences = readJson(experiencesFile, { experiences: [] }).experiences;
+function runSkillificationScore(workspaceArg, projectIdArg) {
+  const paths = createPaths(workspaceArg);
+  const projectId = projectIdArg || DEFAULTS.projectId;
+  const experiences = loadProjectExperiences(paths, projectId);
   const candidates = [];
-  const updatedExperiences = [];
-  
-  experiences.forEach(exp => {
-    // Skip already skillified experiences
-    if (exp.skill_name) {
-      updatedExperiences.push(exp);
-      return;
+  const blockedByValidation = [];
+
+  const updatedExperiences = experiences.map((experience) => {
+    if (experience.skill_name) {
+      return experience;
     }
-    
-    const scoreResult = calculateSkillificationScore(exp);
-    
-    // Update experience with score
-    const updatedExp = {
-      ...exp,
+
+    const scoreResult = calculateSkillificationScore(experience);
+    const validation = ensureExperienceValidation(experience, 'skillification-score');
+    const suggestedName = suggestSkillName(experience);
+    const validationReady = normalizeValidation(validation).status === 'validated';
+    const skillificationSuggested =
+      validationReady && scoreResult.meetsMinDays && scoreResult.score >= THRESHOLDS.minScore;
+
+    const updated = {
+      ...experience,
+      validation,
       skillification_score: scoreResult.score,
       skillification_breakdown: scoreResult.breakdown,
-      skillification_suggested: scoreResult.score >= THRESHOLDS.minScore && scoreResult.meetsMinDays
+      skillification_suggested: skillificationSuggested,
+      skillification_suggested_name: suggestedName
     };
-    
-    updatedExperiences.push(updatedExp);
-    
-    // Add to candidates if meets threshold
-    if (updatedExp.skillification_suggested) {
+
+    if (skillificationSuggested) {
       candidates.push({
-        id: exp.id,
-        type: exp.type,
-        summary: exp.summary,
+        id: updated.id,
+        type: updated.type,
+        summary: updated.summary,
         score: scoreResult.score,
         breakdown: scoreResult.breakdown,
-        suggested_name: suggestSkillName(exp),
+        suggested_name: suggestedName,
+        validation_status: updated.validation.status,
         days_since_created: scoreResult.daysSinceCreated,
-        access_count: exp.access_count,
-        access_sessions: exp.access_sessions?.length || 0
+        access_count: updated.access_count || updated.applied_count || 0,
+        access_sessions: (updated.access_sessions || []).length
+      });
+    } else if (scoreResult.meetsMinDays && scoreResult.score >= THRESHOLDS.minScore && !validationReady) {
+      blockedByValidation.push({
+        id: updated.id,
+        summary: updated.summary,
+        score: scoreResult.score,
+        validation_status: updated.validation.status
       });
     }
+
+    return updated;
   });
-  
-  // Save updated experiences
-  writeJson(experiencesFile, { experiences: updatedExperiences });
-  
-  // Output result
-  console.log(JSON.stringify({
+
+  writeProjectExperiences(paths, projectId, updatedExperiences);
+
+  return {
     project_id: projectId,
     evaluated: experiences.length,
     candidates: candidates.length,
+    blocked_by_validation: blockedByValidation.length,
     threshold: THRESHOLDS.minScore,
     min_days: THRESHOLDS.minDays,
-    candidates_list: candidates.sort((a, b) => b.score - a.score)
-  }, null, 2));
+    candidates_list: candidates.sort((left, right) => right.score - left.score),
+    blocked_candidates: blockedByValidation.sort((left, right) => right.score - left.score)
+  };
 }
 
-evaluateSkillification();
+function main() {
+  const result = runSkillificationScore(process.argv[2], process.argv[3]);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  runSkillificationScore
+};

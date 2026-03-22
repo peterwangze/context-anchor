@@ -1,175 +1,190 @@
 #!/usr/bin/env node
-/**
- * Session Start Script (Multi-Session Multi-Project Support)
- * Loads project-level and global memories
- *
- * Usage: node session-start.js <workspace> <session-key> [project-id]
- */
 
 const fs = require('fs');
 const path = require('path');
+const {
+  DEFAULTS,
+  createPaths,
+  ensureAnchorDirs,
+  getRecentSessions,
+  loadGlobalState,
+  loadProjectDecisions,
+  loadProjectExperiences,
+  loadProjectState,
+  loadSessionState,
+  mergeAccessMetadata,
+  readText,
+  recordHeatEntry,
+  sanitizeKey,
+  sessionCheckpointFile,
+  sortByHeat,
+  syncProjectStateMetadata,
+  touchGlobalIndex,
+  touchSessionIndex,
+  writeProjectDecisions,
+  writeProjectExperiences
+} = require('./lib/context-anchor');
 
-const workspace = process.argv[2] || process.cwd();
-const sessionKey = (process.argv[3] || 'default').replace(/[:/]/g, '-');
-const projectId = process.argv[4] || 'default';
+function detectLegacyMemory(workspace) {
+  const results = [];
+  const memoryFile = path.join(workspace, 'MEMORY.md');
+  const memoryDir = path.join(workspace, 'memory');
 
-const anchorDir = path.join(workspace, '.context-anchor');
-const sessionsDir = path.join(anchorDir, 'sessions');
-const projectsDir = path.join(anchorDir, 'projects');
-
-function ensureDir(dir) {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-}
-
-function readJson(file, defaultValue = {}) {
-  if (!fs.existsSync(file)) {
-    return defaultValue;
-  }
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return defaultValue;
-  }
-}
-
-function writeJson(file, data) {
-  ensureDir(path.dirname(file));
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
-}
-
-function initSession() {
-  const sessionDir = path.join(sessionsDir, sessionKey);
-  const sessionStateFile = path.join(sessionDir, 'state.json');
-
-  // Initialize session state
-  const sessionState = {
-    session_key: sessionKey,
-    project_id: projectId,
-    started_at: new Date().toISOString(),
-    last_active: new Date().toISOString(),
-    commitments: [],
-    active_task: null,
-    errors_count: 0,
-    experiences_count: 0
-  };
-
-  writeJson(sessionStateFile, sessionState);
-
-  // Update session index
-  const indexFile = path.join(sessionsDir, '_index.json');
-  const index = readJson(indexFile, { sessions: [] });
-
-  const existingIdx = index.sessions.findIndex(s => s.session_key === sessionKey);
-  const sessionInfo = {
-    session_key: sessionKey,
-    project_id: projectId,
-    started_at: sessionState.started_at,
-    last_active: sessionState.last_active
-  };
-
-  if (existingIdx >= 0) {
-    index.sessions[existingIdx] = sessionInfo;
-  } else {
-    index.sessions.push(sessionInfo);
+  if (fs.existsSync(memoryFile)) {
+    results.push('MEMORY.md');
   }
 
-  writeJson(indexFile, index);
+  if (fs.existsSync(memoryDir)) {
+    results.push('memory/');
+  }
 
-  return sessionState;
+  return results;
 }
 
-function loadProjectMemories() {
-  const projectDir = path.join(projectsDir, projectId);
-  const projectStateFile = path.join(projectDir, 'state.json');
-  const decisionsFile = path.join(projectDir, 'decisions.json');
-  const experiencesFile = path.join(projectDir, 'experiences.json');
-  const heatIndexFile = path.join(projectDir, 'heat-index.json');
+function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg) {
+  const paths = createPaths(workspaceArg);
+  ensureAnchorDirs(paths);
 
-  const result = {
-    project: {
-      id: projectId,
-      state: readJson(projectStateFile, { project_id: projectId, name: projectId }),
-      decisions: readJson(decisionsFile, { decisions: [] }).decisions,
-      experiences: readJson(experiencesFile, { experiences: [] }).experiences,
-      heatIndex: readJson(heatIndexFile, { entries: [] }).entries
-    }
-  };
+  const sessionKey = sanitizeKey(sessionKeyArg || DEFAULTS.sessionKey);
+  const projectId = projectIdArg || DEFAULTS.projectId;
+  const checkpointFile = sessionCheckpointFile(paths, sessionKey);
+  const hadCheckpoint = fs.existsSync(checkpointFile);
 
-  // Get high-heat decisions and experiences
-  result.project.highHeatDecisions = result.project.decisions
-    .filter(d => d.heat > 70)
-    .slice(0, 5);
+  const sessionState = loadSessionState(paths, sessionKey, projectId, {
+    createIfMissing: true,
+    touch: true
+  });
+  const projectState = loadProjectState(paths, sessionState.project_id);
+  const loadedDecisions = loadProjectDecisions(paths, sessionState.project_id);
+  const loadedExperiences = loadProjectExperiences(paths, sessionState.project_id);
+  const decisions = sortByHeat(loadedDecisions).filter(
+    (entry) => !entry.archived
+  );
+  const experiences = sortByHeat(loadedExperiences).filter(
+    (entry) => !entry.archived
+  );
+  const globalState = loadGlobalState(paths);
+  const checkpoint = hadCheckpoint ? readText(checkpointFile, '') : '';
+  const relatedSessions = getRecentSessions(paths)
+    .filter(
+      (entry) =>
+        entry.project_id === sessionState.project_id && entry.session_key !== sessionState.session_key
+    )
+    .slice(0, 3);
 
-  result.project.highHeatExperiences = result.project.experiences
-    .filter(e => e.heat > 60)
-    .slice(0, 5);
+  touchSessionIndex(paths, sessionState);
+  const injectedDecisionIds = decisions
+    .filter((entry) => Number(entry.heat || 0) >= 70)
+    .slice(0, 5)
+    .map((entry) => entry.id);
+  const injectedExperienceIds = experiences
+    .filter((entry) => Number(entry.heat || 0) >= 60)
+    .slice(0, 5)
+    .map((entry) => entry.id);
 
-  return result;
-}
+  if (injectedDecisionIds.length > 0) {
+    const nextDecisions = loadedDecisions.map((entry) => {
+      if (!injectedDecisionIds.includes(entry.id)) {
+        return entry;
+      }
 
-function loadGlobalMemories() {
-  const globalDir = path.join(projectsDir, '_global');
-  const globalStateFile = path.join(globalDir, 'state.json');
+      const isCrossSession = !(entry.access_sessions || []).includes(sessionState.session_key);
+      const nextEntry = mergeAccessMetadata(entry, sessionState.session_key, {
+        heatDelta: isCrossSession ? 10 : 5
+      });
+      recordHeatEntry(paths, sessionState.project_id, {
+        ...nextEntry,
+        type: 'decision'
+      });
+      return nextEntry;
+    });
+    writeProjectDecisions(paths, sessionState.project_id, nextDecisions);
+  }
 
-  return {
-    global: readJson(globalStateFile, {
-      user_preferences: {},
-      important_facts: []
-    })
-  };
-}
+  if (injectedExperienceIds.length > 0) {
+    const nextExperiences = loadedExperiences.map((entry) => {
+      if (!injectedExperienceIds.includes(entry.id)) {
+        return entry;
+      }
 
-function generateSummary(sessionState, projectMemories, globalMemories) {
+      const isCrossSession = !(entry.access_sessions || []).includes(sessionState.session_key);
+      const nextEntry = mergeAccessMetadata(entry, sessionState.session_key, {
+        heatDelta: isCrossSession ? 10 : 5
+      });
+      recordHeatEntry(paths, sessionState.project_id, {
+        ...nextEntry,
+        type: entry.type || 'experience'
+      });
+      return nextEntry;
+    });
+    writeProjectExperiences(paths, sessionState.project_id, nextExperiences);
+  }
+
+  syncProjectStateMetadata(paths, sessionState.project_id);
+  touchGlobalIndex(paths);
+
+  const pendingCommitments = (sessionState.commitments || []).filter(
+    (entry) => entry.status === 'pending'
+  );
+
   const summary = {
     status: 'initialized',
     session: {
-      key: sessionKey,
-      project: projectId
+      key: sessionState.session_key,
+      project: sessionState.project_id,
+      restored: hadCheckpoint || pendingCommitments.length > 0 || Boolean(sessionState.active_task)
     },
     project: {
-      id: projectId,
-      decisions_count: projectMemories.project.decisions.length,
-      experiences_count: projectMemories.project.experiences.length,
-      high_heat_decisions: projectMemories.project.highHeatDecisions.length,
-      high_heat_experiences: projectMemories.project.highHeatExperiences.length
+      id: sessionState.project_id,
+      name: projectState.name,
+      decisions_count: decisions.length,
+      experiences_count: experiences.length,
+      key_decisions: projectState.key_decisions || [],
+      key_experiences: projectState.key_experiences || []
     },
-    memories_to_inject: []
+    recovery: {
+      active_task: sessionState.active_task,
+      pending_commitments: pendingCommitments,
+      checkpoint_available: hadCheckpoint,
+      checkpoint_excerpt: checkpoint ? checkpoint.split('\n').slice(0, 10).join('\n') : null
+    },
+    memories_to_inject: [],
+    related_sessions: relatedSessions,
+    compatibility: {
+      legacy_memory_files: detectLegacyMemory(paths.workspace)
+    }
   };
 
-  // Add high-heat decisions
-  if (projectMemories.project.highHeatDecisions.length > 0) {
+  if (decisions.length > 0) {
     summary.memories_to_inject.push({
       source: 'project_decisions',
-      entries: projectMemories.project.highHeatDecisions.map(d => ({
-        id: d.id,
-        decision: d.decision,
-        heat: d.heat
+      entries: decisions.slice(0, 5).map((entry) => ({
+        id: entry.id,
+        decision: entry.decision,
+        heat: entry.heat
       }))
     });
   }
 
-  // Add high-heat experiences
-  if (projectMemories.project.highHeatExperiences.length > 0) {
+  if (experiences.length > 0) {
     summary.memories_to_inject.push({
       source: 'project_experiences',
-      entries: projectMemories.project.highHeatExperiences.map(e => ({
-        id: e.id,
-        type: e.type,
-        summary: e.summary,
-        heat: e.heat
+      entries: experiences.slice(0, 5).map((entry) => ({
+        id: entry.id,
+        type: entry.type,
+        summary: entry.summary,
+        heat: entry.heat,
+        validation_status: entry.validation?.status || 'pending'
       }))
     });
   }
 
-  // Add global preferences
-  if (Object.keys(globalMemories.global.user_preferences).length > 0) {
+  if (Object.keys(globalState.user_preferences || {}).length > 0) {
     summary.memories_to_inject.push({
       source: 'global_preferences',
-      entries: Object.entries(globalMemories.global.user_preferences).map(([k, v]) => ({
-        key: k,
-        value: v
+      entries: Object.entries(globalState.user_preferences).map(([key, value]) => ({
+        key,
+        value
       }))
     });
   }
@@ -177,14 +192,15 @@ function generateSummary(sessionState, projectMemories, globalMemories) {
   return summary;
 }
 
-// Main execution
-ensureDir(anchorDir);
-ensureDir(sessionsDir);
-ensureDir(projectsDir);
+function main() {
+  const result = runSessionStart(process.argv[2], process.argv[3], process.argv[4]);
+  console.log(JSON.stringify(result, null, 2));
+}
 
-const sessionState = initSession();
-const projectMemories = loadProjectMemories();
-const globalMemories = loadGlobalMemories();
-const summary = generateSummary(sessionState, projectMemories, globalMemories);
+if (require.main === module) {
+  main();
+}
 
-console.log(JSON.stringify(summary, null, 2));
+module.exports = {
+  runSessionStart
+};

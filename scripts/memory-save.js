@@ -1,205 +1,343 @@
 #!/usr/bin/env node
-/**
- * Memory Save Script (Multi-Session Multi-Project Support)
- * Saves memory to appropriate scope (session/project/global)
- *
- * Usage: node memory-save.js <workspace> <session-key> <scope> <type> <content>
- *
- * scope: session | project | global
- * type: decision | experience | preference | fact | error
- */
 
-const fs = require('fs');
-const path = require('path');
+const {
+  DEFAULTS,
+  clamp,
+  createPaths,
+  ensureAnchorDirs,
+  ensureProjectArtifacts,
+  generateId,
+  loadGlobalState,
+  loadProjectDecisions,
+  loadProjectExperiences,
+  loadProjectFacts,
+  loadProjectState,
+  loadSessionMemory,
+  loadSessionState,
+  normalizeValidation,
+  nowIso,
+  recordHeatEntry,
+  sanitizeKey,
+  syncProjectStateMetadata,
+  touchSessionIndex,
+  uniqueList,
+  writeGlobalState,
+  writeProjectDecisions,
+  writeProjectExperiences,
+  writeProjectFacts,
+  writeProjectState,
+  writeSessionMemory,
+  writeSessionState
+} = require('./lib/context-anchor');
 
-const workspace = process.argv[2] || process.cwd();
-const sessionKey = (process.argv[3] || 'default').replace(/[:/]/g, '-');
-const scope = process.argv[4] || 'project';
-const type = process.argv[5] || 'fact';
-const content = process.argv[6] || '';
-
-const anchorDir = path.join(workspace, '.context-anchor');
-const sessionsDir = path.join(anchorDir, 'sessions');
-const projectsDir = path.join(anchorDir, 'projects');
-
-function ensureDir(dir) {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+function parseMetadata(rawValue) {
+  if (!rawValue) {
+    return {};
   }
-}
 
-function readJson(file, defaultValue = {}) {
-  if (!fs.existsSync(file)) {
-    return defaultValue;
-  }
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
+    return JSON.parse(rawValue);
   } catch {
-    return defaultValue;
+    return {};
   }
 }
 
-function writeJson(file, data) {
-  ensureDir(path.dirname(file));
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+function normalizeType(type) {
+  const value = String(type || 'fact').trim();
+
+  if (value === 'error') {
+    return 'lesson';
+  }
+
+  if (value === 'experience') {
+    return 'best_practice';
+  }
+
+  return value;
 }
 
-function generateId(type) {
-  const date = new Date().toISOString().split('T')[0].replace(/-/g, '');
-  const random = Math.random().toString(36).substring(2, 6);
-  return `${type}-${date}-${random}`;
-}
-
-function saveToSession(sessionKey, type, content) {
-  const sessionDir = path.join(sessionsDir, sessionKey);
-  const memoryFile = path.join(sessionDir, 'memory-hot.json');
-
-  const memory = readJson(memoryFile, { entries: [] });
-  const id = generateId(type);
-
-  memory.entries.push({
-    id,
+function saveToSession(paths, sessionState, type, content, metadata) {
+  const entries = loadSessionMemory(paths, sessionState.session_key);
+  const timestamp = nowIso();
+  const entry = {
+    id: generateId('mem'),
     type,
     content,
-    heat: 100,
-    created_at: new Date().toISOString(),
-    session_key: sessionKey
-  });
+    summary: metadata.summary || content,
+    details: metadata.details || null,
+    solution: metadata.solution || null,
+    heat: clamp(Number(metadata.heat || 100), 0, 100),
+    tags: Array.isArray(metadata.tags) ? metadata.tags : [],
+    created_at: timestamp,
+    last_accessed: timestamp,
+    session_key: sessionState.session_key,
+    project_id: sessionState.project_id,
+    scope: metadata.scope || 'session',
+    sync_to_project: metadata.sync_to_project !== false,
+    archived: false
+  };
 
-  writeJson(memoryFile, memory);
+  entries.push(entry);
+  writeSessionMemory(paths, sessionState.session_key, entries);
 
-  return { scope: 'session', id, type };
+  sessionState.notes_count = Number(sessionState.notes_count || 0) + 1;
+  writeSessionState(paths, sessionState.session_key, sessionState);
+
+  return {
+    scope: 'session',
+    id: entry.id,
+    type: entry.type,
+    heat: entry.heat
+  };
 }
 
-function saveToProject(projectId, type, content) {
-  const projectDir = path.join(projectsDir, projectId);
+function saveDecision(paths, sessionState, content, metadata) {
+  const decisions = loadProjectDecisions(paths, sessionState.project_id);
+  const timestamp = nowIso();
+  const entry = {
+    id: generateId('dec'),
+    type: 'decision',
+    decision: content,
+    rationale: metadata.rationale || null,
+    alternatives: Array.isArray(metadata.alternatives) ? metadata.alternatives : [],
+    session_key: sessionState.session_key,
+    created_at: timestamp,
+    last_accessed: timestamp,
+    heat: clamp(Number(metadata.heat || 80), 0, 100),
+    access_count: 1,
+    access_sessions: [sessionState.session_key],
+    tags: Array.isArray(metadata.tags) ? metadata.tags : [],
+    impact: metadata.impact || 'medium',
+    archived: false
+  };
 
-  if (type === 'decision') {
-    const file = path.join(projectDir, 'decisions.json');
-    const data = readJson(file, { decisions: [] });
-    const id = generateId('dec');
+  decisions.push(entry);
+  writeProjectDecisions(paths, sessionState.project_id, decisions);
+  recordHeatEntry(paths, sessionState.project_id, entry);
+  syncProjectStateMetadata(paths, sessionState.project_id);
 
-    data.decisions.push({
-      id,
-      decision: content,
-      session_key: sessionKey,
-      created_at: new Date().toISOString(),
-      heat: 80,
-      access_sessions: [sessionKey],
-      tags: []
-    });
+  return {
+    scope: 'project',
+    id: entry.id,
+    type: entry.type,
+    heat: entry.heat
+  };
+}
 
-    writeJson(file, data);
-    return { scope: 'project', id, type: 'decision' };
-  }
+function saveExperience(paths, sessionState, type, content, metadata) {
+  const experiences = loadProjectExperiences(paths, sessionState.project_id);
+  const timestamp = nowIso();
+  const normalizedType = normalizeType(type);
+  const entry = {
+    id: generateId('exp'),
+    type: normalizedType,
+    summary: metadata.summary || content,
+    details: metadata.details || null,
+    solution: metadata.solution || null,
+    source: metadata.source || 'agent-observation',
+    session_key: sessionState.session_key,
+    created_at: timestamp,
+    last_accessed: timestamp,
+    heat: clamp(Number(metadata.heat || 60), 0, 100),
+    applied_count: Number(metadata.applied_count || 0),
+    access_count: Number(metadata.access_count || 1),
+    access_sessions: uniqueList([sessionState.session_key, ...(metadata.access_sessions || [])]),
+    tags: Array.isArray(metadata.tags) ? metadata.tags : [],
+    validation: normalizeValidation(metadata.validation || { status: metadata.validation_status }),
+    archived: false
+  };
 
-  if (type === 'experience' || type === 'error') {
-    const file = path.join(projectDir, 'experiences.json');
-    const data = readJson(file, { experiences: [] });
-    const id = generateId('exp');
+  experiences.push(entry);
+  writeProjectExperiences(paths, sessionState.project_id, experiences);
+  recordHeatEntry(paths, sessionState.project_id, entry);
 
-    data.experiences.push({
-      id,
-      type: type === 'error' ? 'lesson' : type,
-      summary: content,
-      session_key: sessionKey,
-      created_at: new Date().toISOString(),
-      heat: 60,
-      applied_count: 0,
-      tags: []
-    });
+  sessionState.experiences_count = Number(sessionState.experiences_count || 0) + 1;
+  writeSessionState(paths, sessionState.session_key, sessionState);
+  syncProjectStateMetadata(paths, sessionState.project_id);
 
-    writeJson(file, data);
-    return { scope: 'project', id, type: 'experience' };
-  }
+  return {
+    scope: 'project',
+    id: entry.id,
+    type: entry.type,
+    heat: entry.heat,
+    validation_status: entry.validation.status
+  };
+}
 
-  if (type === 'preference') {
-    const file = path.join(projectDir, 'state.json');
-    const data = readJson(file, { project_id: projectId, user_preferences: {} });
-
-    // Parse content as "key:value" format
-    const [key, ...valueParts] = content.split(':');
-    if (key && valueParts.length > 0) {
-      data.user_preferences[key.trim()] = valueParts.join(':').trim();
-    }
-
-    data.last_updated = new Date().toISOString();
-    writeJson(file, data);
-    return { scope: 'project', id: `pref-${key}`, type: 'preference' };
-  }
-
-  // Default: save as fact
-  const file = path.join(projectDir, 'facts.json');
-  const data = readJson(file, { facts: [] });
-  const id = generateId('fact');
-
-  data.facts.push({
-    id,
+function saveFact(paths, sessionState, content, metadata) {
+  const facts = loadProjectFacts(paths, sessionState.project_id);
+  const timestamp = nowIso();
+  const entry = {
+    id: generateId('fact'),
     content,
-    session_key: sessionKey,
-    created_at: new Date().toISOString(),
-    heat: 70
-  });
+    summary: metadata.summary || content,
+    session_key: sessionState.session_key,
+    created_at: timestamp,
+    last_accessed: timestamp,
+    heat: clamp(Number(metadata.heat || 50), 0, 100),
+    access_count: Number(metadata.access_count || 1),
+    access_sessions: [sessionState.session_key],
+    tags: Array.isArray(metadata.tags) ? metadata.tags : [],
+    archived: false
+  };
 
-  writeJson(file, data);
-  return { scope: 'project', id, type: 'fact' };
+  facts.push(entry);
+  writeProjectFacts(paths, sessionState.project_id, facts);
+  recordHeatEntry(paths, sessionState.project_id, {
+    ...entry,
+    type: 'fact'
+  });
+  syncProjectStateMetadata(paths, sessionState.project_id);
+
+  return {
+    scope: 'project',
+    id: entry.id,
+    type: 'fact',
+    heat: entry.heat
+  };
 }
 
-function saveToGlobal(type, content) {
-  const globalDir = path.join(projectsDir, '_global');
-  const file = path.join(globalDir, 'state.json');
+function savePreference(paths, sessionState, scope, content) {
+  const [key, ...valueParts] = String(content || '').split(':');
+  const value = valueParts.join(':').trim();
 
-  const data = readJson(file, {
-    user_preferences: {},
-    important_facts: []
-  });
-
-  if (type === 'preference') {
-    const [key, ...valueParts] = content.split(':');
-    if (key && valueParts.length > 0) {
-      data.user_preferences[key.trim()] = valueParts.join(':').trim();
-    }
-  } else {
-    data.important_facts.push({
-      content,
-      created_at: new Date().toISOString()
-    });
+  if (!key || !value) {
+    throw new Error('Preference content must use "key:value" format.');
   }
 
-  writeJson(file, data);
-  return { scope: 'global', type };
+  if (scope === 'global') {
+    const globalState = loadGlobalState(paths);
+    globalState.user_preferences[key.trim()] = value;
+    writeGlobalState(paths, globalState);
+
+    return {
+      scope: 'global',
+      id: `pref-${key.trim()}`,
+      type: 'preference'
+    };
+  }
+
+  const state = loadProjectState(paths, sessionState.project_id);
+  state.user_preferences[key.trim()] = value;
+  writeProjectState(paths, sessionState.project_id, state);
+  syncProjectStateMetadata(paths, sessionState.project_id);
+
+  return {
+    scope: 'project',
+    id: `pref-${key.trim()}`,
+    type: 'preference'
+  };
 }
 
-function saveMemory() {
-  ensureDir(anchorDir);
-  ensureDir(sessionsDir);
-  ensureDir(projectsDir);
+function saveToGlobal(paths, type, content, metadata) {
+  const globalState = loadGlobalState(paths);
+  const timestamp = nowIso();
 
-  // Get project_id from session state
-  const sessionStateFile = path.join(sessionsDir, sessionKey, 'state.json');
-  const sessionState = readJson(sessionStateFile, { project_id: 'default' });
-  const projectId = sessionState.project_id || 'default';
+  if (type === 'preference') {
+    const [key, ...valueParts] = String(content || '').split(':');
+    const value = valueParts.join(':').trim();
+    if (!key || !value) {
+      throw new Error('Preference content must use "key:value" format.');
+    }
+
+    globalState.user_preferences[key.trim()] = value;
+    writeGlobalState(paths, globalState);
+    return {
+      scope: 'global',
+      id: `pref-${key.trim()}`,
+      type
+    };
+  }
+
+  globalState.important_facts = Array.isArray(globalState.important_facts)
+    ? globalState.important_facts
+    : [];
+  globalState.important_facts.push({
+    id: generateId('glob'),
+    content,
+    summary: metadata.summary || content,
+    created_at: timestamp
+  });
+  writeGlobalState(paths, globalState);
+
+  return {
+    scope: 'global',
+    type: type || 'fact'
+  };
+}
+
+function runMemorySave(workspaceArg, sessionKeyArg, scopeArg, typeArg, contentArg, metadataArg) {
+  const paths = createPaths(workspaceArg);
+  ensureAnchorDirs(paths);
+
+  const scope = scopeArg || 'project';
+  const type = normalizeType(typeArg || 'fact');
+  const content = contentArg || '';
+  const metadata = parseMetadata(metadataArg);
+  const sessionKey = sanitizeKey(sessionKeyArg || DEFAULTS.sessionKey);
+  const sessionState = loadSessionState(paths, sessionKey, metadata.project_id || DEFAULTS.projectId, {
+    createIfMissing: true,
+    touch: true
+  });
+
+  ensureProjectArtifacts(paths, sessionState.project_id);
 
   let result;
-
-  switch (scope) {
-    case 'session':
-      result = saveToSession(sessionKey, type, content);
-      break;
-    case 'global':
-      result = saveToGlobal(type, content);
-      break;
-    case 'project':
-    default:
-      result = saveToProject(projectId, type, content);
-      break;
+  if (scope === 'session') {
+    result = saveToSession(paths, sessionState, type, content, metadata);
+  } else if (scope === 'global') {
+    result = saveToGlobal(paths, type, content, metadata);
+  } else if (type === 'decision') {
+    result = saveDecision(paths, sessionState, content, metadata);
+  } else if (type === 'preference') {
+    result = savePreference(paths, sessionState, scope, content);
+  } else if (type === 'lesson' || type === 'best_practice' || type === 'tool-pattern' || type === 'gotcha' || type === 'feature_request') {
+    result = saveExperience(paths, sessionState, type, content, metadata);
+  } else {
+    result = saveFact(paths, sessionState, content, metadata);
   }
 
-  console.log(JSON.stringify({
+  touchSessionIndex(paths, sessionState);
+
+  return {
     status: 'saved',
-    ...result,
-    timestamp: new Date().toISOString()
-  }, null, 2));
+    session_key: sessionState.session_key,
+    project_id: sessionState.project_id,
+    timestamp: nowIso(),
+    ...result
+  };
 }
 
-saveMemory();
+function main() {
+  try {
+    const result = runMemorySave(
+      process.argv[2],
+      process.argv[3],
+      process.argv[4],
+      process.argv[5],
+      process.argv[6],
+      process.argv[7]
+    );
+    console.log(JSON.stringify(result, null, 2));
+  } catch (error) {
+    console.log(
+      JSON.stringify(
+        {
+          status: 'error',
+          message: error.message
+        },
+        null,
+        2
+      )
+    );
+    process.exit(1);
+  }
+}
+
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  runMemorySave
+};

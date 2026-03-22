@@ -1,37 +1,57 @@
 #!/usr/bin/env node
-/**
- * Context Pressure Detection Script
- * Checks context usage and recommends actions
- *
- * Usage: node context-pressure.js
- *
- * Returns JSON with pressure level and recommended actions
- */
 
-const PRESSURE_WARNING = 75;
-const PRESSURE_CRITICAL = 85;
+const { DEFAULTS } = require('./lib/context-anchor');
 
-function checkPressure() {
-  // This script is meant to be called by the agent
-  // The agent should use session_status tool to get actual context usage
-  // This script provides the logic for interpreting the results
+function evaluatePressure(usagePercent) {
+  if (usagePercent === undefined || Number.isNaN(Number(usagePercent))) {
+    return {
+      status: 'ready',
+      thresholds: {
+        warning: DEFAULTS.thresholdWarning,
+        critical: DEFAULTS.thresholdCritical,
+        emergency: DEFAULTS.thresholdEmergency
+      },
+      instructions: {
+        warning: 'Create a checkpoint and sync reusable hot memories to the project store.',
+        critical: 'Create a checkpoint, sync memories, and recommend /compact.',
+        emergency: 'Force checkpoint creation, sync memories, and require immediate compaction.'
+      }
+    };
+  }
 
-  console.log(JSON.stringify({
-    status: 'ready',
-    thresholds: {
-      warning: PRESSURE_WARNING,
-      critical: PRESSURE_CRITICAL
-    },
-    instructions: {
-      warning: 'Auto-save short-term memories to memory/YYYY-MM-DD.md',
-      critical: 'Recommend user to execute /compact, then save memories'
-    },
-    actions: {
-      check: 'Use session_status tool to get current context usage',
-      warning_action: 'Execute memory save for entries with heat > 70',
-      critical_action: 'Alert user and request /compact, then save all memories'
-    }
-  }, null, 2));
+  const usage = Number(usagePercent);
+  let level = 'normal';
+  const actions = [];
+
+  if (usage >= DEFAULTS.thresholdEmergency) {
+    level = 'emergency';
+    actions.push('create_checkpoint', 'sync_memories', 'recommend_compact', 'force_attention');
+  } else if (usage >= DEFAULTS.thresholdCritical) {
+    level = 'critical';
+    actions.push('create_checkpoint', 'sync_memories', 'recommend_compact');
+  } else if (usage >= DEFAULTS.thresholdWarning) {
+    level = 'warning';
+    actions.push('create_checkpoint', 'sync_memories');
+  }
+
+  return {
+    status: 'evaluated',
+    usage_percent: usage,
+    level,
+    actions,
+    requires_compact: usage >= DEFAULTS.thresholdCritical
+  };
 }
 
-checkPressure();
+function main() {
+  const result = evaluatePressure(process.argv[2] ? Number(process.argv[2]) : undefined);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  evaluatePressure
+};

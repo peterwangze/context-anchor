@@ -1,77 +1,119 @@
 #!/usr/bin/env node
-/**
- * Memory Flow Script
- * Moves memories between Cache and Disk based on heat
- *
- * Usage: node memory-flow.js <workspace>
- */
 
-const fs = require('fs');
-const path = require('path');
+const {
+  DEFAULTS,
+  createPaths,
+  loadSessionMemory,
+  loadSessionState,
+  sortByHeat,
+  writeSessionMemory,
+  writeSessionState
+} = require('./lib/context-anchor');
+const { runMemorySave } = require('./memory-save');
 
-const workspace = process.argv[2] || process.cwd();
-const memoryDir = path.join(workspace, 'memory');
-const memoryFile = path.join(workspace, 'MEMORY.md');
-const stateDir = path.join(workspace, '.context-anchor');
-const heatIndexFile = path.join(stateDir, 'heat-index.json');
-
-const CACHE_THRESHOLD = 50;
-const DISK_THRESHOLD = 30;
-
-function getTodayFile() {
-  const today = new Date().toISOString().split('T')[0];
-  return path.join(memoryDir, `${today}.md`);
-}
-
-function parseMemoryEntries(content) {
-  const entries = [];
-  const regex = /## (MEM-[^\n]+)\n([\s\S]*?)(?=## MEM-|$)/g;
-  let match;
-
-  while ((match = regex.exec(content)) !== null) {
-    const id = match[1];
-    const body = match[2];
-
-    // Parse heat from body
-    const heatMatch = body.match(/heat:\s*(\d+)/);
-    const heat = heatMatch ? parseInt(heatMatch[1]) : 50;
-
-    entries.push({ id, heat, body, raw: match[0] });
+function normalizeFlowType(type) {
+  if (type === 'decision' || type === 'preference') {
+    return type;
   }
 
-  return entries;
-}
-
-function flowMemories() {
-  const todayFile = getTodayFile();
-
-  if (!fs.existsSync(todayFile)) {
-    console.log(JSON.stringify({ status: 'no_cache_file', actions: [] }));
-    return;
+  if (type === 'lesson' || type === 'best_practice' || type === 'tool-pattern' || type === 'gotcha' || type === 'feature_request') {
+    return type;
   }
 
-  const content = fs.readFileSync(todayFile, 'utf8');
-  const entries = parseMemoryEntries(content);
-  const actions = [];
+  if (type === 'error') {
+    return 'lesson';
+  }
 
-  entries.forEach(entry => {
-    if (entry.heat < DISK_THRESHOLD) {
-      // Demote to Disk
-      actions.push({
-        action: 'demote',
-        id: entry.id,
-        from: 'cache',
-        to: 'disk',
-        heat: entry.heat
-      });
-    }
+  if (type === 'experience') {
+    return 'best_practice';
+  }
+
+  return 'fact';
+}
+
+function shouldSyncEntry(entry, minimumHeat) {
+  return (
+    !entry.archived &&
+    entry.sync_to_project !== false &&
+    !entry.synced_at &&
+    Number(entry.heat || 0) >= minimumHeat
+  );
+}
+
+function syncEntry(paths, sessionState, entry) {
+  const type = normalizeFlowType(entry.type);
+  const scope = entry.scope === 'global' || type === 'preference' && entry.global ? 'global' : 'project';
+  const payload = JSON.stringify({
+    summary: entry.summary || entry.content,
+    details: entry.details || null,
+    solution: entry.solution || null,
+    tags: entry.tags || [],
+    heat: Math.max(DEFAULTS.warmMemoryHeat, Number(entry.heat || 0) - 10),
+    source: 'memory-flow',
+    validation_status: entry.validation?.status || 'pending'
   });
 
-  console.log(JSON.stringify({
-    status: 'evaluated',
-    total: entries.length,
-    actions
-  }, null, 2));
+  return runMemorySave(paths.workspace, sessionState.session_key, scope, type, entry.content || entry.summary, payload);
 }
 
-flowMemories();
+function runMemoryFlow(workspaceArg, sessionKeyArg, options = {}) {
+  const paths = createPaths(workspaceArg);
+  const sessionState = loadSessionState(paths, sessionKeyArg, undefined, {
+    createIfMissing: true,
+    touch: true
+  });
+  const minimumHeat = Number(options.minimumHeat || DEFAULTS.hotMemoryHeat);
+  const entries = sortByHeat(loadSessionMemory(paths, sessionState.session_key));
+  const actions = [];
+
+  const nextEntries = entries.map((entry) => {
+    if (!shouldSyncEntry(entry, minimumHeat)) {
+      return entry;
+    }
+
+    const saved = syncEntry(paths, sessionState, entry);
+    actions.push({
+      session_entry_id: entry.id,
+      project_entry_id: saved.id,
+      scope: saved.scope,
+      type: saved.type
+    });
+
+    return {
+      ...entry,
+      synced_at: new Date().toISOString(),
+      synced_scope: saved.scope,
+      synced_project_entry_id: saved.id,
+      heat: Math.max(DEFAULTS.warmMemoryHeat, Number(entry.heat || 0) - 20)
+    };
+  });
+
+  writeSessionMemory(paths, sessionState.session_key, nextEntries);
+
+  sessionState.last_flow_at = new Date().toISOString();
+  writeSessionState(paths, sessionState.session_key, sessionState);
+
+  return {
+    status: 'evaluated',
+    session_key: sessionState.session_key,
+    project_id: sessionState.project_id,
+    total_entries: entries.length,
+    synced_entries: actions.length,
+    actions
+  };
+}
+
+function main() {
+  const result = runMemoryFlow(process.argv[2], process.argv[3], {
+    minimumHeat: process.argv[4] ? Number(process.argv[4]) : undefined
+  });
+  console.log(JSON.stringify(result, null, 2));
+}
+
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  runMemoryFlow
+};

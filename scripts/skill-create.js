@@ -1,192 +1,189 @@
 #!/usr/bin/env node
-/**
- * Skill Creator Script
- * Creates a new skill from an experience
- *
- * Usage: node skill-create.js <workspace> <experience-id> <skill-name> [project-id]
- */
 
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-
-const workspace = process.argv[2] || process.cwd();
-const experienceId = process.argv[3];
-const skillName = process.argv[4];
-const projectId = process.argv[5] || 'default';
-
-if (!experienceId || !skillName) {
-  console.log(JSON.stringify({
-    status: 'error',
-    message: 'Usage: node skill-create.js <workspace> <experience-id> <skill-name> [project-id]'
-  }, null, 2));
-  process.exit(1);
-}
-
-const anchorDir = path.join(workspace, '.context-anchor');
-const projectsDir = path.join(anchorDir, 'projects');
-const projectDir = path.join(projectsDir, projectId);
-const experiencesFile = path.join(projectDir, 'experiences.json');
-
-const openclawProjectDir = path.join(workspace, '..', 'openclaw_project', 'openclaw');
-const skillDir = path.join(openclawProjectDir, skillName);
-const skillFile = path.join(skillDir, 'SKILL.md');
-
-function ensureDir(dir) {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-}
-
-function readJson(file, defaultValue = {}) {
-  if (!fs.existsSync(file)) {
-    return defaultValue;
-  }
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return defaultValue;
-  }
-}
-
-function writeJson(file, data) {
-  ensureDir(path.dirname(file));
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
-}
+const {
+  DEFAULTS,
+  createPaths,
+  ensureDir,
+  getSkillsRoot,
+  loadProjectExperiences,
+  normalizeValidation,
+  writeJson,
+  writeProjectExperiences,
+  writeText
+} = require('./lib/context-anchor');
 
 function generateSkillMd(experience, skillName) {
-  const type = experience.type || 'general';
-  const summary = experience.summary || '';
-  const details = experience.details || '';
-  const solution = experience.solution || '';
+  const validation = normalizeValidation(experience.validation);
   const tags = experience.tags || [];
-  
-  // Generate description from summary
-  const description = summary.length > 100 
-    ? summary.substring(0, 100) + '...' 
-    : summary;
-  
-  // Generate content based on type
-  let content = `---
-name: ${skillName}
-description: "${description}"
----
+  const steps = String(experience.solution || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
 
-# ${skillName}
+  const lines = [
+    '---',
+    `name: ${skillName}`,
+    `description: "${String(experience.summary || '').replace(/"/g, '\\"')}"`,
+    `source_experience: ${experience.id}`,
+    `validation_status: ${validation.status}`,
+    '---',
+    '',
+    `# ${skillName}`,
+    '',
+    experience.details || experience.summary || 'Derived from a validated experience.',
+    '',
+    '## Usage',
+    '',
+    '- 识别当前问题是否匹配该经验的触发条件',
+    '- 按下面步骤执行',
+    '- 执行后验证结果并补充新的经验',
+    '',
+    '## Steps',
+    ''
+  ];
 
-${details || summary}
+  if (steps.length > 0) {
+    steps.forEach((step, index) => {
+      lines.push(`${index + 1}. ${step}`);
+    });
+  } else {
+    lines.push('1. 识别问题边界');
+    lines.push('2. 应用经验中的有效模式');
+    lines.push('3. 验证结果并记录新经验');
+  }
 
-## 使用场景
-
-`;
-
-  // Add tags as scenarios
+  lines.push('');
+  lines.push('## Notes');
+  lines.push('');
   if (tags.length > 0) {
-    tags.forEach(tag => {
-      content += `- ${tag}\n`;
+    tags.forEach((tag) => {
+      lines.push(`- ${tag}`);
     });
   } else {
-    content += `- 通用场景\n`;
+    lines.push('- 无额外标签');
   }
-  
-  content += `
-## 执行步骤
+  lines.push(`- 来源经验: ${experience.id}`);
+  lines.push(`- 校验状态: ${validation.status}`);
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+  lines.push(`_此技能从经验 ${experience.id} 沉淀而来_`);
 
-`;
-  
-  // Add solution as steps
-  if (solution) {
-    const steps = solution.split('\n').filter(s => s.trim());
-    steps.forEach((step, i) => {
-      content += `${i + 1}. ${step}\n`;
-    });
-  } else {
-    content += `1. 识别问题场景\n`;
-    content += `2. 应用最佳实践\n`;
-    content += `3. 验证结果\n`;
-  }
-  
-  content += `
-## 注意事项
-
-- 此技能从经验 ${experienceId} 沉淀而来
-- 创建时间: ${new Date().toISOString().split('T')[0]}
-- 原始热度: ${experience.heat || 50}
-
----
-
-_此技能从经验 ${experienceId} 沉淀而来_
-`;
-  
-  return content;
+  return `${lines.join('\n')}\n`;
 }
 
-function createSkill() {
-  // Read experience
-  const experiences = readJson(experiencesFile, { experiences: [] }).experiences;
-  const experience = experiences.find(e => e.id === experienceId);
-  
+function runSkillCreate(workspaceArg, experienceId, skillName, projectIdArg, options = {}) {
+  if (!experienceId || !skillName) {
+    throw new Error(
+      'Usage: node skill-create.js <workspace> <experience-id> <skill-name> [project-id]'
+    );
+  }
+
+  const paths = createPaths(workspaceArg);
+  const projectId = projectIdArg || DEFAULTS.projectId;
+  const experiences = loadProjectExperiences(paths, projectId);
+  const experience = experiences.find((entry) => entry.id === experienceId);
+
   if (!experience) {
-    console.log(JSON.stringify({
-      status: 'error',
-      message: `Experience ${experienceId} not found`
-    }, null, 2));
-    process.exit(1);
+    throw new Error(`Experience ${experienceId} not found`);
   }
-  
-  // Check if skill already exists
+
+  const validation = normalizeValidation(experience.validation);
+  const force = Boolean(options.force || process.env.CONTEXT_ANCHOR_FORCE_SKILL_CREATE === '1');
+  if (validation.status !== 'validated' && !force) {
+    throw new Error(`Experience ${experienceId} has not passed validation.`);
+  }
+
+  const skillsRoot = getSkillsRoot(options.skillsRoot);
+  const skillDir = path.join(skillsRoot, skillName);
+  const skillFile = path.join(skillDir, 'SKILL.md');
+  const skillIndexFile = path.join(skillsRoot, '_skill-index.json');
+
   if (fs.existsSync(skillDir)) {
-    console.log(JSON.stringify({
-      status: 'error',
-      message: `Skill ${skillName} already exists at ${skillDir}`
-    }, null, 2));
-    process.exit(1);
+    throw new Error(`Skill ${skillName} already exists at ${skillDir}`);
   }
-  
-  // Create skill directory
+
   ensureDir(skillDir);
-  
-  // Generate SKILL.md
-  const skillMd = generateSkillMd(experience, skillName);
-  fs.writeFileSync(skillFile, skillMd);
-  
-  // Initialize git
-  try {
-    execSync('git init', { cwd: skillDir, stdio: 'pipe' });
-    execSync('git add .', { cwd: skillDir, stdio: 'pipe' });
-    execSync(`git commit -m "Initial commit: skill from experience ${experienceId}"`, { cwd: skillDir, stdio: 'pipe' });
-  } catch (e) {
-    // Git init failed, but skill is created
-  }
-  
-  // Update experience with skill_name
-  const updatedExperiences = experiences.map(e => {
-    if (e.id === experienceId) {
-      return { ...e, skill_name: skillName };
+  writeText(skillFile, generateSkillMd(experience, skillName));
+
+  const nextExperiences = experiences.map((entry) => {
+    if (entry.id !== experienceId) {
+      return entry;
     }
-    return e;
+
+    return {
+      ...entry,
+      skill_name: skillName,
+      skillified_at: new Date().toISOString()
+    };
   });
-  writeJson(experiencesFile, { experiences: updatedExperiences });
-  
-  // Update skill index
-  const skillIndexFile = path.join(openclawProjectDir, '_skill-index.json');
-  const skillIndex = readJson(skillIndexFile, { skills: [] });
+  writeProjectExperiences(paths, projectId, nextExperiences);
+
+  const skillIndex = fs.existsSync(skillIndexFile)
+    ? require('./lib/context-anchor').readJson(skillIndexFile, { skills: [] })
+    : { skills: [] };
   skillIndex.skills.push({
     name: skillName,
+    path: skillDir,
     source_experience: experienceId,
     source_project: projectId,
     created_at: new Date().toISOString(),
     usage_count: 0
   });
   writeJson(skillIndexFile, skillIndex);
-  
-  console.log(JSON.stringify({
+
+  let gitInitialized = false;
+  if (options.gitInit || process.env.CONTEXT_ANCHOR_GIT_INIT === '1') {
+    try {
+      execSync('git init', { cwd: skillDir, stdio: 'pipe' });
+      execSync('git add .', { cwd: skillDir, stdio: 'pipe' });
+      execSync(`git commit -m "Initial commit: skill from experience ${experienceId}"`, {
+        cwd: skillDir,
+        stdio: 'pipe'
+      });
+      gitInitialized = true;
+    } catch {
+      gitInitialized = false;
+    }
+  }
+
+  return {
     status: 'created',
     skill_name: skillName,
     skill_dir: skillDir,
     source_experience: experienceId,
-    message: `Skill ${skillName} created successfully. It will be loaded on next session.`
-  }, null, 2));
+    validation_status: validation.status,
+    git_initialized: gitInitialized,
+    message: `Skill ${skillName} created successfully.`
+  };
 }
 
-createSkill();
+function main() {
+  try {
+    const result = runSkillCreate(process.argv[2], process.argv[3], process.argv[4], process.argv[5]);
+    console.log(JSON.stringify(result, null, 2));
+  } catch (error) {
+    console.log(
+      JSON.stringify(
+        {
+          status: 'error',
+          message: error.message
+        },
+        null,
+        2
+      )
+    );
+    process.exit(1);
+  }
+}
+
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  runSkillCreate
+};

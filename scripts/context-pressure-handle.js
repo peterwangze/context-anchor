@@ -1,119 +1,75 @@
 #!/usr/bin/env node
-/**
- * Context Pressure Handler Script
- * Handles context pressure by saving memories and creating checkpoints
- *
- * Usage: node context-pressure-handle.js <workspace> <session-key> <usage-percent>
- */
 
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
+const { createPaths, loadSessionState, sanitizeKey, writeSessionState } = require('./lib/context-anchor');
+const { runCheckpointCreate } = require('./checkpoint-create');
+const { evaluatePressure } = require('./context-pressure');
+const { runMemoryFlow } = require('./memory-flow');
 
-const workspace = process.argv[2] || process.cwd();
-const sessionKey = (process.argv[3] || 'default').replace(/[:/]/g, '-');
-const usagePercent = parseInt(process.argv[4]) || 0;
-
-const anchorDir = path.join(workspace, '.context-anchor');
-const sessionsDir = path.join(anchorDir, 'sessions');
-const sessionDir = path.join(sessionsDir, sessionKey);
-
-const THRESHOLD_WARNING = 75;
-const THRESHOLD_CRITICAL = 85;
-const THRESHOLD_EMERGENCY = 90;
-
-function ensureDir(dir) {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-}
-
-function readJson(file, defaultValue = {}) {
-  if (!fs.existsSync(file)) {
-    return defaultValue;
-  }
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return defaultValue;
-  }
-}
-
-function writeJson(file, data) {
-  ensureDir(path.dirname(file));
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
-}
-
-function handlePressure() {
-  ensureDir(sessionDir);
+function runContextPressureHandle(workspaceArg, sessionKeyArg, usagePercentArg) {
+  const usagePercent = Number(usagePercentArg || 0);
+  const evaluation = evaluatePressure(usagePercent);
+  const sessionKey = sanitizeKey(sessionKeyArg);
+  const paths = createPaths(workspaceArg);
+  const sessionState = loadSessionState(paths, sessionKey, undefined, {
+    createIfMissing: true,
+    touch: true
+  });
 
   const result = {
     status: 'handled',
     usage_percent: usagePercent,
+    level: evaluation.level,
     actions: [],
     messages: []
   };
 
-  // Determine pressure level
-  if (usagePercent < THRESHOLD_WARNING) {
+  if (evaluation.level === 'normal') {
     result.status = 'normal';
     result.messages.push('上下文压力正常');
-    console.log(JSON.stringify(result, null, 2));
-    return;
+    return result;
   }
 
-  // Create checkpoint
-  const scriptsDir = path.join(workspace, '..', 'openclaw_project', 'openclaw', 'context-anchor', 'scripts');
-  const checkpointScript = path.join(scriptsDir, 'checkpoint-create.js');
+  const checkpoint = runCheckpointCreate(paths.workspace, sessionKey, evaluation.level, {
+    usagePercent
+  });
+  result.actions.push('checkpoint_created');
+  result.messages.push(`已创建检查点（${checkpoint.reason}）`);
 
-  try {
-    const reason = usagePercent >= THRESHOLD_EMERGENCY 
-      ? 'emergency' 
-      : usagePercent >= THRESHOLD_CRITICAL 
-        ? 'critical' 
-        : 'warning';
+  const flow = runMemoryFlow(paths.workspace, sessionKey, {
+    minimumHeat: evaluation.level === 'warning' ? 70 : 60
+  });
 
-    execSync(`node "${checkpointScript}" "${workspace}" "${sessionKey}" "${reason}"`, {
-      encoding: 'utf-8',
-      stdio: 'pipe'
-    });
-
-    result.actions.push('checkpoint_created');
-    result.messages.push(`已创建检查点（原因: ${reason}）`);
-  } catch (e) {
-    result.actions.push('checkpoint_failed');
-    result.messages.push('检查点创建失败');
+  if (flow.synced_entries > 0) {
+    result.actions.push('memories_synced');
+    result.messages.push(`已同步 ${flow.synced_entries} 条可复用记忆`);
   }
 
-  // Save hot memories
-  const memoryHotFile = path.join(sessionDir, 'memory-hot.json');
-  const memoryHot = readJson(memoryHotFile, { entries: [] });
-
-  if (memoryHot.entries.length > 0) {
-    result.actions.push('memories_saved');
-    result.messages.push(`已保存 ${memoryHot.entries.length} 条工作记忆`);
-  }
-
-  // Handle critical pressure
-  if (usagePercent >= THRESHOLD_CRITICAL) {
+  if (usagePercent >= 85) {
     result.actions.push('compact_suggested');
-    result.messages.push('⚠️ 上下文压力较高，建议执行 /compact 或精简对话');
+    result.messages.push('⚠️ 上下文压力较高，建议执行 /compact 或开始新会话');
   }
 
-  // Handle emergency pressure
-  if (usagePercent >= THRESHOLD_EMERGENCY) {
-    result.actions.push('emergency_save');
-    result.messages.push('🚨 上下文压力过高，已强制保存关键记忆');
+  if (usagePercent >= 90) {
+    result.actions.push('emergency_notice');
+    result.messages.push('🚨 上下文压力过高，关键记忆已落盘，请立即压缩上下文');
   }
 
-  // Update session state
-  const sessionStateFile = path.join(sessionDir, 'state.json');
-  const sessionState = readJson(sessionStateFile, {});
   sessionState.last_pressure_check = new Date().toISOString();
   sessionState.last_pressure_usage = usagePercent;
-  writeJson(sessionStateFile, sessionState);
+  writeSessionState(paths, sessionKey, sessionState);
 
+  return result;
+}
+
+function main() {
+  const result = runContextPressureHandle(process.argv[2], process.argv[3], process.argv[4]);
   console.log(JSON.stringify(result, null, 2));
 }
 
-handlePressure();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  runContextPressureHandle
+};
