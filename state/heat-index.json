@@ -1,4 +1,18 @@
 {
-  "last_updated": "2026-03-20T09:00:00+08:00",
-  "entries": []
+  "project_id": "default",
+  "last_updated": "2026-03-22T12:30:00.000Z",
+  "entries": [
+    {
+      "id": "exp-20260322123000-abcd12",
+      "type": "best_practice",
+      "heat": 60,
+      "last_accessed": "2026-03-22T12:30:00.000Z",
+      "last_evaluated": "2026-03-22T12:30:00.000Z",
+      "access_count": 1,
+      "access_sessions": [
+        "session-a"
+      ],
+      "archived": false
+    }
+  ]
 }

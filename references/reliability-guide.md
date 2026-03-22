@@ -1,238 +1,30 @@
-# Context Anchor — 可靠性保障参考（多 Session 多 Project 版）
+# 可靠性说明
 
-## 承诺追踪最佳实践
+## 保证项
 
-### 何时记录承诺
+- `session-start` 不覆盖已有 session 状态
+- `context-pressure-handle` 一定先创建 checkpoint，再同步记忆
+- `session:end` hook 会串联 checkpoint / flow / heat / skillification
+- host 安装脚本写入的是 wrapper，不依赖复制后的相对路径
 
-**必须记录：**
-- "我会..."、"让我来..."
-- "接下来我将..."
-- "稍后我会..."
-- 接受任务时的确认
+## 建议使用顺序
 
-**无需记录：**
-- 简单问答（"这个文件在哪？"）
-- 即时完成的操作（读取文件、查询状态）
-- 信息确认（"好的"、"收到"）
+1. `session-start`
+2. 工作过程中调用 `memory-save`
+3. 定时调用 `heartbeat` 或 `context-pressure-monitor`
+4. 会话结束时触发 `command:stop` 或 `session:end`
 
-### 承诺状态流转
+## 校验方式
 
-```
-pending → done        # 正常完成
-pending → delayed     # 延误，需说明原因
-pending → cancelled   # 无法完成，需告知用户
-delayed → done        # 延误后完成
-delayed → cancelled   # 延误后取消
+```bash
+npm test
 ```
 
-### 承诺存储位置
+当前测试覆盖：
 
-```json
-// sessions/{session-key}/state.json
-{
-  "commitments": [
-    {
-      "id": "commit-001",
-      "what": "承诺内容",
-      "when": "2026-03-20T10:15:00+08:00",
-      "status": "pending"
-    }
-  ]
-}
-```
-
-### 延误处理模板
-
-```
-⚠️ 承诺延误通知
-
-我之前承诺「{what}」，但遇到了延误：
-原因：{delay_reason}
-当前状态：{当前进度}
-预计完成：{新预计时间}
-
-是否继续？或者你有其他优先级？
-```
-
-## 不确定性标记指南
-
-### 置信度判断标准
-
-| 级别 | 判断依据 |
-|------|----------|
-| **high** | 有直接证据（文件内容、命令输出、官方文档） |
-| **medium** | 有间接证据（相似案例、逻辑推断、经验） |
-| **low** | 无证据（猜测、假设、不确定来源的信息） |
-
-### 不确定性消除方法
-
-| 不确定类型 | 消除方法 |
-|-----------|----------|
-| 文件路径不确定 | 用 read 或 exec 验证 |
-| 配置值不确定 | 查文档或检查现有配置 |
-| 用户意图不确定 | 直接询问用户 |
-| 技术方案不确定 | 列出选项让用户选择 |
-
-## 输出验证检查表
-
-### 文件写入验证
-
-```
-1. 写入文件
-2. read 文件内容
-3. 对比预期内容
-4. 不一致 → 报告差异
-```
-
-### 命令执行验证
-
-```
-1. 执行命令
-2. 检查退出码（0 = 成功）
-3. 检查输出是否符合预期
-4. 异常 → 报告错误信息
-```
-
-### 配置修改验证
-
-```
-1. 修改配置
-2. 读取配置确认
-3. 如需重启服务，确认重启成功
-4. 验证功能是否生效
-```
-
-## 错误恢复流程
-
-### 发现错误后的标准流程
-
-```
-1. 承认错误
-   - 明确说"我犯了一个错误"
-   - 说明错误是什么
-   - 不要找借口
-
-2. 立即修复
-   - 如果可以修复，立即行动
-   - 如果需要用户确认，先说明再行动
-
-3. 记录经验
-   - 记录到 projects/{project-id}/experiences.json
-   - 类型为 lesson
-   - 说明错误原因和预防方法
-
-4. 验证修复
-   - 确认修复有效
-   - 告知用户修复结果
-```
-
-### 错误承认模板
-
-```
-❌ 我犯了一个错误：{错误描述}
-
-原因：{为什么会出错}
-修复：{如何修复的}
-预防：{以后如何避免}
-
-{如果影响用户} 对此造成的不便，抱歉。
-```
-
-### 错误记录格式
-
-```json
-// projects/{project-id}/experiences.json
-{
-  "id": "exp-001",
-  "type": "lesson",
-  "summary": "Move-Item 不会移动隐藏目录",
-  "details": "使用 Move-Item 迁移目录时，隐藏目录（如 .git）可能不会被一起移动",
-  "solution": "使用 Copy-Item + Remove-Item，或显式指定 -Force 参数",
-  "session_key": "feishu:direct:ou_xxx",
-  "created_at": "2026-03-20T08:29:00+08:00",
-  "heat": 95,
-  "tags": ["powershell", "safety", "file-operations"]
-}
-```
-
-## Session 结束自检
-
-每次 session 结束前，运行以下检查：
-
-```markdown
-## Session 结束检查
-
-### 承诺检查
-- [ ] 所有 commitments 已完成或已说明延误
-- [ ] 无遗留的 pending 承诺
-
-### 不确定性检查
-- [ ] 所有 uncertainties 已处理
-- [ ] 未处理的已明确告知用户
-
-### 输出验证检查
-- [ ] 重要文件写入已验证
-- [ ] 关键命令执行已验证
-
-### 状态保存检查
-- [ ] checkpoint.md 已更新
-- [ ] sessions/{session-key}/state.json 已更新
-
-### 项目同步检查
-- [ ] 高价值记忆已同步到 projects/{project-id}/
-- [ ] 用户偏好已更新
-- [ ] 热度索引已更新
-
-### 经验记录检查
-- [ ] 遇到的问题已记录到 experiences.json
-- [ ] 新发现已记录到相关文档
-```
-
----
-
-## 多 Session 多 Project 可靠性
-
-### Session 隔离
-
-- 每个 Session 有独立的状态文件
-- Session 之间不会互相覆盖
-- 承诺追踪限定在当前 Session
-
-### Project 隔离
-
-- 不同项目的记忆完全隔离
-- 项目级决策和经验只在本项目内共享
-- 全局偏好存储在 `projects/_global/`
-
-### 跨 Session 共享
-
-- 通过 `access_sessions` 数组追踪
-- 跨 Session 访问自动增加热度
-- 高价值记忆自动晋升
-
-### 自我提升闭环
-
-```
-错误发生 → 记录到 experiences.json (type: lesson)
-    ↓
-Heartbeat 检测 → 分析错误模式
-    ↓
-提炼经验 → 更新 heat-index.json
-    ↓
-下次遇到类似情况 → 检索经验 → 避免重复错误
-    ↓
-成功避免 → access_count++ → heat += 5
-```
-
----
-
-## 可靠性原则总结
-
-1. **说到做到** — 承诺必兑现，做不到必说明
-2. **不确定就说** — 不装懂，不猜测后装确定
-3. **验证再确认** — 重要操作要验证，不假设成功
-4. **错了就认** — 承认错误，立即修复，记录预防
-5. **状态透明** — 用户随时知道我在做什么
-6. **Session 隔离** — 多会话并行不干扰
-7. **Project 隔离** — 项目记忆不混淆
-8. **持续改进** — 每个错误都是学习机会
+- session 恢复
+- checkpoint 与压力处理
+- 自动校验与技能化候选
+- skill 创建
+- startup hook 恢复消息
+- host wrapper 安装
