@@ -1,21 +1,43 @@
 #!/usr/bin/env node
 
+const fs = require('fs');
 const path = require('path');
 const {
+  copyDir,
   ensureDir,
   getOpenClawHome,
   getRepoRoot,
-  getSkillsRoot,
   readJson,
   readText,
   writeJson,
   writeText
 } = require('./lib/context-anchor');
 
+function copyFile(sourceFile, targetFile) {
+  ensureDir(path.dirname(targetFile));
+  fs.copyFileSync(sourceFile, targetFile);
+}
+
+function copySkillSnapshot(repoRoot, installedSkillDir) {
+  ensureDir(installedSkillDir);
+
+  ['scripts', 'hooks', 'references', 'templates', 'state'].forEach((dirName) => {
+    copyDir(path.join(repoRoot, dirName), path.join(installedSkillDir, dirName));
+  });
+
+  ['SKILL.md', 'package.json'].forEach((fileName) => {
+    copyFile(path.join(repoRoot, fileName), path.join(installedSkillDir, fileName));
+  });
+}
+
 function runInstallHostAssets(openClawHomeArg, skillsRootArg) {
   const openClawHome = getOpenClawHome(openClawHomeArg);
-  const skillsRoot = getSkillsRoot(skillsRootArg);
   const repoRoot = getRepoRoot();
+  const skillsRoot = path.resolve(
+    skillsRootArg || process.env.CONTEXT_ANCHOR_SKILLS_ROOT || path.join(openClawHome, 'skills')
+  );
+  const skillName = path.basename(repoRoot);
+  const installedSkillDir = path.join(skillsRoot, skillName);
   const configFile = path.join(openClawHome, 'config.json');
   const hooksTargetDir = path.join(openClawHome, 'hooks', 'context-anchor-hook');
   const automationTargetDir = path.join(openClawHome, 'automation', 'context-anchor');
@@ -32,12 +54,13 @@ function runInstallHostAssets(openClawHomeArg, skillsRootArg) {
 
   ensureDir(automationTargetDir);
   ensureDir(hooksTargetDir);
+  copySkillSnapshot(repoRoot, installedSkillDir);
 
   const handlerWrapper = `#!/usr/bin/env node
 const fs = require('fs');
 const path = require('path');
 const { handleHookEvent } = require(${JSON.stringify(
-    path.join(repoRoot, 'hooks', 'context-anchor-hook', 'handler.js')
+    path.join(installedSkillDir, 'hooks', 'context-anchor-hook', 'handler.js')
   )});
 
 function parsePayload(rawArg) {
@@ -64,7 +87,7 @@ console.log(JSON.stringify(result, null, 2));
 
   const monitorWrapper = `#!/usr/bin/env node
 const { runContextPressureMonitor } = require(${JSON.stringify(
-    path.join(repoRoot, 'scripts', 'context-pressure-monitor.js')
+    path.join(installedSkillDir, 'scripts', 'context-pressure-monitor.js')
   )});
 const result = runContextPressureMonitor(process.argv[2], process.argv[3], process.argv[4]);
 console.log(JSON.stringify(result, null, 2));
@@ -75,6 +98,7 @@ console.log(JSON.stringify(result, null, 2));
     status: 'installed',
     openclaw_home: openClawHome,
     skills_root: skillsRoot,
+    installed_skill_dir: installedSkillDir,
     config_file: configFile,
     hooks_dir: hooksTargetDir,
     automation_dir: automationTargetDir

@@ -8,7 +8,9 @@ const { readJson, writeJson } = require('../scripts/lib/context-anchor');
 const { runCheckpointCreate } = require('../scripts/checkpoint-create');
 const { runContextPressureHandle } = require('../scripts/context-pressure-handle');
 const { handleHookEvent } = require('../hooks/context-anchor-hook/handler');
+const { runExperienceValidate } = require('../scripts/experience-validate');
 const { runInstallHostAssets } = require('../scripts/install-host-assets');
+const { runMemoryFlow } = require('../scripts/memory-flow');
 const { runMemorySave } = require('../scripts/memory-save');
 const { runSessionStart } = require('../scripts/session-start');
 const { runSkillCreate } = require('../scripts/skill-create');
@@ -92,6 +94,55 @@ test('context pressure handling creates a checkpoint and syncs hot memories', ()
     assert.ok(fs.existsSync(checkpointFile));
     assert.equal(decisions.length, 1);
     assert.equal(decisions[0].decision, 'Use JSON storage');
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('memory-flow upserts a previously synced session memory when it changes', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    runSessionStart(workspace, 'session-upsert', 'demo');
+    runMemorySave(
+      workspace,
+      'session-upsert',
+      'session',
+      'best_practice',
+      'first version',
+      JSON.stringify({ heat: 95, details: 'v1' })
+    );
+
+    runMemoryFlow(workspace, 'session-upsert', { minimumHeat: 80 });
+
+    const memoryFile = path.join(
+      workspace,
+      '.context-anchor',
+      'sessions',
+      'session-upsert',
+      'memory-hot.json'
+    );
+    const memory = readJson(memoryFile, { entries: [] });
+    memory.entries[0].content = 'second version';
+    memory.entries[0].summary = 'second version';
+    memory.entries[0].details = 'v2';
+    memory.entries[0].heat = 95;
+    writeJson(memoryFile, memory);
+
+    const result = runMemoryFlow(workspace, 'session-upsert', { minimumHeat: 80 });
+    const experiencesFile = path.join(
+      workspace,
+      '.context-anchor',
+      'projects',
+      'demo',
+      'experiences.json'
+    );
+    const experiences = readJson(experiencesFile, { experiences: [] }).experiences;
+
+    assert.equal(result.synced_entries, 1);
+    assert.equal(experiences.length, 1);
+    assert.equal(experiences[0].summary, 'second version');
+    assert.equal(experiences[0].details, 'v2');
   } finally {
     cleanupWorkspace(workspace);
   }
@@ -182,6 +233,28 @@ test('skill-create materializes a validated experience into a sibling skill dire
   }
 });
 
+test('experience-validate rejects unsupported validation statuses', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    runSessionStart(workspace, 'session-validate', 'demo');
+    const saved = runMemorySave(
+      workspace,
+      'session-validate',
+      'project',
+      'best_practice',
+      'validation candidate'
+    );
+
+    assert.throws(
+      () => runExperienceValidate(workspace, saved.id, 'typo_status', 'demo'),
+      /Validation status must be one of/
+    );
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('gateway startup hook emits a resume message for the latest active session', () => {
   const workspace = makeWorkspace();
 
@@ -219,23 +292,31 @@ test('gateway startup hook emits a resume message for the latest active session'
   }
 });
 
-test('install-host-assets writes wrappers and registers extraDirs', () => {
+test('install-host-assets deploys a self-contained skill snapshot and registers extraDirs', () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');
-  const skillsRoot = path.join(workspace, 'skills-root');
 
   try {
-    const result = runInstallHostAssets(openClawHome, skillsRoot);
+    const result = runInstallHostAssets(openClawHome);
     const config = readJson(path.join(openClawHome, 'config.json'), {});
+    const installedSkillDir = path.join(openClawHome, 'skills', 'context-anchor');
+    const hookWrapper = fs.readFileSync(
+      path.join(openClawHome, 'hooks', 'context-anchor-hook', 'handler.js'),
+      'utf8'
+    );
+    const normalizedWrapper = hookWrapper.replaceAll('\\\\', '\\');
 
     assert.equal(result.status, 'installed');
-    assert.ok(config.extraDirs.includes(skillsRoot));
+    assert.ok(config.extraDirs.includes(path.join(openClawHome, 'skills')));
+    assert.equal(result.installed_skill_dir, installedSkillDir);
+    assert.ok(fs.existsSync(path.join(installedSkillDir, 'scripts', 'memory-flow.js')));
     assert.ok(fs.existsSync(path.join(openClawHome, 'hooks', 'context-anchor-hook', 'handler.js')));
     assert.ok(
       fs.existsSync(
         path.join(openClawHome, 'automation', 'context-anchor', 'context-pressure-monitor.js')
       )
     );
+    assert.ok(normalizedWrapper.includes(installedSkillDir));
   } finally {
     cleanupWorkspace(workspace);
   }

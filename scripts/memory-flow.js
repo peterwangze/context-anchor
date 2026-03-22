@@ -11,6 +11,19 @@ const {
 } = require('./lib/context-anchor');
 const { runMemorySave } = require('./memory-save');
 
+function createSyncFingerprint(entry) {
+  return JSON.stringify({
+    type: entry.type,
+    content: entry.content || null,
+    summary: entry.summary || null,
+    details: entry.details || null,
+    solution: entry.solution || null,
+    tags: Array.isArray(entry.tags) ? [...entry.tags].sort() : [],
+    scope: entry.scope || 'session',
+    global: Boolean(entry.global)
+  });
+}
+
 function normalizeFlowType(type) {
   if (type === 'decision' || type === 'preference') {
     return type;
@@ -32,11 +45,16 @@ function normalizeFlowType(type) {
 }
 
 function shouldSyncEntry(entry, minimumHeat) {
+  const fingerprint = createSyncFingerprint(entry);
+
   return (
     !entry.archived &&
     entry.sync_to_project !== false &&
-    !entry.synced_at &&
-    Number(entry.heat || 0) >= minimumHeat
+    Number(entry.heat || 0) >= minimumHeat &&
+    (
+      !entry.synced_project_entry_id ||
+      entry.last_sync_fingerprint !== fingerprint
+    )
   );
 }
 
@@ -44,6 +62,8 @@ function syncEntry(paths, sessionState, entry) {
   const type = normalizeFlowType(entry.type);
   const scope = entry.scope === 'global' || type === 'preference' && entry.global ? 'global' : 'project';
   const payload = JSON.stringify({
+    entry_id: entry.synced_project_entry_id || null,
+    source_session_entry_id: entry.id,
     summary: entry.summary || entry.content,
     details: entry.details || null,
     solution: entry.solution || null,
@@ -72,6 +92,7 @@ function runMemoryFlow(workspaceArg, sessionKeyArg, options = {}) {
     }
 
     const saved = syncEntry(paths, sessionState, entry);
+    const nextFingerprint = createSyncFingerprint(entry);
     actions.push({
       session_entry_id: entry.id,
       project_entry_id: saved.id,
@@ -82,6 +103,7 @@ function runMemoryFlow(workspaceArg, sessionKeyArg, options = {}) {
     return {
       ...entry,
       synced_at: new Date().toISOString(),
+      last_sync_fingerprint: nextFingerprint,
       synced_scope: saved.scope,
       synced_project_entry_id: saved.id,
       heat: Math.max(DEFAULTS.warmMemoryHeat, Number(entry.heat || 0) - 20)

@@ -99,9 +99,10 @@ context-anchor/
 规则：
 
 - session 级内容先进入 `sessions/{key}/memory-hot.json`
-- 高热度且可复用的条目会被 `memory-flow` 同步到项目级
+- 高热度且可复用的条目会被 `memory-flow` 同步到项目级；已同步条目后续发生内容变化时会 upsert 更新原项目条目
 - 经验条目会带上 `validation`、`access_count`、`access_sessions`
-- project/global 保存时会同步更新 heat-index 和 project state
+- project 保存会同步更新 `heat-index` 和 `project state`
+- global 保存当前只写入 `projects/_global/state.json` 中的 `user_preferences` 或 `important_facts`，不参与 heat / validation / skillification
 
 ### 3. Heartbeat / 上下文压力
 
@@ -193,11 +194,12 @@ node scripts/install-host-assets.js [openclaw-home] [skills-root]
 
 作用：
 
-- 向 `~/.openclaw/config.json` 追加 `extraDirs`
+- 默认把当前 skill 的自包含快照部署到 `~/.openclaw/skills/context-anchor/`
+- 向 `~/.openclaw/config.json` 追加 `extraDirs`，默认注册 `~/.openclaw/skills`
 - 写入 hook wrapper 到 `~/.openclaw/hooks/context-anchor-hook/`
 - 写入压力监控 wrapper 到 `~/.openclaw/automation/context-anchor/`
 
-wrapper 会回跳到本仓真实脚本位置，因此不会因为复制后相对路径变化而失效。
+wrapper 会指向安装后的 skill 快照，不再依赖当前源码仓继续存在。
 
 ## 环境变量
 
@@ -206,6 +208,15 @@ wrapper 会回跳到本仓真实脚本位置，因此不会因为复制后相对
 - `CONTEXT_ANCHOR_FORCE_SKILL_CREATE=1`：允许未校验经验强制技能化
 - `CONTEXT_ANCHOR_GIT_INIT=1`：创建 skill 后初始化 git 仓库
 
+## Global Scope
+
+当前 global scope 是刻意收窄的：
+
+- `preference` 写入 `projects/_global/state.json.user_preferences`
+- 其他 global save 写入 `projects/_global/state.json.important_facts`
+- global 条目当前不维护独立 heat-index
+- global 条目当前不参与 validation 和 skillification
+
 ## 可靠性约束
 
 - 不覆盖已有 session state
@@ -213,6 +224,7 @@ wrapper 会回跳到本仓真实脚本位置，因此不会因为复制后相对
 - 经验进入技能化前必须通过校验或显式强制
 - session 压力处理只做保存、同步和提示，不隐式删除用户状态
 - 高价值记忆默认追加或 archive，不做静默删除
+- 已同步的 session 热记忆再次变化时会 upsert 更新原项目条目
 
 ## 验证
 

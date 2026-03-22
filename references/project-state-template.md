@@ -38,6 +38,8 @@
       "project_id": "default",
       "scope": "session",
       "sync_to_project": true,
+      "synced_project_entry_id": "exp-20260322123100-efgh34",
+      "last_sync_fingerprint": "{\"type\":\"best_practice\"}",
       "archived": false
     }
   ]

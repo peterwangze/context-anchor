@@ -5,7 +5,9 @@
 - `session-start` 不覆盖已有 session 状态
 - `context-pressure-handle` 一定先创建 checkpoint，再同步记忆
 - `session:end` hook 会串联 checkpoint / flow / heat / skillification
-- host 安装脚本写入的是 wrapper，不依赖复制后的相对路径
+- host 安装脚本会在 `~/.openclaw/skills/context-anchor/` 部署一份自包含快照
+- hook 和 monitor wrapper 会指向安装后的快照，而不是当前源码仓路径
+- 已同步的 session 热记忆如果再次变化，会 upsert 更新原项目条目
 
 ## 建议使用顺序
 

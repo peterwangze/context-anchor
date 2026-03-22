@@ -21,6 +21,7 @@ const DEFAULTS = {
     minSessions: 2
   }
 };
+const VALIDATION_STATUSES = ['pending', 'validated', 'rejected'];
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -364,8 +365,10 @@ function mergeAccessMetadata(entry, sessionKey, options = {}) {
 }
 
 function normalizeValidation(validation = {}) {
+  const status = VALIDATION_STATUSES.includes(validation.status) ? validation.status : 'pending';
+
   return {
-    status: validation.status || 'pending',
+    status,
     count: Number(validation.count || 0),
     auto_validated: Boolean(validation.auto_validated),
     last_reviewed_at: validation.last_reviewed_at || null,
@@ -555,6 +558,7 @@ function copyDir(sourceDir, targetDir) {
 
 module.exports = {
   DEFAULTS,
+  VALIDATION_STATUSES,
   buildCheckpointContent,
   calculateDaysSince,
   clamp,

@@ -56,6 +56,23 @@ function normalizeType(type) {
   return value;
 }
 
+function resolveExistingIndex(entries, metadata) {
+  if (metadata.entry_id) {
+    const idxById = entries.findIndex((entry) => entry.id === metadata.entry_id);
+    if (idxById >= 0) {
+      return idxById;
+    }
+  }
+
+  if (metadata.source_session_entry_id) {
+    return entries.findIndex(
+      (entry) => entry.source_session_entry_id === metadata.source_session_entry_id
+    );
+  }
+
+  return -1;
+}
+
 function saveToSession(paths, sessionState, type, content, metadata) {
   const entries = loadSessionMemory(paths, sessionState.session_key);
   const timestamp = nowIso();
@@ -94,24 +111,42 @@ function saveToSession(paths, sessionState, type, content, metadata) {
 function saveDecision(paths, sessionState, content, metadata) {
   const decisions = loadProjectDecisions(paths, sessionState.project_id);
   const timestamp = nowIso();
+  const idx = resolveExistingIndex(decisions, metadata);
+  const existing = idx >= 0 ? decisions[idx] : null;
   const entry = {
-    id: generateId('dec'),
+    ...existing,
+    id: existing?.id || metadata.entry_id || generateId('dec'),
     type: 'decision',
     decision: content,
-    rationale: metadata.rationale || null,
-    alternatives: Array.isArray(metadata.alternatives) ? metadata.alternatives : [],
+    rationale: metadata.rationale ?? existing?.rationale ?? null,
+    alternatives: Array.isArray(metadata.alternatives)
+      ? metadata.alternatives
+      : existing?.alternatives || [],
     session_key: sessionState.session_key,
-    created_at: timestamp,
+    created_at: existing?.created_at || timestamp,
     last_accessed: timestamp,
-    heat: clamp(Number(metadata.heat || 80), 0, 100),
-    access_count: 1,
-    access_sessions: [sessionState.session_key],
-    tags: Array.isArray(metadata.tags) ? metadata.tags : [],
-    impact: metadata.impact || 'medium',
-    archived: false
+    heat: clamp(
+      Math.max(Number(existing?.heat || 0), Number(metadata.heat || existing?.heat || 80)),
+      0,
+      100
+    ),
+    access_count: Number(existing?.access_count || 0) + (metadata.skip_access_increment ? 0 : 1),
+    access_sessions: uniqueList([
+      ...(existing?.access_sessions || []),
+      sessionState.session_key,
+      ...(metadata.access_sessions || [])
+    ]),
+    tags: Array.isArray(metadata.tags) ? metadata.tags : existing?.tags || [],
+    impact: metadata.impact || existing?.impact || 'medium',
+    archived: false,
+    source_session_entry_id: metadata.source_session_entry_id || existing?.source_session_entry_id || null
   };
 
-  decisions.push(entry);
+  if (idx >= 0) {
+    decisions[idx] = entry;
+  } else {
+    decisions.push(entry);
+  }
   writeProjectDecisions(paths, sessionState.project_id, decisions);
   recordHeatEntry(paths, sessionState.project_id, entry);
   syncProjectStateMetadata(paths, sessionState.project_id);
@@ -128,26 +163,54 @@ function saveExperience(paths, sessionState, type, content, metadata) {
   const experiences = loadProjectExperiences(paths, sessionState.project_id);
   const timestamp = nowIso();
   const normalizedType = normalizeType(type);
+  const idx = resolveExistingIndex(experiences, metadata);
+  const existing = idx >= 0 ? experiences[idx] : null;
   const entry = {
-    id: generateId('exp'),
+    ...existing,
+    id: existing?.id || metadata.entry_id || generateId('exp'),
     type: normalizedType,
     summary: metadata.summary || content,
-    details: metadata.details || null,
-    solution: metadata.solution || null,
-    source: metadata.source || 'agent-observation',
+    details:
+      Object.prototype.hasOwnProperty.call(metadata, 'details') ? metadata.details : existing?.details ?? null,
+    solution:
+      Object.prototype.hasOwnProperty.call(metadata, 'solution')
+        ? metadata.solution
+        : existing?.solution ?? null,
+    source: metadata.source || existing?.source || 'agent-observation',
     session_key: sessionState.session_key,
-    created_at: timestamp,
+    created_at: existing?.created_at || timestamp,
     last_accessed: timestamp,
-    heat: clamp(Number(metadata.heat || 60), 0, 100),
-    applied_count: Number(metadata.applied_count || 0),
-    access_count: Number(metadata.access_count || 1),
-    access_sessions: uniqueList([sessionState.session_key, ...(metadata.access_sessions || [])]),
-    tags: Array.isArray(metadata.tags) ? metadata.tags : [],
-    validation: normalizeValidation(metadata.validation || { status: metadata.validation_status }),
-    archived: false
+    heat: clamp(
+      Math.max(Number(existing?.heat || 0), Number(metadata.heat || existing?.heat || 60)),
+      0,
+      100
+    ),
+    applied_count: Math.max(
+      Number(existing?.applied_count || 0),
+      Number(metadata.applied_count || existing?.applied_count || 0)
+    ),
+    access_count:
+      Number(existing?.access_count || 0) +
+      (metadata.skip_access_increment ? 0 : Number(metadata.access_count || 1)),
+    access_sessions: uniqueList([
+      ...(existing?.access_sessions || []),
+      sessionState.session_key,
+      ...(metadata.access_sessions || [])
+    ]),
+    tags: Array.isArray(metadata.tags) ? metadata.tags : existing?.tags || [],
+    validation: normalizeValidation(
+      metadata.validation ||
+        (metadata.validation_status ? { status: metadata.validation_status } : existing?.validation || {})
+    ),
+    archived: false,
+    source_session_entry_id: metadata.source_session_entry_id || existing?.source_session_entry_id || null
   };
 
-  experiences.push(entry);
+  if (idx >= 0) {
+    experiences[idx] = entry;
+  } else {
+    experiences.push(entry);
+  }
   writeProjectExperiences(paths, sessionState.project_id, experiences);
   recordHeatEntry(paths, sessionState.project_id, entry);
 
@@ -167,21 +230,39 @@ function saveExperience(paths, sessionState, type, content, metadata) {
 function saveFact(paths, sessionState, content, metadata) {
   const facts = loadProjectFacts(paths, sessionState.project_id);
   const timestamp = nowIso();
+  const idx = resolveExistingIndex(facts, metadata);
+  const existing = idx >= 0 ? facts[idx] : null;
   const entry = {
-    id: generateId('fact'),
+    ...existing,
+    id: existing?.id || metadata.entry_id || generateId('fact'),
     content,
     summary: metadata.summary || content,
     session_key: sessionState.session_key,
-    created_at: timestamp,
+    created_at: existing?.created_at || timestamp,
     last_accessed: timestamp,
-    heat: clamp(Number(metadata.heat || 50), 0, 100),
-    access_count: Number(metadata.access_count || 1),
-    access_sessions: [sessionState.session_key],
-    tags: Array.isArray(metadata.tags) ? metadata.tags : [],
-    archived: false
+    heat: clamp(
+      Math.max(Number(existing?.heat || 0), Number(metadata.heat || existing?.heat || 50)),
+      0,
+      100
+    ),
+    access_count:
+      Number(existing?.access_count || 0) +
+      (metadata.skip_access_increment ? 0 : Number(metadata.access_count || 1)),
+    access_sessions: uniqueList([
+      ...(existing?.access_sessions || []),
+      sessionState.session_key,
+      ...(metadata.access_sessions || [])
+    ]),
+    tags: Array.isArray(metadata.tags) ? metadata.tags : existing?.tags || [],
+    archived: false,
+    source_session_entry_id: metadata.source_session_entry_id || existing?.source_session_entry_id || null
   };
 
-  facts.push(entry);
+  if (idx >= 0) {
+    facts[idx] = entry;
+  } else {
+    facts.push(entry);
+  }
   writeProjectFacts(paths, sessionState.project_id, facts);
   recordHeatEntry(paths, sessionState.project_id, {
     ...entry,
@@ -252,12 +333,26 @@ function saveToGlobal(paths, type, content, metadata) {
   globalState.important_facts = Array.isArray(globalState.important_facts)
     ? globalState.important_facts
     : [];
-  globalState.important_facts.push({
-    id: generateId('glob'),
+  const idx = resolveExistingIndex(globalState.important_facts, metadata);
+  const entry = {
+    ...(idx >= 0 ? globalState.important_facts[idx] : {}),
+    id:
+      (idx >= 0 ? globalState.important_facts[idx].id : null) ||
+      metadata.entry_id ||
+      generateId('glob'),
     content,
     summary: metadata.summary || content,
-    created_at: timestamp
-  });
+    created_at: idx >= 0 ? globalState.important_facts[idx].created_at : timestamp,
+    last_updated: timestamp,
+    source_session_entry_id:
+      metadata.source_session_entry_id ||
+      (idx >= 0 ? globalState.important_facts[idx].source_session_entry_id : null)
+  };
+  if (idx >= 0) {
+    globalState.important_facts[idx] = entry;
+  } else {
+    globalState.important_facts.push(entry);
+  }
   writeGlobalState(paths, globalState);
 
   return {

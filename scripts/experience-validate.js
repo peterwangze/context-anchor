@@ -1,12 +1,23 @@
 #!/usr/bin/env node
 
-const { DEFAULTS, createPaths, loadProjectExperiences, normalizeValidation, writeProjectExperiences } = require('./lib/context-anchor');
+const {
+  DEFAULTS,
+  VALIDATION_STATUSES,
+  createPaths,
+  loadProjectExperiences,
+  normalizeValidation,
+  writeProjectExperiences
+} = require('./lib/context-anchor');
 
 function runExperienceValidate(workspaceArg, experienceId, statusArg, projectIdArg, noteArg) {
   if (!experienceId || !statusArg) {
     throw new Error(
       'Usage: node experience-validate.js <workspace> <experience-id> <status> [project-id] [note]'
     );
+  }
+
+  if (!VALIDATION_STATUSES.includes(statusArg)) {
+    throw new Error(`Validation status must be one of: ${VALIDATION_STATUSES.join(', ')}`);
   }
 
   const paths = createPaths(workspaceArg);
