@@ -309,6 +309,8 @@ test('install-host-assets deploys a self-contained skill snapshot and registers 
     assert.equal(result.status, 'installed');
     assert.ok(config.extraDirs.includes(path.join(openClawHome, 'skills')));
     assert.equal(result.installed_skill_dir, installedSkillDir);
+    assert.equal(path.basename(result.installed_skill_dir), 'context-anchor');
+    assert.ok(fs.existsSync(path.join(installedSkillDir, 'README.md')));
     assert.ok(fs.existsSync(path.join(installedSkillDir, 'scripts', 'memory-flow.js')));
     assert.ok(fs.existsSync(path.join(openClawHome, 'hooks', 'context-anchor-hook', 'handler.js')));
     assert.ok(

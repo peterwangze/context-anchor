@@ -25,7 +25,7 @@ function copySkillSnapshot(repoRoot, installedSkillDir) {
     copyDir(path.join(repoRoot, dirName), path.join(installedSkillDir, dirName));
   });
 
-  ['SKILL.md', 'package.json'].forEach((fileName) => {
+  ['README.md', 'SKILL.md', 'package.json'].forEach((fileName) => {
     copyFile(path.join(repoRoot, fileName), path.join(installedSkillDir, fileName));
   });
 }
@@ -36,7 +36,7 @@ function runInstallHostAssets(openClawHomeArg, skillsRootArg) {
   const skillsRoot = path.resolve(
     skillsRootArg || process.env.CONTEXT_ANCHOR_SKILLS_ROOT || path.join(openClawHome, 'skills')
   );
-  const skillName = path.basename(repoRoot);
+  const skillName = 'context-anchor';
   const installedSkillDir = path.join(skillsRoot, skillName);
   const configFile = path.join(openClawHome, 'config.json');
   const hooksTargetDir = path.join(openClawHome, 'hooks', 'context-anchor-hook');

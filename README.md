@@ -50,11 +50,13 @@ node scripts/install-host-assets.js
 
 默认结果：
 
-- 把当前 skill 的自包含快照安装到 `~/.openclaw/skills/context-anchor/`
+- 把当前 skill 的自包含快照安装到固定目录 `~/.openclaw/skills/context-anchor/`
 - 更新 `~/.openclaw/config.json`
 - 确保 `config.json.extraDirs` 包含 `~/.openclaw/skills`
 - 写入 hook wrapper 到 `~/.openclaw/hooks/context-anchor-hook/`
 - 写入 monitor wrapper 到 `~/.openclaw/automation/context-anchor/`
+
+这里的安装目录名始终是 `context-anchor`，不受你本地源码目录名影响。
 
 如果你要覆盖默认位置：
 
@@ -73,6 +75,7 @@ node scripts/install-host-assets.js "D:/openclaw-home" "D:/openclaw-home/skills"
 至少检查这几个路径：
 
 - `~/.openclaw/config.json`
+- `~/.openclaw/skills/context-anchor/README.md`
 - `~/.openclaw/skills/context-anchor/SKILL.md`
 - `~/.openclaw/skills/context-anchor/scripts/heartbeat.js`
 - `~/.openclaw/hooks/context-anchor-hook/handler.js`
@@ -86,6 +89,30 @@ node scripts/install-host-assets.js "D:/openclaw-home" "D:/openclaw-home/skills"
 
 安装脚本会把 `~/.openclaw/skills` 写进 `config.json.extraDirs`。  
 这意味着 OpenClaw 之后应从该目录发现 `context-anchor`。
+
+## OpenClaw 配置示例
+
+下面是推荐配置片段，用来表达 `context-anchor` 需要宿主提供哪些接入点。  
+这不是对某个 OpenClaw 官方配置 schema 的硬承诺，而是一个“你应该在自己的配置层表达这些映射关系”的模板。
+
+```json
+{
+  "extraDirs": [
+    "~/.openclaw/skills"
+  ],
+  "hooks": {
+    "gateway:startup": "node ~/.openclaw/hooks/context-anchor-hook/handler.js gateway:startup <payload-file-or-json>",
+    "command:stop": "node ~/.openclaw/hooks/context-anchor-hook/handler.js command:stop <payload-file-or-json>",
+    "session:end": "node ~/.openclaw/hooks/context-anchor-hook/handler.js session:end <payload-file-or-json>",
+    "heartbeat": "node ~/.openclaw/hooks/context-anchor-hook/handler.js heartbeat <payload-file-or-json>"
+  },
+  "automation": {
+    "context-pressure-monitor": "node ~/.openclaw/automation/context-anchor/context-pressure-monitor.js <workspace> <snapshot-file>"
+  }
+}
+```
+
+如果你的 OpenClaw 版本没有集中式配置文件，也可以把同样的命令挂到你自己的启动脚本、事件桥接层或任务调度器里。
 
 ### 2. hook 接入
 
