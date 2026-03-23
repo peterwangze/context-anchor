@@ -3,6 +3,7 @@
 const path = require('path');
 const {
   DEFAULTS,
+  buildScopedSkillMarkdown,
   createPaths,
   generateId,
   loadSessionExperiences,
@@ -10,6 +11,7 @@ const {
   loadSessionSkills,
   loadSessionState,
   sanitizeKey,
+  skillConflictKey,
   sessionSkillsDir,
   writeSessionSkills,
   writeText
@@ -39,44 +41,25 @@ function runSkillDraftCreate(workspaceArg, sessionKeyArg) {
   const skillName = `${sessionKey}-draft`;
   const fileName = `${draftId}.md`;
   const skillPath = path.join(sessionSkillsDir(paths, sessionKey), fileName);
-  const content = [
-    '---',
-    `id: ${draftId}`,
-    `name: ${skillName}`,
-    'scope: session',
-    'status: draft',
-    `source_session: ${sessionKey}`,
-    `source_project: ${sessionState.project_id}`,
-    `created_at: ${new Date().toISOString()}`,
-    '---',
-    '',
-    `# ${skillName}`,
-    '',
-    source.summary || source.content || 'Derived from session activity.',
-    '',
-    '## Source',
-    '',
-    `- type: ${source.type || 'memory'}`,
-    `- id: ${source.id}`,
-    '',
-    '## Notes',
-    '',
-    '- Auto-generated at session close',
-    '- Draft only, not yet promoted'
-  ].join('\n');
-
-  writeText(skillPath, `${content}\n`);
-  skills.push({
+  const draftRecord = {
     id: draftId,
     name: skillName,
     scope: 'session',
     status: 'draft',
+    conflict_key: skillConflictKey(skillName),
     summary: source.summary || source.content || null,
     source_type: source.type || 'memory',
     source_id: source.id,
     path: skillPath,
-    created_at: new Date().toISOString()
-  });
+    source_session: sessionKey,
+    source_project: sessionState.project_id,
+    source_user: sessionState.user_id,
+    created_at: new Date().toISOString(),
+    notes: 'Auto-generated at session close'
+  };
+
+  writeText(skillPath, buildScopedSkillMarkdown(draftRecord));
+  skills.push(draftRecord);
   writeSessionSkills(paths, sessionKey, skills);
 
   return {

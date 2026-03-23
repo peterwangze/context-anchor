@@ -22,6 +22,7 @@ const { runHeartbeat } = require('../scripts/heartbeat');
 const { runScopePromote } = require('../scripts/scope-promote');
 const { runSessionClose } = require('../scripts/session-close');
 const { runSessionStart } = require('../scripts/session-start');
+const { runSkillStatusUpdate } = require('../scripts/skill-status-update');
 const { runSkillCreate } = require('../scripts/skill-create');
 const { runSkillificationScore } = require('../scripts/skillification-score');
 
@@ -632,6 +633,168 @@ test('scope promote creates active user skills from validated user experiences w
       assert.equal(result.user_promotions, 1);
       assert.equal(userSkills.length, 1);
       assert.equal(userSkills[0].scope, 'user');
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('scope promote reuses an existing active project skill for same-name experiences', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'promote-reuse', 'demo');
+      const first = runMemorySave(
+        workspace,
+        'promote-reuse',
+        'project',
+        'best_practice',
+        'Use scoped checkpoints',
+        JSON.stringify({
+          heat: 95,
+          access_count: 8,
+          access_sessions: ['session-b', 'session-c'],
+          tags: ['checkpoint'],
+          validation_status: 'validated'
+        })
+      );
+      const second = runMemorySave(
+        workspace,
+        'promote-reuse',
+        'project',
+        'best_practice',
+        'Use scoped checkpoints',
+        JSON.stringify({
+          heat: 95,
+          access_count: 8,
+          access_sessions: ['session-d', 'session-e'],
+          tags: ['checkpoint'],
+          validation_status: 'validated'
+        })
+      );
+
+      const experiencesFile = path.join(workspace, '.context-anchor', 'projects', 'demo', 'experiences.json');
+      const experiences = readJson(experiencesFile, { experiences: [] });
+      experiences.experiences.forEach((entry) => {
+        entry.created_at = '2026-03-01T00:00:00Z';
+      });
+      writeJson(experiencesFile, experiences);
+
+      runScopePromote(workspace, {
+        sessionKey: 'promote-reuse',
+        projectId: 'demo',
+        userId: 'default-user'
+      });
+      const result = runScopePromote(workspace, {
+        sessionKey: 'promote-reuse',
+        projectId: 'demo',
+        userId: 'default-user'
+      });
+      const projectSkills = readJson(
+        path.join(workspace, '.context-anchor', 'projects', 'demo', 'skills', 'index.json'),
+        { skills: [] }
+      ).skills;
+      const updatedExperiences = readJson(experiencesFile, { experiences: [] }).experiences;
+
+      assert.equal(result.project_promotions, 0);
+      assert.equal(projectSkills.length, 1);
+      assert.ok(projectSkills[0].related_experiences.includes(first.id));
+      assert.ok(projectSkills[0].related_experiences.includes(second.id));
+      assert.equal(updatedExperiences[0].skill_id, updatedExperiences[1].skill_id);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('session-start prefers session over project over user skills with same conflict key', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'priority-session', 'demo');
+
+      const projectSkillDir = path.join(workspace, '.context-anchor', 'projects', 'demo', 'skills');
+      fs.mkdirSync(projectSkillDir, { recursive: true });
+      writeJson(path.join(projectSkillDir, 'index.json'), {
+        skills: [
+          {
+            id: 'project-skill-1',
+            name: 'shared-skill',
+            conflict_key: 'shared-skill',
+            scope: 'project',
+            status: 'active',
+            summary: 'project version'
+          }
+        ]
+      });
+
+      const userSkillDir = path.join(workspace, 'openclaw-home', 'context-anchor', 'users', 'default-user', 'skills');
+      fs.mkdirSync(userSkillDir, { recursive: true });
+      writeJson(path.join(userSkillDir, 'index.json'), {
+        skills: [
+          {
+            id: 'user-skill-1',
+            name: 'shared-skill',
+            conflict_key: 'shared-skill',
+            scope: 'user',
+            status: 'active',
+            summary: 'user version'
+          }
+        ]
+      });
+
+      const sessionSkillDir = path.join(workspace, '.context-anchor', 'sessions', 'priority-session', 'skills');
+      fs.mkdirSync(sessionSkillDir, { recursive: true });
+      writeJson(path.join(sessionSkillDir, 'index.json'), {
+        skills: [
+          {
+            id: 'session-skill-1',
+            name: 'shared-skill',
+            conflict_key: 'shared-skill',
+            scope: 'session',
+            status: 'draft',
+            summary: 'session version'
+          }
+        ]
+      });
+
+      const result = runSessionStart(workspace, 'priority-session', 'demo');
+
+      assert.equal(result.effective_skills.length, 1);
+      assert.equal(result.effective_skills[0].id, 'session-skill-1');
+      assert.equal(result.shadowed_skills.length, 2);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('inactive skills are filtered from effective activation', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'inactive-skill', 'demo');
+      const projectSkillDir = path.join(workspace, '.context-anchor', 'projects', 'demo', 'skills');
+      fs.mkdirSync(projectSkillDir, { recursive: true });
+      writeJson(path.join(projectSkillDir, 'index.json'), {
+        skills: [
+          {
+            id: 'project-skill-1',
+            name: 'inactive-skill',
+            scope: 'project',
+            status: 'active',
+            summary: 'to be deactivated'
+          }
+        ]
+      });
+
+      runSkillStatusUpdate(workspace, 'project', 'project-skill-1', 'inactive', 'demo', 'disabled in test');
+      const result = runSessionStart(workspace, 'inactive-skill', 'demo');
+
+      assert.equal(result.effective_skills.length, 0);
     });
   } finally {
     cleanupWorkspace(workspace);

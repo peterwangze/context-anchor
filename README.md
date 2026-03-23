@@ -10,6 +10,7 @@
 - 满足条件的项目级 / 用户级经验自动晋升为 active skill
 - 经验校验与技能化候选
 - gateway 重启后的恢复提示
+- 同名技能的作用域优先级和停用治理
 
 如果你是第一次接入，先看这份 `README`。  
 `SKILL.md` 更偏运行规范和行为定义。
@@ -313,7 +314,17 @@ node ~/.openclaw/hooks/context-anchor-hook/handler.js command:stop "{\"workspace
 
 - 记忆注入摘要
 - 激活技能列表
+- 冲突处理后的 `effective_skills`
+- 被高优先级同名技能遮蔽的 `shadowed_skills`
 - `boot_packet`
+
+技能优先级固定为：
+
+- `session`
+- `project`
+- `user`
+
+也就是同名技能冲突时，`session > project > user`。
 
 ### 上下文压力
 
@@ -335,6 +346,21 @@ node ~/.openclaw/hooks/context-anchor-hook/handler.js command:stop "{\"workspace
 - `session skill draft` 生成
 - project heat / skillification 刷新
 - 满足条件的 `project/user active skill` 晋升
+
+### 技能治理
+
+当前已经落地的治理规则：
+
+- 同名 skill 使用 `conflict_key` 去重
+- `scope-promote` 遇到同名 active skill 时会复用现有 skill，而不是重复创建
+- `session-start` 只激活冲突处理后的有效技能集合
+- `inactive` / `archived` skill 不会进入自动激活集合
+
+可以手动更新 skill 状态：
+
+```bash
+node ~/.openclaw/skills/context-anchor/scripts/skill-status-update.js <workspace> <scope> <skill-id> <status> [session-key|project-id|user-id] [note]
+```
 
 ## 常见操作
 
@@ -453,6 +479,7 @@ npm test
 - session skill draft
 - `_global -> user` 迁移
 - validated experience -> `project/user active skill`
+- same-name skill dedupe and precedence governance
 - session 记忆二次同步的 upsert
 - 自动校验与技能化候选
 - skill 创建

@@ -12,10 +12,12 @@ const {
   loadUserExperiences,
   loadUserSkills,
   normalizeValidation,
+  normalizeSkillRecord,
   projectSkillsDir,
   resolveProjectId,
   resolveUserId,
   sanitizeKey,
+  skillConflictKey,
   sessionSkillsDir,
   writeProjectExperiences,
   writeProjectSkills,
@@ -56,8 +58,11 @@ function createSkillRecord(scope, targetDir, experience, defaults = {}) {
     name: skillName,
     scope,
     status: 'active',
+    archived: false,
+    conflict_key: skillConflictKey(skillName),
     summary: experience.summary,
     source_experience: experience.id,
+    related_experiences: [experience.id],
     source_scope: experience.scope || defaults.sourceScope || scope,
     source_session: experience.source_session || defaults.sessionKey || null,
     source_project: experience.source_project || defaults.projectId || null,
@@ -70,6 +75,38 @@ function createSkillRecord(scope, targetDir, experience, defaults = {}) {
   return record;
 }
 
+function reuseOrCreateSkill(skills, scope, dir, experience, defaults) {
+  const normalizedSkills = skills.map((skill) => normalizeSkillRecord(skill, scope));
+  const existingSkill =
+    normalizedSkills.find((skill) => skill.source_experience === experience.id && !skill.archived) ||
+    normalizedSkills.find(
+      (skill) =>
+        skill.conflict_key === skillConflictKey(experience.skillification_suggested_name || suggestSkillName(experience)) &&
+        skill.status === 'active' &&
+        !skill.archived
+    );
+
+  if (existingSkill) {
+    const merged = {
+      ...existingSkill,
+      related_experiences: Array.from(new Set([...(existingSkill.related_experiences || []), experience.id]))
+    };
+    const idx = skills.findIndex((skill) => skill.id === existingSkill.id);
+    skills[idx] = merged;
+    return {
+      skill: merged,
+      created: false
+    };
+  }
+
+  const skill = createSkillRecord(scope, dir, experience, defaults);
+  skills.push(skill);
+  return {
+    skill,
+    created: true
+  };
+}
+
 function promoteProjectSkills(paths, projectId, sessionKey) {
   const experiences = loadProjectExperiences(paths, projectId).map((entry) => ensurePromotionMeta(entry, 'project'));
   const skills = loadProjectSkills(paths, projectId);
@@ -80,25 +117,14 @@ function promoteProjectSkills(paths, projectId, sessionKey) {
       return experience;
     }
 
-    const existingSkill =
-      skills.find((skill) => skill.source_experience === experience.id) ||
-      skills.find((skill) => skill.name === experience.skillification_suggested_name);
-
-    if (existingSkill) {
-      return {
-        ...experience,
-        skill_name: existingSkill.name,
-        skill_id: existingSkill.id,
-        skill_scope: 'project'
-      };
-    }
-
-    const skill = createSkillRecord('project', projectSkillsDir(paths, projectId), experience, {
+    const { skill, created } = reuseOrCreateSkill(skills, 'project', projectSkillsDir(paths, projectId), experience, {
       sessionKey,
       projectId
     });
-    skills.push(skill);
-    promotions.push(skill);
+
+    if (created) {
+      promotions.push(skill);
+    }
 
     return {
       ...experience,
@@ -154,24 +180,13 @@ function promoteUserSkills(paths, userId) {
       return experience;
     }
 
-    const existingSkill =
-      skills.find((skill) => skill.source_experience === experience.id) ||
-      skills.find((skill) => skill.name === experience.skillification_suggested_name);
-
-    if (existingSkill) {
-      return {
-        ...experience,
-        skill_name: existingSkill.name,
-        skill_id: existingSkill.id,
-        skill_scope: 'user'
-      };
-    }
-
-    const skill = createSkillRecord('user', userSkillsDir(paths, userId), experience, {
+    const { skill, created } = reuseOrCreateSkill(skills, 'user', userSkillsDir(paths, userId), experience, {
       userId
     });
-    skills.push(skill);
-    promotions.push(skill);
+
+    if (created) {
+      promotions.push(skill);
+    }
 
     return {
       ...experience,

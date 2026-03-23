@@ -73,3 +73,12 @@ node scripts/skill-create.js <workspace> <experience-id> <skill-name> [project-i
 - draft 仍然是独立对象，不会直接替代 active skill
 - 满足门槛的 validated experience 现在会自动晋升为 `project/user active skill`
 - 更复杂的晋升治理会在后续阶段继续完善
+
+## Governance
+
+当前治理规则：
+
+- 同名 active skill 通过 `conflict_key` 判定冲突
+- `session-start` 激活时，优先级为 `session > project > user`
+- `scope-promote` 遇到同名 active skill 时复用已有 skill，并追加 `related_experiences`
+- `inactive` 和 `archived` skill 不参与自动激活

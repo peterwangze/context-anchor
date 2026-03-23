@@ -23,6 +23,7 @@ const DEFAULTS = {
   }
 };
 const VALIDATION_STATUSES = ['pending', 'validated', 'rejected'];
+const SKILL_STATUSES = ['draft', 'active', 'inactive', 'archived'];
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -830,6 +831,89 @@ function copyDir(sourceDir, targetDir) {
   });
 }
 
+function skillConflictKey(name = '') {
+  return String(name)
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'skill';
+}
+
+function normalizeSkillRecord(skill = {}, defaultScope = 'project') {
+  const scope = skill.scope || defaultScope;
+  const status = SKILL_STATUSES.includes(skill.status) ? skill.status : (scope === 'session' ? 'draft' : 'active');
+  return {
+    ...skill,
+    scope,
+    status,
+    archived: Boolean(skill.archived || status === 'archived'),
+    conflict_key: skill.conflict_key || skillConflictKey(skill.name || skill.id || 'skill'),
+    related_experiences: Array.isArray(skill.related_experiences) ? skill.related_experiences : [],
+    load_policy: {
+      auto_load: skill.load_policy?.auto_load !== false,
+      priority: Number(skill.load_policy?.priority || 50),
+      budget_weight: Number(skill.load_policy?.budget_weight || 1)
+    }
+  };
+}
+
+function isSkillLoadable(skill) {
+  if (!skill || skill.archived) {
+    return false;
+  }
+
+  if (skill.status === 'inactive' || skill.status === 'archived') {
+    return false;
+  }
+
+  return skill.load_policy?.auto_load !== false;
+}
+
+function selectEffectiveSkills(skillGroups = {}) {
+  const order = ['session', 'project', 'user'];
+  const effective = [];
+  const shadowed = [];
+  const chosenByKey = new Map();
+
+  order.forEach((scope, index) => {
+    const normalized = (skillGroups[scope] || [])
+      .map((skill) => normalizeSkillRecord(skill, scope))
+      .filter((skill) => isSkillLoadable(skill))
+      .sort((left, right) => {
+        const priorityDiff = Number(right.load_policy?.priority || 0) - Number(left.load_policy?.priority || 0);
+        if (priorityDiff !== 0) {
+          return priorityDiff;
+        }
+        return new Date(right.created_at || 0).getTime() - new Date(left.created_at || 0).getTime();
+      });
+
+    normalized.forEach((skill) => {
+      const key = skill.conflict_key;
+      if (chosenByKey.has(key)) {
+        const winner = chosenByKey.get(key);
+        shadowed.push({
+          ...skill,
+          shadowed_by: winner.id,
+          shadowed_by_scope: winner.scope
+        });
+        return;
+      }
+
+      const withPrecedence = {
+        ...skill,
+        precedence: index
+      };
+      chosenByKey.set(key, withPrecedence);
+      effective.push(withPrecedence);
+    });
+  });
+
+  return {
+    effective,
+    shadowed
+  };
+}
+
 function buildScopedSkillMarkdown(skill) {
   return [
     '---',
@@ -866,6 +950,7 @@ function buildScopedSkillMarkdown(skill) {
 
 module.exports = {
   DEFAULTS,
+  SKILL_STATUSES,
   VALIDATION_STATUSES,
   buildCheckpointContent,
   buildScopedSkillMarkdown,
@@ -904,6 +989,7 @@ module.exports = {
   loadUserState,
   mergeAccessMetadata,
   normalizeValidation,
+  normalizeSkillRecord,
   nowIso,
   compactPacketFile,
   projectDecisionsFile,
@@ -931,6 +1017,9 @@ module.exports = {
   sessionStateFile,
   sessionSummaryFile,
   sortByHeat,
+  isSkillLoadable,
+  selectEffectiveSkills,
+  skillConflictKey,
   syncProjectStateMetadata,
   touchGlobalIndex,
   touchSessionIndex,
@@ -957,8 +1046,7 @@ module.exports = {
   writeSessionSkills,
   writeSessionState,
   writeSessionSummary,
-  writeText
-  ,
+  writeText,
   writeUserExperiences,
   writeUserMemories,
   writeUserSkills,
