@@ -379,6 +379,38 @@ node ~/.openclaw/skills/context-anchor/scripts/skill-reconcile.js <workspace> [p
 node ~/.openclaw/skills/context-anchor/scripts/skill-supersede.js <workspace> <scope> <winner-skill-id> <loser-skill-id> [project-id|user-id]
 ```
 
+## 观测与诊断
+
+### 统一状态报告
+
+可以直接查看当前 workspace 下 user/project/session 三层的统计和治理状态：
+
+```bash
+node ~/.openclaw/skills/context-anchor/scripts/status-report.js <workspace> [session-key] [project-id] [user-id]
+```
+
+报告会输出：
+
+- user/project/session 的 memory/experience/skill 计数
+- governance 统计：`active / shadowed / superseded / budgeted_out`
+- session 最近一次 summary 摘要
+- health warnings
+
+### 单条 skill 诊断
+
+可以解释某条 skill 为什么生效、被遮蔽、被 supersede 或被预算裁掉：
+
+```bash
+node ~/.openclaw/skills/context-anchor/scripts/skill-diagnose.js <workspace> <skill-id|name|conflict-key> [session-key] [project-id] [user-id]
+```
+
+诊断输出会说明：
+
+- 当前匹配到哪些 skill
+- 哪一个是 `effective_match`
+- 每条 skill 的 `diagnosis`
+- 是否被 `shadowed`、`superseded` 或 `budgeted_out`
+
 ## 常见操作
 
 ### 手动创建 checkpoint
@@ -497,6 +529,8 @@ npm test
 - `_global -> user` 迁移
 - validated experience -> `project/user active skill`
 - same-name skill dedupe and precedence governance
+- unified status report
+- single skill diagnosis
 - session 记忆二次同步的 upsert
 - 自动校验与技能化候选
 - skill 创建

@@ -1019,10 +1019,113 @@ function buildScopedSkillMarkdown(skill) {
     .concat('\n');
 }
 
+function matchSkillIdentifier(skill, identifier) {
+  if (!identifier) {
+    return false;
+  }
+
+  const normalizedIdentifier = String(identifier).trim().toLowerCase();
+  return [
+    skill.id,
+    skill.name,
+    skill.conflict_key
+  ]
+    .filter(Boolean)
+    .map((value) => String(value).trim().toLowerCase())
+    .includes(normalizedIdentifier);
+}
+
+function collectSkillDiagnostics(skillGroups = {}, budgets = DEFAULTS.skillActivationBudget) {
+  const normalizedGroups = {
+    session: (skillGroups.session || []).map((skill) => normalizeSkillRecord(skill, 'session')),
+    project: (skillGroups.project || []).map((skill) => normalizeSkillRecord(skill, 'project')),
+    user: (skillGroups.user || []).map((skill) => normalizeSkillRecord(skill, 'user'))
+  };
+  const resolved = selectEffectiveSkills(normalizedGroups, budgets);
+
+  const activeIds = new Set(resolved.effective.map((skill) => skill.id));
+  const shadowedIds = new Set(resolved.shadowed.map((skill) => skill.id));
+  const supersededIds = new Set(resolved.superseded.map((skill) => skill.id));
+  const budgetedIds = new Set(resolved.budgeted_out.map((skill) => skill.id));
+
+  const all = Object.values(normalizedGroups).flat().map((skill) => {
+    let reason = 'inactive';
+
+    if (activeIds.has(skill.id)) {
+      reason = 'active';
+    } else if (shadowedIds.has(skill.id)) {
+      reason = 'shadowed';
+    } else if (supersededIds.has(skill.id)) {
+      reason = 'superseded';
+    } else if (budgetedIds.has(skill.id)) {
+      reason = 'budgeted_out';
+    } else if (skill.status === 'inactive') {
+      reason = 'inactive';
+    } else if (skill.status === 'archived' || skill.archived) {
+      reason = 'archived';
+    }
+
+    return {
+      ...skill,
+      diagnosis: reason
+    };
+  });
+
+  return {
+    all,
+    active: resolved.effective,
+    shadowed: resolved.shadowed,
+    superseded: resolved.superseded,
+    budgeted_out: resolved.budgeted_out
+  };
+}
+
+function countByStatus(items = []) {
+  return items.reduce((acc, item) => {
+    const key = item.status || 'unknown';
+    acc[key] = Number(acc[key] || 0) + 1;
+    return acc;
+  }, {});
+}
+
+function buildHealthSummary(input) {
+  const warnings = [];
+
+  if ((input.session?.pending_commitments || 0) > 0) {
+    warnings.push('pending_commitments');
+  }
+
+  if ((input.governance?.budgeted_out || 0) > 0) {
+    warnings.push('budget_pressure_on_skills');
+  }
+
+  if ((input.governance?.shadowed || 0) > 0) {
+    warnings.push('shadowed_skills_present');
+  }
+
+  if ((input.governance?.superseded || 0) > 0) {
+    warnings.push('superseded_skills_present');
+  }
+
+  if ((input.skills?.inactive || 0) > 0) {
+    warnings.push('inactive_skills_present');
+  }
+
+  if ((input.skills?.archived || 0) > 0) {
+    warnings.push('archived_skills_present');
+  }
+
+  return {
+    warnings,
+    healthy: warnings.length === 0
+  };
+}
+
 module.exports = {
   DEFAULTS,
   SKILL_STATUSES,
   VALIDATION_STATUSES,
+  buildHealthSummary,
   buildCheckpointContent,
   buildScopedSkillMarkdown,
   calculateDaysSince,
@@ -1040,6 +1143,7 @@ module.exports = {
   getRepoRoot,
   getSkillsRoot,
   getRecentSessions,
+  collectSkillDiagnostics,
   loadCompactPacket,
   loadCollection,
   loadGlobalState,
@@ -1089,8 +1193,10 @@ module.exports = {
   sessionSummaryFile,
   sortByHeat,
   isSkillLoadable,
+  matchSkillIdentifier,
   selectEffectiveSkills,
   skillConflictKey,
+  countByStatus,
   syncProjectStateMetadata,
   touchGlobalIndex,
   touchSessionIndex,

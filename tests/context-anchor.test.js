@@ -19,8 +19,10 @@ const { runMigrateGlobalToUser } = require('../scripts/migrate-global-to-user');
 const { runMemoryFlow } = require('../scripts/memory-flow');
 const { runMemorySave } = require('../scripts/memory-save');
 const { runHeartbeat } = require('../scripts/heartbeat');
+const { runSkillDiagnose } = require('../scripts/skill-diagnose');
 const { runScopePromote } = require('../scripts/scope-promote');
 const { runSkillReconcile } = require('../scripts/skill-reconcile');
+const { runStatusReport } = require('../scripts/status-report');
 const { runSkillSupersede } = require('../scripts/skill-supersede');
 const { runSessionClose } = require('../scripts/session-close');
 const { runSessionStart } = require('../scripts/session-start');
@@ -1082,6 +1084,135 @@ test('skill reconcile archives low-value inactive skills', () => {
       assert.equal(result.project_archived, 1);
       assert.equal(projectSkills[0].status, 'archived');
       assert.equal(projectSkills[0].archived, true);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('status report summarizes user project session counts and governance', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'report-session', 'demo');
+      runMemorySave(
+        workspace,
+        'report-session',
+        'user',
+        'best_practice',
+        'User level guidance'
+      );
+      runMemorySave(
+        workspace,
+        'report-session',
+        'project',
+        'best_practice',
+        'Project level guidance'
+      );
+      runMemorySave(
+        workspace,
+        'report-session',
+        'session',
+        'best_practice',
+        'Session level guidance'
+      );
+      runSessionClose(workspace, 'report-session', {
+        reason: 'session-end',
+        usagePercent: 88
+      });
+
+      const report = runStatusReport(workspace, 'report-session', 'demo', 'default-user');
+
+      assert.equal(report.status, 'ok');
+      assert.equal(report.user.id, 'default-user');
+      assert.equal(report.project.id, 'demo');
+      assert.equal(report.session.key, 'report-session');
+      assert.ok(report.session.last_summary_snapshot);
+      assert.ok(typeof report.governance.active === 'number');
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('skill diagnose explains active shadowed superseded and budgeted skills', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'diagnose-session', 'demo');
+      const sessionSkillDir = path.join(workspace, '.context-anchor', 'sessions', 'diagnose-session', 'skills');
+      fs.mkdirSync(sessionSkillDir, { recursive: true });
+      writeJson(path.join(sessionSkillDir, 'index.json'), {
+        skills: [
+          {
+            id: 'diag-session',
+            name: 'shared-diag',
+            conflict_key: 'shared-diag',
+            scope: 'session',
+            status: 'draft',
+            load_policy: { priority: 90, budget_weight: 1, auto_load: true }
+          },
+          {
+            id: 'diag-budget-1',
+            name: 'budget-a',
+            conflict_key: 'budget-a',
+            scope: 'session',
+            status: 'draft',
+            load_policy: { priority: 85, budget_weight: 1, auto_load: true }
+          },
+          {
+            id: 'diag-budget-2',
+            name: 'budget-b',
+            conflict_key: 'budget-b',
+            scope: 'session',
+            status: 'draft',
+            load_policy: { priority: 80, budget_weight: 1, auto_load: true }
+          }
+        ]
+      });
+      const projectSkillDir = path.join(workspace, '.context-anchor', 'projects', 'demo', 'skills');
+      fs.mkdirSync(projectSkillDir, { recursive: true });
+      writeJson(path.join(projectSkillDir, 'index.json'), {
+        skills: [
+          {
+            id: 'diag-project',
+            name: 'shared-diag',
+            conflict_key: 'shared-diag',
+            scope: 'project',
+            status: 'active',
+            load_policy: { priority: 60, budget_weight: 1, auto_load: true }
+          },
+          {
+            id: 'diag-supersede-winner',
+            name: 'winner-skill',
+            conflict_key: 'winner-skill',
+            scope: 'project',
+            status: 'active',
+            supersedes: ['loser-skill'],
+            load_policy: { priority: 70, budget_weight: 1, auto_load: true }
+          },
+          {
+            id: 'diag-supersede-loser',
+            name: 'loser-skill',
+            conflict_key: 'loser-skill',
+            scope: 'project',
+            status: 'active',
+            load_policy: { priority: 65, budget_weight: 1, auto_load: true }
+          }
+        ]
+      });
+
+      const diagActive = runSkillDiagnose(workspace, 'diag-session', 'diagnose-session', 'demo', 'default-user');
+      const diagShadowed = runSkillDiagnose(workspace, 'diag-project', 'diagnose-session', 'demo', 'default-user');
+      const diagSuperseded = runSkillDiagnose(workspace, 'diag-supersede-loser', 'diagnose-session', 'demo', 'default-user');
+      const diagBudget = runSkillDiagnose(workspace, 'diag-budget-2', 'diagnose-session', 'demo', 'default-user');
+
+      assert.equal(diagActive.effective_match.id, 'diag-session');
+      assert.equal(diagShadowed.reasons[0].diagnosis, 'shadowed');
+      assert.equal(diagSuperseded.reasons[0].diagnosis, 'superseded');
+      assert.equal(diagBudget.reasons[0].diagnosis, 'budgeted_out');
     });
   } finally {
     cleanupWorkspace(workspace);
