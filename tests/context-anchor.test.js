@@ -21,6 +21,7 @@ const { runMemorySave } = require('../scripts/memory-save');
 const { runHeartbeat } = require('../scripts/heartbeat');
 const { runScopePromote } = require('../scripts/scope-promote');
 const { runSkillReconcile } = require('../scripts/skill-reconcile');
+const { runSkillSupersede } = require('../scripts/skill-supersede');
 const { runSessionClose } = require('../scripts/session-close');
 const { runSessionStart } = require('../scripts/session-start');
 const { runSkillStatusUpdate } = require('../scripts/skill-status-update');
@@ -895,6 +896,192 @@ test('project skill records promotion history and manual status history', () => 
       assert.ok(updatedSkills[0].promotion_history.length >= 1);
       assert.ok(updatedSkills[0].status_history.length >= 2);
       assert.equal(updatedSkills[0].status, 'inactive');
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('skill supersede deactivates loser and keeps only winner effective', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'supersede-project', 'demo');
+      const projectSkillDir = path.join(workspace, '.context-anchor', 'projects', 'demo', 'skills');
+      fs.mkdirSync(projectSkillDir, { recursive: true });
+      writeJson(path.join(projectSkillDir, 'index.json'), {
+        skills: [
+          {
+            id: 'project-skill-a',
+            name: 'shared-project-skill-a',
+            conflict_key: 'shared-project-skill-a',
+            scope: 'project',
+            status: 'active',
+            summary: 'winner',
+            load_policy: { priority: 60, budget_weight: 1, auto_load: true }
+          },
+          {
+            id: 'project-skill-b',
+            name: 'shared-project-skill-b',
+            conflict_key: 'shared-project-skill-b',
+            scope: 'project',
+            status: 'active',
+            summary: 'loser',
+            load_policy: { priority: 50, budget_weight: 1, auto_load: true }
+          }
+        ]
+      });
+
+      runSkillSupersede(workspace, 'project', 'project-skill-a', 'project-skill-b', 'demo');
+      const result = runSessionStart(workspace, 'supersede-project', 'demo');
+
+      assert.ok(result.effective_skills.some((skill) => skill.id === 'project-skill-a'));
+      assert.ok(!result.effective_skills.some((skill) => skill.id === 'project-skill-b'));
+      assert.ok(result.shadowed_skills.length === 0);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('skill activation budget limits effective skills and reports budgeted out skills', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'budget-session', 'demo');
+      const sessionSkillDir = path.join(workspace, '.context-anchor', 'sessions', 'budget-session', 'skills');
+      fs.mkdirSync(sessionSkillDir, { recursive: true });
+      writeJson(path.join(sessionSkillDir, 'index.json'), {
+        skills: [
+          {
+            id: 's1',
+            name: 'skill-1',
+            conflict_key: 'skill-1',
+            scope: 'session',
+            status: 'draft',
+            load_policy: { priority: 90, budget_weight: 1, auto_load: true }
+          },
+          {
+            id: 's2',
+            name: 'skill-2',
+            conflict_key: 'skill-2',
+            scope: 'session',
+            status: 'draft',
+            load_policy: { priority: 80, budget_weight: 1, auto_load: true }
+          },
+          {
+            id: 's3',
+            name: 'skill-3',
+            conflict_key: 'skill-3',
+            scope: 'session',
+            status: 'draft',
+            load_policy: { priority: 70, budget_weight: 1, auto_load: true }
+          }
+        ]
+      });
+      const projectSkillDir = path.join(workspace, '.context-anchor', 'projects', 'demo', 'skills');
+      fs.mkdirSync(projectSkillDir, { recursive: true });
+      writeJson(path.join(projectSkillDir, 'index.json'), {
+        skills: [
+          {
+            id: 'p1',
+            name: 'project-skill-1',
+            conflict_key: 'project-skill-1',
+            scope: 'project',
+            status: 'active',
+            load_policy: { priority: 60, budget_weight: 1, auto_load: true }
+          },
+          {
+            id: 'p2',
+            name: 'project-skill-2',
+            conflict_key: 'project-skill-2',
+            scope: 'project',
+            status: 'active',
+            load_policy: { priority: 50, budget_weight: 1, auto_load: true }
+          },
+          {
+            id: 'p3',
+            name: 'project-skill-3',
+            conflict_key: 'project-skill-3',
+            scope: 'project',
+            status: 'active',
+            load_policy: { priority: 40, budget_weight: 1, auto_load: true }
+          }
+        ]
+      });
+      const userSkillDir = path.join(workspace, 'openclaw-home', 'context-anchor', 'users', 'default-user', 'skills');
+      fs.mkdirSync(userSkillDir, { recursive: true });
+      writeJson(path.join(userSkillDir, 'index.json'), {
+        skills: [
+          {
+            id: 'u1',
+            name: 'user-skill-1',
+            conflict_key: 'user-skill-1',
+            scope: 'user',
+            status: 'active',
+            load_policy: { priority: 30, budget_weight: 1, auto_load: true }
+          },
+          {
+            id: 'u2',
+            name: 'user-skill-2',
+            conflict_key: 'user-skill-2',
+            scope: 'user',
+            status: 'active',
+            load_policy: { priority: 20, budget_weight: 1, auto_load: true }
+          }
+        ]
+      });
+
+      const result = runSessionStart(workspace, 'budget-session', 'demo');
+
+      assert.equal(result.effective_skills.length, 5);
+      assert.ok(result.shadowed_skills.length === 0);
+      assert.ok(result.boot_packet.skill_governance.budgeted_out.length >= 1);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('skill reconcile archives low-value inactive skills', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'archive-skill', 'demo');
+      const projectSkillDir = path.join(workspace, '.context-anchor', 'projects', 'demo', 'skills');
+      fs.mkdirSync(projectSkillDir, { recursive: true });
+      writeJson(path.join(projectSkillDir, 'index.json'), {
+        skills: [
+          {
+            id: 'project-skill-archive',
+            name: 'archive-me',
+            scope: 'project',
+            status: 'inactive',
+            usage_count: 0,
+            load_policy: { priority: 10, budget_weight: 1, auto_load: true },
+            status_history: [
+              {
+                status: 'inactive',
+                at: '2026-03-24T00:00:00Z',
+                reason: 'manual'
+              }
+            ]
+          }
+        ]
+      });
+
+      const result = runSkillReconcile(workspace, {
+        projectId: 'demo',
+        userId: 'default-user'
+      });
+      const projectSkills = readJson(path.join(projectSkillDir, 'index.json'), { skills: [] }).skills;
+
+      assert.equal(result.project_archived, 1);
+      assert.equal(projectSkills[0].status, 'archived');
+      assert.equal(projectSkills[0].archived, true);
     });
   } finally {
     cleanupWorkspace(workspace);

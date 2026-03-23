@@ -84,3 +84,6 @@ node scripts/skill-create.js <workspace> <experience-id> <skill-name> [project-i
 - `inactive` 和 `archived` skill 不参与自动激活
 - `skill-reconcile` 会在 source experience 不再有效时把 skill 自动降级为 `inactive`
 - skill 保留 `promotion_history` 和 `status_history`
+- `skill-supersede` 可显式声明 winner/loser 关系
+- skill 激活集合受预算治理约束，超出预算的 skill 会进入 `budgeted_out`
+- 低优先级、低使用度且 inactive 的 skill 会被自动 archive

@@ -357,6 +357,9 @@ node ~/.openclaw/hooks/context-anchor-hook/handler.js command:stop "{\"workspace
 - `inactive` / `archived` skill 不会进入自动激活集合
 - `skill-reconcile` 会在 source experience 失效时自动把相关 skill 降级为 `inactive`
 - skill 会保留 `promotion_history` 和 `status_history`
+- `skill-supersede` 可以显式声明 winner/loser 关系
+- 激活集合受预算约束，超出预算的 skill 会进入 `budgeted_out`
+- 长期低价值且 inactive 的 skill 会被自动归档
 
 可以手动更新 skill 状态：
 
@@ -368,6 +371,12 @@ node ~/.openclaw/skills/context-anchor/scripts/skill-status-update.js <workspace
 
 ```bash
 node ~/.openclaw/skills/context-anchor/scripts/skill-reconcile.js <workspace> [project-id] [user-id]
+```
+
+也可以手动声明 supersede：
+
+```bash
+node ~/.openclaw/skills/context-anchor/scripts/skill-supersede.js <workspace> <scope> <winner-skill-id> <loser-skill-id> [project-id|user-id]
 ```
 
 ## 常见操作

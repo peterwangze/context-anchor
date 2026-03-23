@@ -20,7 +20,16 @@ const DEFAULTS = {
     minDays: 7,
     minAccessCount: 3,
     minSessions: 2
-  }
+  },
+  skillActivationBudget: {
+    total: 5,
+    session: 2,
+    project: 2,
+    user: 1
+  },
+  skillArchivePriorityThreshold: 25
+  ,
+  skillArchiveUsageThreshold: 0
 };
 const VALIDATION_STATUSES = ['pending', 'validated', 'rejected'];
 const SKILL_STATUSES = ['draft', 'active', 'inactive', 'archived'];
@@ -851,6 +860,10 @@ function normalizeSkillRecord(skill = {}, defaultScope = 'project') {
     related_experiences: Array.isArray(skill.related_experiences) ? skill.related_experiences : [],
     promotion_history: Array.isArray(skill.promotion_history) ? skill.promotion_history : [],
     status_history: Array.isArray(skill.status_history) ? skill.status_history : [],
+    supersedes: Array.isArray(skill.supersedes) ? skill.supersedes : [],
+    superseded_by: skill.superseded_by || null,
+    usage_count: Number(skill.usage_count || 0),
+    last_used_at: skill.last_used_at || null,
     load_policy: {
       auto_load: skill.load_policy?.auto_load !== false,
       priority: Number(skill.load_policy?.priority || 50),
@@ -868,13 +881,23 @@ function isSkillLoadable(skill) {
     return false;
   }
 
+  if (skill.superseded_by) {
+    return false;
+  }
+
   return skill.load_policy?.auto_load !== false;
 }
 
-function selectEffectiveSkills(skillGroups = {}) {
+function skillSupersedeTargets(skill) {
+  return (skill.supersedes || []).map((item) => skillConflictKey(item));
+}
+
+function selectEffectiveSkills(skillGroups = {}, budgets = DEFAULTS.skillActivationBudget) {
   const order = ['session', 'project', 'user'];
-  const effective = [];
+  const candidates = [];
   const shadowed = [];
+  const superseded = [];
+  const budgeted_out = [];
   const chosenByKey = new Map();
 
   order.forEach((scope, index) => {
@@ -906,13 +929,59 @@ function selectEffectiveSkills(skillGroups = {}) {
         precedence: index
       };
       chosenByKey.set(key, withPrecedence);
-      effective.push(withPrecedence);
+      candidates.push(withPrecedence);
     });
+  });
+
+  const supersededKeys = new Set();
+  candidates.forEach((skill) => {
+    skillSupersedeTargets(skill).forEach((targetKey) => {
+      supersededKeys.add(targetKey);
+    });
+  });
+
+  const afterSupersede = [];
+  candidates.forEach((skill) => {
+    if (supersededKeys.has(skill.conflict_key) && !skillSupersedeTargets(skill).includes(skill.conflict_key)) {
+      superseded.push({
+        ...skill,
+        superseded_reason: 'superseded_by_other_skill'
+      });
+      return;
+    }
+
+    afterSupersede.push(skill);
+  });
+
+  const scopeBudgetLeft = {
+    session: Number(budgets.session || 0),
+    project: Number(budgets.project || 0),
+    user: Number(budgets.user || 0)
+  };
+  let totalBudgetLeft = Number(budgets.total || 0);
+  const effective = [];
+
+  afterSupersede.forEach((skill) => {
+    const scope = skill.scope;
+    const weight = Math.max(1, Number(skill.load_policy?.budget_weight || 1));
+    if (totalBudgetLeft < weight || scopeBudgetLeft[scope] < weight) {
+      budgeted_out.push({
+        ...skill,
+        budget_reason: 'budget_exhausted'
+      });
+      return;
+    }
+
+    totalBudgetLeft -= weight;
+    scopeBudgetLeft[scope] -= weight;
+    effective.push(skill);
   });
 
   return {
     effective,
-    shadowed
+    shadowed,
+    superseded,
+    budgeted_out
   };
 }
 

@@ -308,6 +308,11 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg) {
     project: resolvedSkills.effective.filter((skill) => skill.scope === 'project'),
     user: resolvedSkills.effective.filter((skill) => skill.scope === 'user')
   };
+  summary.boot_packet.skill_governance = {
+    shadowed: resolvedSkills.shadowed,
+    superseded: resolvedSkills.superseded,
+    budgeted_out: resolvedSkills.budgeted_out
+  };
 
   return summary;
 }

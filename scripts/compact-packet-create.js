@@ -12,7 +12,9 @@ const {
   loadUserExperiences,
   loadUserMemories,
   loadUserSkills,
+  normalizeSkillRecord,
   resolveUserId,
+  selectEffectiveSkills,
   sanitizeKey,
   sortByHeat,
   writeCompactPacket
@@ -42,6 +44,11 @@ function runCompactPacketCreate(workspaceArg, sessionKeyArg, options = {}) {
   const projectExperiences = sortByHeat(loadProjectExperiences(paths, sessionState.project_id)).filter((entry) => !entry.archived);
   const userMemories = sortByHeat(loadUserMemories(paths, userId)).filter((entry) => !entry.archived);
   const userExperiences = sortByHeat(loadUserExperiences(paths, userId)).filter((entry) => !entry.archived);
+  const resolvedSkills = selectEffectiveSkills({
+    session: require('./lib/context-anchor').loadSessionSkills(paths, sessionKey).map((skill) => normalizeSkillRecord(skill, 'session')),
+    project: loadProjectSkills(paths, sessionState.project_id).map((skill) => normalizeSkillRecord(skill, 'project')),
+    user: loadUserSkills(paths, userId).map((skill) => normalizeSkillRecord(skill, 'user'))
+  });
   const packet = {
     session_key: sessionState.session_key,
     project_id: sessionState.project_id,
@@ -88,9 +95,14 @@ function runCompactPacketCreate(workspaceArg, sessionKeyArg, options = {}) {
       heat: entry.heat
     })),
     active_skills: {
-      session: summarizeSkills(require('./lib/context-anchor').loadSessionSkills(paths, sessionKey)),
-      project: summarizeSkills(loadProjectSkills(paths, sessionState.project_id)),
-      user: summarizeSkills(loadUserSkills(paths, userId))
+      session: summarizeSkills(resolvedSkills.effective.filter((skill) => skill.scope === 'session')),
+      project: summarizeSkills(resolvedSkills.effective.filter((skill) => skill.scope === 'project')),
+      user: summarizeSkills(resolvedSkills.effective.filter((skill) => skill.scope === 'user'))
+    },
+    skill_governance: {
+      shadowed: summarizeSkills(resolvedSkills.shadowed),
+      superseded: summarizeSkills(resolvedSkills.superseded),
+      budgeted_out: summarizeSkills(resolvedSkills.budgeted_out)
     }
   };
 
