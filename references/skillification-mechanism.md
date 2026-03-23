@@ -82,3 +82,5 @@ node scripts/skill-create.js <workspace> <experience-id> <skill-name> [project-i
 - `session-start` 激活时，优先级为 `session > project > user`
 - `scope-promote` 遇到同名 active skill 时复用已有 skill，并追加 `related_experiences`
 - `inactive` 和 `archived` skill 不参与自动激活
+- `skill-reconcile` 会在 source experience 不再有效时把 skill 自动降级为 `inactive`
+- skill 保留 `promotion_history` 和 `status_history`

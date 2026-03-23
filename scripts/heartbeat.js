@@ -4,6 +4,7 @@ const { createPaths, loadSessionState, sanitizeKey } = require('./lib/context-an
 const { runContextPressureHandle } = require('./context-pressure-handle');
 const { runHeatEvaluation } = require('./heat-eval');
 const { runMemoryFlow } = require('./memory-flow');
+const { runSkillReconcile } = require('./skill-reconcile');
 const { runScopePromote } = require('./scope-promote');
 const { runSkillificationScore } = require('./skillification-score');
 
@@ -22,6 +23,10 @@ function runHeartbeat(workspaceArg, sessionKeyArg, projectIdArg, usagePercentArg
     projectId: sessionState.project_id,
     userId: sessionState.user_id
   });
+  const reconcile = runSkillReconcile(paths.workspace, {
+    projectId: sessionState.project_id,
+    userId: sessionState.user_id
+  });
   const pressure =
     usagePercentArg !== undefined
       ? runContextPressureHandle(paths.workspace, sessionState.session_key, usagePercentArg)
@@ -35,6 +40,7 @@ function runHeartbeat(workspaceArg, sessionKeyArg, projectIdArg, usagePercentArg
     heat,
     skillification,
     promotions,
+    reconcile,
     pressure
   };
 }

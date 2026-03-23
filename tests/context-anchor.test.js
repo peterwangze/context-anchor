@@ -20,6 +20,7 @@ const { runMemoryFlow } = require('../scripts/memory-flow');
 const { runMemorySave } = require('../scripts/memory-save');
 const { runHeartbeat } = require('../scripts/heartbeat');
 const { runScopePromote } = require('../scripts/scope-promote');
+const { runSkillReconcile } = require('../scripts/skill-reconcile');
 const { runSessionClose } = require('../scripts/session-close');
 const { runSessionStart } = require('../scripts/session-start');
 const { runSkillStatusUpdate } = require('../scripts/skill-status-update');
@@ -795,6 +796,105 @@ test('inactive skills are filtered from effective activation', () => {
       const result = runSessionStart(workspace, 'inactive-skill', 'demo');
 
       assert.equal(result.effective_skills.length, 0);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('skill reconcile deactivates project skills whose supporting experience is rejected', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'reconcile-project', 'demo');
+      const saved = runMemorySave(
+        workspace,
+        'reconcile-project',
+        'project',
+        'best_practice',
+        'Keep promotion evidence fresh',
+        JSON.stringify({
+          heat: 95,
+          access_count: 8,
+          access_sessions: ['session-b', 'session-c'],
+          validation_status: 'validated'
+        })
+      );
+
+      const experiencesFile = path.join(workspace, '.context-anchor', 'projects', 'demo', 'experiences.json');
+      const experiences = readJson(experiencesFile, { experiences: [] });
+      experiences.experiences[0].created_at = '2026-03-01T00:00:00Z';
+      writeJson(experiencesFile, experiences);
+
+      runScopePromote(workspace, {
+        sessionKey: 'reconcile-project',
+        projectId: 'demo',
+        userId: 'default-user'
+      });
+
+      const promotedExperiences = readJson(experiencesFile, { experiences: [] });
+      promotedExperiences.experiences[0].validation.status = 'rejected';
+      writeJson(experiencesFile, promotedExperiences);
+
+      const result = runSkillReconcile(workspace, {
+        projectId: 'demo',
+        userId: 'default-user'
+      });
+      const projectSkills = readJson(
+        path.join(workspace, '.context-anchor', 'projects', 'demo', 'skills', 'index.json'),
+        { skills: [] }
+      ).skills;
+
+      assert.equal(result.project_deactivated, 1);
+      assert.equal(projectSkills[0].status, 'inactive');
+      assert.ok(projectSkills[0].status_history.length >= 2);
+      assert.equal(projectSkills[0].source_experience, saved.id);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('project skill records promotion history and manual status history', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'history-project', 'demo');
+      runMemorySave(
+        workspace,
+        'history-project',
+        'project',
+        'best_practice',
+        'Track promotion history',
+        JSON.stringify({
+          heat: 95,
+          access_count: 8,
+          access_sessions: ['session-b', 'session-c'],
+          validation_status: 'validated'
+        })
+      );
+
+      const experiencesFile = path.join(workspace, '.context-anchor', 'projects', 'demo', 'experiences.json');
+      const experiences = readJson(experiencesFile, { experiences: [] });
+      experiences.experiences[0].created_at = '2026-03-01T00:00:00Z';
+      writeJson(experiencesFile, experiences);
+
+      runScopePromote(workspace, {
+        sessionKey: 'history-project',
+        projectId: 'demo',
+        userId: 'default-user'
+      });
+
+      const projectSkillsFile = path.join(workspace, '.context-anchor', 'projects', 'demo', 'skills', 'index.json');
+      const promotedSkills = readJson(projectSkillsFile, { skills: [] }).skills;
+      runSkillStatusUpdate(workspace, 'project', promotedSkills[0].id, 'inactive', 'demo', 'manual test deactivate');
+      const updatedSkills = readJson(projectSkillsFile, { skills: [] }).skills;
+
+      assert.ok(updatedSkills[0].promotion_history.length >= 1);
+      assert.ok(updatedSkills[0].status_history.length >= 2);
+      assert.equal(updatedSkills[0].status, 'inactive');
     });
   } finally {
     cleanupWorkspace(workspace);

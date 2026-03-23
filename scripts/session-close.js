@@ -17,6 +17,7 @@ const { runCheckpointCreate } = require('./checkpoint-create');
 const { runCompactPacketCreate } = require('./compact-packet-create');
 const { runHeatEvaluation } = require('./heat-eval');
 const { runMemoryFlow } = require('./memory-flow');
+const { runSkillReconcile } = require('./skill-reconcile');
 const { runScopePromote } = require('./scope-promote');
 const { runSkillDraftCreate } = require('./skill-draft-create');
 const { runSkillificationScore } = require('./skillification-score');
@@ -98,6 +99,10 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
     projectId: sessionState.project_id,
     userId: sessionState.user_id
   });
+  const reconcile = runSkillReconcile(paths.workspace, {
+    projectId: sessionState.project_id,
+    userId: sessionState.user_id
+  });
   const summary = {
     session_key: sessionState.session_key,
     project_id: sessionState.project_id,
@@ -111,6 +116,8 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
     compact_packet_file: compact.compact_packet_file,
     promoted_project_skills: promotions.project_skills,
     promoted_user_skills: promotions.user_skills,
+    deactivated_project_skills: reconcile.project_deactivated,
+    deactivated_user_skills: reconcile.user_deactivated,
     skill_draft: skillDraft.status === 'created' ? {
       id: skillDraft.skill_id,
       name: skillDraft.skill_name
@@ -133,6 +140,7 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
     session_experiences: allExperiences.length,
     skill_draft: skillDraft,
     promotions,
+    reconcile,
     heat,
     skillification
   };

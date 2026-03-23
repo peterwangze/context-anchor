@@ -26,7 +26,15 @@ function updateSkillStatus(skills, skillId, status, note) {
     status,
     archived: status === 'archived',
     status_updated_at: new Date().toISOString(),
-    status_note: note || null
+    status_note: note || null,
+    status_history: [
+      ...(skills[idx].status_history || []),
+      {
+        status,
+        at: new Date().toISOString(),
+        reason: note || 'manual-update'
+      }
+    ]
   };
   return skills[idx];
 }

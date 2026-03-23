@@ -63,6 +63,21 @@ function createSkillRecord(scope, targetDir, experience, defaults = {}) {
     summary: experience.summary,
     source_experience: experience.id,
     related_experiences: [experience.id],
+    promotion_history: [
+      {
+        action: 'promoted',
+        scope,
+        at: new Date().toISOString(),
+        source_experience: experience.id
+      }
+    ],
+    status_history: [
+      {
+        status: 'active',
+        at: new Date().toISOString(),
+        reason: 'promotion'
+      }
+    ],
     source_scope: experience.scope || defaults.sourceScope || scope,
     source_session: experience.source_session || defaults.sessionKey || null,
     source_project: experience.source_project || defaults.projectId || null,
@@ -89,7 +104,16 @@ function reuseOrCreateSkill(skills, scope, dir, experience, defaults) {
   if (existingSkill) {
     const merged = {
       ...existingSkill,
-      related_experiences: Array.from(new Set([...(existingSkill.related_experiences || []), experience.id]))
+      related_experiences: Array.from(new Set([...(existingSkill.related_experiences || []), experience.id])),
+      promotion_history: [
+        ...(existingSkill.promotion_history || []),
+        {
+          action: 'reused',
+          scope,
+          at: new Date().toISOString(),
+          source_experience: experience.id
+        }
+      ]
     };
     const idx = skills.findIndex((skill) => skill.id === existingSkill.id);
     skills[idx] = merged;
@@ -132,6 +156,7 @@ function promoteProjectSkills(paths, projectId, sessionKey) {
       skill_id: skill.id,
       skill_scope: 'project',
       promotion_history: experience.promotion_history.concat({
+        action: 'promoted',
         scope: 'project',
         at: skill.created_at,
         skill_id: skill.id
@@ -194,6 +219,7 @@ function promoteUserSkills(paths, userId) {
       skill_id: skill.id,
       skill_scope: 'user',
       promotion_history: experience.promotion_history.concat({
+        action: 'promoted',
         scope: 'user',
         at: skill.created_at,
         skill_id: skill.id

@@ -849,6 +849,8 @@ function normalizeSkillRecord(skill = {}, defaultScope = 'project') {
     archived: Boolean(skill.archived || status === 'archived'),
     conflict_key: skill.conflict_key || skillConflictKey(skill.name || skill.id || 'skill'),
     related_experiences: Array.isArray(skill.related_experiences) ? skill.related_experiences : [],
+    promotion_history: Array.isArray(skill.promotion_history) ? skill.promotion_history : [],
+    status_history: Array.isArray(skill.status_history) ? skill.status_history : [],
     load_policy: {
       auto_load: skill.load_policy?.auto_load !== false,
       priority: Number(skill.load_policy?.priority || 50),

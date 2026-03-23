@@ -355,11 +355,19 @@ node ~/.openclaw/hooks/context-anchor-hook/handler.js command:stop "{\"workspace
 - `scope-promote` 遇到同名 active skill 时会复用现有 skill，而不是重复创建
 - `session-start` 只激活冲突处理后的有效技能集合
 - `inactive` / `archived` skill 不会进入自动激活集合
+- `skill-reconcile` 会在 source experience 失效时自动把相关 skill 降级为 `inactive`
+- skill 会保留 `promotion_history` 和 `status_history`
 
 可以手动更新 skill 状态：
 
 ```bash
 node ~/.openclaw/skills/context-anchor/scripts/skill-status-update.js <workspace> <scope> <skill-id> <status> [session-key|project-id|user-id] [note]
+```
+
+也可以手动执行 reconcile：
+
+```bash
+node ~/.openclaw/skills/context-anchor/scripts/skill-reconcile.js <workspace> [project-id] [user-id]
 ```
 
 ## 常见操作
