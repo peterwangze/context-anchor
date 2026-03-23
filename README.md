@@ -395,6 +395,7 @@ node ~/.openclaw/skills/context-anchor/scripts/status-report.js <workspace> [ses
 - governance 统计：`active / shadowed / superseded / budgeted_out`
 - session 最近一次 summary 摘要
 - health warnings
+- 当前激活预算影响下的治理结果
 
 ### 单条 skill 诊断
 
@@ -410,6 +411,11 @@ node ~/.openclaw/skills/context-anchor/scripts/skill-diagnose.js <workspace> <sk
 - 哪一个是 `effective_match`
 - 每条 skill 的 `diagnosis`
 - 是否被 `shadowed`、`superseded` 或 `budgeted_out`
+- 可据此判断是否需要：
+  - 提高优先级
+  - 调整 budget
+  - 声明 supersede
+  - 手动 inactive / archive
 
 ## 常见操作
 
