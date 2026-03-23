@@ -4,14 +4,21 @@ const path = require('path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { readJson, writeJson } = require('../scripts/lib/context-anchor');
+const {
+  loadCompactPacket,
+  loadUserMemories,
+  readJson,
+  writeJson
+} = require('../scripts/lib/context-anchor');
 const { runCheckpointCreate } = require('../scripts/checkpoint-create');
 const { runContextPressureHandle } = require('../scripts/context-pressure-handle');
 const { handleHookEvent } = require('../hooks/context-anchor-hook/handler');
 const { runExperienceValidate } = require('../scripts/experience-validate');
 const { runInstallHostAssets } = require('../scripts/install-host-assets');
+const { runMigrateGlobalToUser } = require('../scripts/migrate-global-to-user');
 const { runMemoryFlow } = require('../scripts/memory-flow');
 const { runMemorySave } = require('../scripts/memory-save');
+const { runSessionClose } = require('../scripts/session-close');
 const { runSessionStart } = require('../scripts/session-start');
 const { runSkillCreate } = require('../scripts/skill-create');
 const { runSkillificationScore } = require('../scripts/skillification-score');
@@ -24,11 +31,27 @@ function cleanupWorkspace(workspace) {
   fs.rmSync(workspace, { recursive: true, force: true });
 }
 
+function withOpenClawHome(workspace, fn) {
+  const previous = process.env.OPENCLAW_HOME;
+  process.env.OPENCLAW_HOME = path.join(workspace, 'openclaw-home');
+
+  try {
+    return fn();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.OPENCLAW_HOME;
+    } else {
+      process.env.OPENCLAW_HOME = previous;
+    }
+  }
+}
+
 test('session-start preserves existing session state', () => {
   const workspace = makeWorkspace();
 
   try {
-    runSessionStart(workspace, 'session-a', 'demo');
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'session-a', 'demo');
     const sessionFile = path.join(
       workspace,
       '.context-anchor',
@@ -54,6 +77,7 @@ test('session-start preserves existing session state', () => {
     assert.equal(nextState.active_task, 'keep-me');
     assert.equal(nextState.commitments.length, 1);
     assert.equal(result.session.restored, true);
+    });
   } finally {
     cleanupWorkspace(workspace);
   }
@@ -63,6 +87,7 @@ test('context pressure handling creates a checkpoint and syncs hot memories', ()
   const workspace = makeWorkspace();
 
   try {
+    withOpenClawHome(workspace, () => {
     runSessionStart(workspace, 'session-b', 'demo');
     runMemorySave(
       workspace,
@@ -94,6 +119,8 @@ test('context pressure handling creates a checkpoint and syncs hot memories', ()
     assert.ok(fs.existsSync(checkpointFile));
     assert.equal(decisions.length, 1);
     assert.equal(decisions[0].decision, 'Use JSON storage');
+    assert.ok(fs.existsSync(path.join(workspace, '.context-anchor', 'sessions', 'session-b', 'compact-packet.json')));
+    });
   } finally {
     cleanupWorkspace(workspace);
   }
@@ -103,6 +130,7 @@ test('memory-flow upserts a previously synced session memory when it changes', (
   const workspace = makeWorkspace();
 
   try {
+    withOpenClawHome(workspace, () => {
     runSessionStart(workspace, 'session-upsert', 'demo');
     runMemorySave(
       workspace,
@@ -143,6 +171,7 @@ test('memory-flow upserts a previously synced session memory when it changes', (
     assert.equal(experiences.length, 1);
     assert.equal(experiences[0].summary, 'second version');
     assert.equal(experiences[0].details, 'v2');
+    });
   } finally {
     cleanupWorkspace(workspace);
   }
@@ -152,6 +181,7 @@ test('skillification auto-validates reused experiences before suggesting a skill
   const workspace = makeWorkspace();
 
   try {
+    withOpenClawHome(workspace, () => {
     runSessionStart(workspace, 'session-c', 'demo');
     const saved = runMemorySave(
       workspace,
@@ -184,6 +214,7 @@ test('skillification auto-validates reused experiences before suggesting a skill
     assert.equal(result.candidates, 1);
     assert.equal(result.candidates_list[0].id, saved.id);
     assert.equal(result.candidates_list[0].validation_status, 'validated');
+    });
   } finally {
     cleanupWorkspace(workspace);
   }
@@ -193,6 +224,7 @@ test('skill-create materializes a validated experience into a sibling skill dire
   const workspace = makeWorkspace();
 
   try {
+    withOpenClawHome(workspace, () => {
     runSessionStart(workspace, 'session-d', 'demo');
     const saved = runMemorySave(
       workspace,
@@ -228,6 +260,7 @@ test('skill-create materializes a validated experience into a sibling skill dire
     assert.equal(created.status, 'created');
     assert.ok(fs.existsSync(path.join(skillsRoot, 'deploy-guide', 'SKILL.md')));
     assert.ok(fs.existsSync(path.join(skillsRoot, '_skill-index.json')));
+    });
   } finally {
     cleanupWorkspace(workspace);
   }
@@ -237,6 +270,7 @@ test('experience-validate rejects unsupported validation statuses', () => {
   const workspace = makeWorkspace();
 
   try {
+    withOpenClawHome(workspace, () => {
     runSessionStart(workspace, 'session-validate', 'demo');
     const saved = runMemorySave(
       workspace,
@@ -250,6 +284,7 @@ test('experience-validate rejects unsupported validation statuses', () => {
       () => runExperienceValidate(workspace, saved.id, 'typo_status', 'demo'),
       /Validation status must be one of/
     );
+    });
   } finally {
     cleanupWorkspace(workspace);
   }
@@ -259,6 +294,7 @@ test('gateway startup hook emits a resume message for the latest active session'
   const workspace = makeWorkspace();
 
   try {
+    withOpenClawHome(workspace, () => {
     runSessionStart(workspace, 'resume-session', 'demo');
     const sessionFile = path.join(
       workspace,
@@ -287,6 +323,7 @@ test('gateway startup hook emits a resume message for the latest active session'
     assert.equal(result.status, 'resume_available');
     assert.match(result.resume_message, /finish repair/);
     assert.match(result.resume_message, /ship fix/);
+    });
   } finally {
     cleanupWorkspace(workspace);
   }
@@ -297,6 +334,7 @@ test('install-host-assets deploys a self-contained skill snapshot and registers 
   const openClawHome = path.join(workspace, 'openclaw-home');
 
   try {
+    withOpenClawHome(workspace, () => {
     const result = runInstallHostAssets(openClawHome);
     const config = readJson(path.join(openClawHome, 'config.json'), {});
     const installedSkillDir = path.join(openClawHome, 'skills', 'context-anchor');
@@ -319,6 +357,165 @@ test('install-host-assets deploys a self-contained skill snapshot and registers 
       )
     );
     assert.ok(normalizedWrapper.includes(installedSkillDir));
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('session-start loads user scope memories and skills', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runMemorySave(
+        workspace,
+        'bootstrap-session',
+        'user',
+        'preference',
+        'language:zh-CN',
+        JSON.stringify({ user_id: 'default-user' })
+      );
+      runMemorySave(
+        workspace,
+        'bootstrap-session',
+        'user',
+        'best_practice',
+        'Prefer concise summaries',
+        JSON.stringify({
+          user_id: 'default-user',
+          heat: 90,
+          access_sessions: ['other-session']
+        })
+      );
+      const openClawHome = path.join(workspace, 'openclaw-home');
+      const userSkillDir = path.join(openClawHome, 'context-anchor', 'users', 'default-user', 'skills');
+      fs.mkdirSync(userSkillDir, { recursive: true });
+      writeJson(path.join(userSkillDir, 'index.json'), {
+        skills: [
+          {
+            id: 'user-skill-1',
+            name: 'default-user-skill',
+            scope: 'user',
+            status: 'active',
+            summary: 'Loaded at session start'
+          }
+        ]
+      });
+
+      const result = runSessionStart(workspace, 'session-user-load');
+      assert.equal(result.user.id, 'default-user');
+      assert.ok(result.memories_to_inject.some((entry) => entry.source === 'user_preferences'));
+      assert.ok(result.memories_to_inject.some((entry) => entry.source === 'user_experiences'));
+      assert.equal(result.skills_to_activate.user.length, 1);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('session-close writes summary, compact packet, and session skill draft', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'session-close', 'demo');
+      runMemorySave(
+        workspace,
+        'session-close',
+        'session',
+        'best_practice',
+        'Always checkpoint before compaction',
+        JSON.stringify({ heat: 95, details: 'session lesson' })
+      );
+
+      const result = runSessionClose(workspace, 'session-close', {
+        reason: 'session-end',
+        usagePercent: 88
+      });
+
+      assert.equal(result.status, 'closed');
+      assert.ok(fs.existsSync(path.join(workspace, '.context-anchor', 'sessions', 'session-close', 'session-summary.json')));
+      assert.ok(fs.existsSync(path.join(workspace, '.context-anchor', 'sessions', 'session-close', 'compact-packet.json')));
+      assert.ok(fs.existsSync(path.join(workspace, '.context-anchor', 'sessions', 'session-close', 'skills', 'index.json')));
+      const skills = readJson(path.join(workspace, '.context-anchor', 'sessions', 'session-close', 'skills', 'index.json'), { skills: [] }).skills;
+      assert.equal(skills.length, 1);
+      const compactPacket = loadCompactPacket(
+        { ...require('../scripts/lib/context-anchor').createPaths(workspace) },
+        'session-close'
+      );
+      assert.equal(compactPacket.session_key, 'session-close');
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('migrate-global-to-user imports legacy global state into user scope', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      const globalFile = path.join(workspace, '.context-anchor', 'projects', '_global', 'state.json');
+      fs.mkdirSync(path.dirname(globalFile), { recursive: true });
+      writeJson(globalFile, {
+        user_preferences: {
+          timezone: 'Asia/Shanghai'
+        },
+        important_facts: [
+          {
+            id: 'glob-1',
+            content: 'User prefers Chinese'
+          }
+        ],
+        global_experiences: [
+          {
+            id: 'glob-exp-1',
+            type: 'best_practice',
+            summary: 'Reuse stable prompts'
+          }
+        ]
+      });
+
+      const result = runMigrateGlobalToUser(workspace);
+      const userMemories = loadUserMemories(require('../scripts/lib/context-anchor').createPaths(workspace), 'default-user');
+
+      assert.equal(result.status, 'migrated');
+      assert.equal(result.imported_memories, 1);
+      assert.equal(userMemories.length, 1);
+      assert.equal(userMemories[0].scope, 'user');
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('command stop hook runs unified session close lifecycle', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'hook-close', 'demo');
+      runMemorySave(
+        workspace,
+        'hook-close',
+        'session',
+        'best_practice',
+        'Close through unified lifecycle',
+        JSON.stringify({ heat: 95 })
+      );
+
+      const result = handleHookEvent('command:stop', {
+        workspace,
+        session_key: 'hook-close',
+        project_id: 'demo',
+        usage_percent: 91
+      });
+
+      assert.equal(result.status, 'handled');
+      assert.equal(result.result.status, 'closed');
+      assert.ok(fs.existsSync(path.join(workspace, '.context-anchor', 'sessions', 'hook-close', 'session-summary.json')));
+    });
   } finally {
     cleanupWorkspace(workspace);
   }

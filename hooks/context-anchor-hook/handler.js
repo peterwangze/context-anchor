@@ -12,9 +12,7 @@ const {
 } = require('../../scripts/lib/context-anchor');
 const { runCheckpointCreate } = require('../../scripts/checkpoint-create');
 const { runHeartbeat } = require('../../scripts/heartbeat');
-const { runHeatEvaluation } = require('../../scripts/heat-eval');
-const { runMemoryFlow } = require('../../scripts/memory-flow');
-const { runSkillificationScore } = require('../../scripts/skillification-score');
+const { runSessionClose } = require('../../scripts/session-close');
 
 function parsePayload(rawArg) {
   if (!rawArg) {
@@ -78,41 +76,28 @@ function handleStartup(payload) {
 }
 
 function handleStop(payload) {
-  const workspace = payload.workspace;
-  const sessionKey = payload.session_key || DEFAULTS.sessionKey;
-  const checkpoint = runCheckpointCreate(workspace, sessionKey, 'command-stop');
-  const flow = runMemoryFlow(workspace, sessionKey, { minimumHeat: 60 });
-
   return {
     status: 'handled',
     event: 'command:stop',
-    actions: ['checkpoint_created', 'memory_synced'],
-    checkpoint,
-    flow
+    actions: ['session_closed'],
+    result: runSessionClose(payload.workspace, payload.session_key || DEFAULTS.sessionKey, {
+      reason: 'command-stop',
+      usagePercent: payload.usage_percent,
+      projectId: payload.project_id
+    })
   };
 }
 
 function handleSessionEnd(payload) {
-  const workspace = payload.workspace;
-  const sessionKey = payload.session_key || DEFAULTS.sessionKey;
-  const paths = createPaths(workspace);
-  const sessionState = loadSessionState(paths, sessionKey, payload.project_id, {
-    createIfMissing: true,
-    touch: true
-  });
-  const checkpoint = runCheckpointCreate(workspace, sessionKey, 'session-end');
-  const flow = runMemoryFlow(workspace, sessionKey, { minimumHeat: 50 });
-  const heat = runHeatEvaluation(workspace, sessionState.project_id);
-  const skillification = runSkillificationScore(workspace, sessionState.project_id);
-
   return {
     status: 'handled',
     event: 'session:end',
-    actions: ['checkpoint_created', 'memory_synced', 'heat_evaluated', 'skillification_checked'],
-    checkpoint,
-    flow,
-    heat,
-    skillification
+    actions: ['session_closed'],
+    result: runSessionClose(payload.workspace, payload.session_key || DEFAULTS.sessionKey, {
+      reason: 'session-end',
+      usagePercent: payload.usage_percent,
+      projectId: payload.project_id
+    })
   };
 }
 

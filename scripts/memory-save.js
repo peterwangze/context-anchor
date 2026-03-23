@@ -14,9 +14,15 @@ const {
   loadProjectState,
   loadSessionMemory,
   loadSessionState,
+  loadUserExperiences,
+  loadUserMemories,
+  loadUserState,
   normalizeValidation,
   nowIso,
   recordHeatEntry,
+  recordUserHeatEntry,
+  resolveProjectId,
+  resolveUserId,
   sanitizeKey,
   syncProjectStateMetadata,
   touchSessionIndex,
@@ -28,6 +34,10 @@ const {
   writeProjectState,
   writeSessionMemory,
   writeSessionState
+  ,
+  writeUserExperiences,
+  writeUserMemories,
+  writeUserState
 } = require('./lib/context-anchor');
 
 function parseMetadata(rawValue) {
@@ -286,13 +296,14 @@ function savePreference(paths, sessionState, scope, content) {
     throw new Error('Preference content must use "key:value" format.');
   }
 
-  if (scope === 'global') {
-    const globalState = loadGlobalState(paths);
-    globalState.user_preferences[key.trim()] = value;
-    writeGlobalState(paths, globalState);
+  if (scope === 'global' || scope === 'user') {
+    const userState = loadUserState(paths, sessionState.user_id);
+    userState.preferences[key.trim()] = value;
+    userState.last_updated = nowIso();
+    writeUserState(paths, sessionState.user_id, userState);
 
     return {
-      scope: 'global',
+      scope: 'user',
       id: `pref-${key.trim()}`,
       type: 'preference'
     };
@@ -311,7 +322,10 @@ function savePreference(paths, sessionState, scope, content) {
 }
 
 function saveToGlobal(paths, type, content, metadata) {
-  const globalState = loadGlobalState(paths);
+  const userId = resolveUserId(metadata.user_id);
+  const userState = loadUserState(paths, userId);
+  const userMemories = loadUserMemories(paths, userId);
+  const userExperiences = loadUserExperiences(paths, userId);
   const timestamp = nowIso();
 
   if (type === 'preference') {
@@ -321,42 +335,105 @@ function saveToGlobal(paths, type, content, metadata) {
       throw new Error('Preference content must use "key:value" format.');
     }
 
-    globalState.user_preferences[key.trim()] = value;
-    writeGlobalState(paths, globalState);
+    userState.preferences[key.trim()] = value;
+    userState.last_updated = timestamp;
+    writeUserState(paths, userId, userState);
     return {
-      scope: 'global',
+      scope: 'user',
       id: `pref-${key.trim()}`,
       type
     };
   }
 
-  globalState.important_facts = Array.isArray(globalState.important_facts)
-    ? globalState.important_facts
-    : [];
-  const idx = resolveExistingIndex(globalState.important_facts, metadata);
+  if (type === 'lesson' || type === 'best_practice' || type === 'tool-pattern' || type === 'gotcha' || type === 'feature_request') {
+    const idx = resolveExistingIndex(userExperiences, metadata);
+    const existing = idx >= 0 ? userExperiences[idx] : null;
+    const entry = {
+      ...existing,
+      id: existing?.id || metadata.entry_id || generateId('user-exp'),
+      scope: 'user',
+      type,
+      summary: metadata.summary || content,
+      details:
+        Object.prototype.hasOwnProperty.call(metadata, 'details') ? metadata.details : existing?.details ?? null,
+      solution:
+        Object.prototype.hasOwnProperty.call(metadata, 'solution') ? metadata.solution : existing?.solution ?? null,
+      source: metadata.source || existing?.source || 'agent-observation',
+      source_user: userId,
+      created_at: existing?.created_at || timestamp,
+      last_accessed: timestamp,
+      heat: clamp(
+        Math.max(Number(existing?.heat || 0), Number(metadata.heat || existing?.heat || 60)),
+        0,
+        100
+      ),
+      access_count:
+        Number(existing?.access_count || 0) +
+        (metadata.skip_access_increment ? 0 : Number(metadata.access_count || 1)),
+      access_sessions: uniqueList([...(existing?.access_sessions || []), ...(metadata.access_sessions || [])]),
+      tags: Array.isArray(metadata.tags) ? metadata.tags : existing?.tags || [],
+      validation: normalizeValidation(
+        metadata.validation ||
+          (metadata.validation_status ? { status: metadata.validation_status } : existing?.validation || {})
+      ),
+      archived: false,
+      source_session_entry_id: metadata.source_session_entry_id || existing?.source_session_entry_id || null
+    };
+    if (idx >= 0) {
+      userExperiences[idx] = entry;
+    } else {
+      userExperiences.push(entry);
+    }
+    writeUserExperiences(paths, userId, userExperiences);
+    recordUserHeatEntry(paths, userId, entry);
+    userState.key_experiences = uniqueList([...(userState.key_experiences || []), entry.id]).slice(0, 20);
+    userState.last_updated = timestamp;
+    writeUserState(paths, userId, userState);
+    return {
+      scope: 'user',
+      id: entry.id,
+      type
+    };
+  }
+
+  const idx = resolveExistingIndex(userMemories, metadata);
   const entry = {
-    ...(idx >= 0 ? globalState.important_facts[idx] : {}),
+    ...(idx >= 0 ? userMemories[idx] : {}),
     id:
-      (idx >= 0 ? globalState.important_facts[idx].id : null) ||
+      (idx >= 0 ? userMemories[idx].id : null) ||
       metadata.entry_id ||
-      generateId('glob'),
+      generateId('user-mem'),
+    scope: 'user',
+    type: type || 'memory',
     content,
     summary: metadata.summary || content,
-    created_at: idx >= 0 ? globalState.important_facts[idx].created_at : timestamp,
-    last_updated: timestamp,
+    source_user: userId,
+    created_at: idx >= 0 ? userMemories[idx].created_at : timestamp,
+    last_accessed: timestamp,
+    heat: clamp(Math.max(Number((idx >= 0 ? userMemories[idx].heat : 0) || 0), Number(metadata.heat || 60)), 0, 100),
+    access_count:
+      Number((idx >= 0 ? userMemories[idx].access_count : 0) || 0) +
+      (metadata.skip_access_increment ? 0 : Number(metadata.access_count || 1)),
+    access_sessions: uniqueList([...(idx >= 0 ? userMemories[idx].access_sessions || [] : []), ...(metadata.access_sessions || [])]),
+    validation: normalizeValidation(metadata.validation || { status: metadata.validation_status }),
     source_session_entry_id:
       metadata.source_session_entry_id ||
-      (idx >= 0 ? globalState.important_facts[idx].source_session_entry_id : null)
+      (idx >= 0 ? userMemories[idx].source_session_entry_id : null),
+    archived: false
   };
   if (idx >= 0) {
-    globalState.important_facts[idx] = entry;
+    userMemories[idx] = entry;
   } else {
-    globalState.important_facts.push(entry);
+    userMemories.push(entry);
   }
-  writeGlobalState(paths, globalState);
+  writeUserMemories(paths, userId, userMemories);
+  recordUserHeatEntry(paths, userId, entry);
+  userState.key_memories = uniqueList([...(userState.key_memories || []), entry.id]).slice(0, 20);
+  userState.last_updated = timestamp;
+  writeUserState(paths, userId, userState);
 
   return {
-    scope: 'global',
+    scope: 'user',
     type: type || 'fact'
   };
 }
@@ -370,17 +447,19 @@ function runMemorySave(workspaceArg, sessionKeyArg, scopeArg, typeArg, contentAr
   const content = contentArg || '';
   const metadata = parseMetadata(metadataArg);
   const sessionKey = sanitizeKey(sessionKeyArg || DEFAULTS.sessionKey);
-  const sessionState = loadSessionState(paths, sessionKey, metadata.project_id || DEFAULTS.projectId, {
+  const projectId = resolveProjectId(paths.workspace, metadata.project_id);
+  const sessionState = loadSessionState(paths, sessionKey, projectId, {
     createIfMissing: true,
     touch: true
   });
+  sessionState.user_id = resolveUserId(metadata.user_id || sessionState.user_id || DEFAULTS.userId);
 
   ensureProjectArtifacts(paths, sessionState.project_id);
 
   let result;
   if (scope === 'session') {
     result = saveToSession(paths, sessionState, type, content, metadata);
-  } else if (scope === 'global') {
+  } else if (scope === 'global' || scope === 'user') {
     result = saveToGlobal(paths, type, content, metadata);
   } else if (type === 'decision') {
     result = saveDecision(paths, sessionState, content, metadata);

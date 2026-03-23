@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 
 const DEFAULTS = {
+  userId: 'default-user',
   projectId: 'default',
   sessionKey: 'default',
   thresholdWarning: 75,
@@ -98,6 +99,9 @@ function getOpenClawHome(explicitRoot) {
 
 function createPaths(workspaceArg) {
   const workspace = resolveWorkspace(workspaceArg);
+  const openClawHome = getOpenClawHome();
+  const anchorHomeDir = path.join(openClawHome, 'context-anchor');
+  const usersDir = path.join(anchorHomeDir, 'users');
   const anchorDir = path.join(workspace, '.context-anchor');
   const sessionsDir = path.join(anchorDir, 'sessions');
   const projectsDir = path.join(anchorDir, 'projects');
@@ -105,6 +109,9 @@ function createPaths(workspaceArg) {
 
   return {
     workspace,
+    openClawHome,
+    anchorHomeDir,
+    usersDir,
     anchorDir,
     sessionsDir,
     sessionIndexFile: path.join(sessionsDir, '_index.json'),
@@ -116,10 +123,24 @@ function createPaths(workspaceArg) {
 }
 
 function ensureAnchorDirs(paths) {
+  ensureDir(paths.anchorHomeDir);
+  ensureDir(paths.usersDir);
   ensureDir(paths.anchorDir);
   ensureDir(paths.sessionsDir);
   ensureDir(paths.projectsDir);
   ensureDir(paths.globalDir);
+}
+
+function resolveUserId(explicitUserId) {
+  return sanitizeKey(explicitUserId || DEFAULTS.userId);
+}
+
+function resolveProjectId(workspace, explicitProjectId) {
+  if (explicitProjectId) {
+    return sanitizeKey(explicitProjectId);
+  }
+
+  return sanitizeKey(path.basename(resolveWorkspace(workspace)) || DEFAULTS.projectId);
 }
 
 function sessionDir(paths, sessionKey) {
@@ -162,6 +183,62 @@ function projectFactsFile(paths, projectId = DEFAULTS.projectId) {
   return path.join(projectDir(paths, projectId), 'facts.json');
 }
 
+function projectSkillsDir(paths, projectId = DEFAULTS.projectId) {
+  return path.join(projectDir(paths, projectId), 'skills');
+}
+
+function projectSkillsIndexFile(paths, projectId = DEFAULTS.projectId) {
+  return path.join(projectSkillsDir(paths, projectId), 'index.json');
+}
+
+function sessionExperiencesFile(paths, sessionKey) {
+  return path.join(sessionDir(paths, sessionKey), 'experiences.json');
+}
+
+function sessionSkillsDir(paths, sessionKey) {
+  return path.join(sessionDir(paths, sessionKey), 'skills');
+}
+
+function sessionSkillsIndexFile(paths, sessionKey) {
+  return path.join(sessionSkillsDir(paths, sessionKey), 'index.json');
+}
+
+function compactPacketFile(paths, sessionKey) {
+  return path.join(sessionDir(paths, sessionKey), 'compact-packet.json');
+}
+
+function sessionSummaryFile(paths, sessionKey) {
+  return path.join(sessionDir(paths, sessionKey), 'session-summary.json');
+}
+
+function userDir(paths, userId = DEFAULTS.userId) {
+  return path.join(paths.usersDir, resolveUserId(userId));
+}
+
+function userStateFile(paths, userId = DEFAULTS.userId) {
+  return path.join(userDir(paths, userId), 'state.json');
+}
+
+function userMemoriesFile(paths, userId = DEFAULTS.userId) {
+  return path.join(userDir(paths, userId), 'memories.json');
+}
+
+function userExperiencesFile(paths, userId = DEFAULTS.userId) {
+  return path.join(userDir(paths, userId), 'experiences.json');
+}
+
+function userHeatIndexFile(paths, userId = DEFAULTS.userId) {
+  return path.join(userDir(paths, userId), 'heat-index.json');
+}
+
+function userSkillsDir(paths, userId = DEFAULTS.userId) {
+  return path.join(userDir(paths, userId), 'skills');
+}
+
+function userSkillsIndexFile(paths, userId = DEFAULTS.userId) {
+  return path.join(userSkillsDir(paths, userId), 'index.json');
+}
+
 function loadCollection(file, key) {
   const content = readJson(file, { [key]: [] });
   const items = Array.isArray(content[key]) ? content[key] : [];
@@ -183,6 +260,7 @@ function createSessionState(sessionKey, projectId, existing = {}) {
 
   return {
     session_key: sanitizeKey(existing.session_key || sessionKey),
+    user_id: resolveUserId(existing.user_id || DEFAULTS.userId),
     project_id: existing.project_id || projectId || DEFAULTS.projectId,
     started_at: existing.started_at || timestamp,
     last_active: timestamp,
@@ -197,6 +275,8 @@ function createSessionState(sessionKey, projectId, existing = {}) {
     last_pressure_check: existing.last_pressure_check || null,
     last_pressure_usage: existing.last_pressure_usage || null,
     recovered_from_hook_at: existing.recovered_from_hook_at || null,
+    closed_at: existing.closed_at || null,
+    last_summary: existing.last_summary || null,
     metadata: existing.metadata || {}
   };
 }
@@ -247,6 +327,22 @@ function createProjectState(projectId, existing = {}) {
   };
 }
 
+function createUserState(userId, existing = {}) {
+  const timestamp = nowIso();
+
+  return {
+    user_id: existing.user_id || resolveUserId(userId),
+    created_at: existing.created_at || timestamp,
+    last_updated: timestamp,
+    preferences: existing.preferences || existing.user_preferences || {},
+    profile: existing.profile || {},
+    key_memories: Array.isArray(existing.key_memories) ? existing.key_memories : [],
+    key_experiences: Array.isArray(existing.key_experiences) ? existing.key_experiences : [],
+    key_skills: Array.isArray(existing.key_skills) ? existing.key_skills : [],
+    metadata: existing.metadata || {}
+  };
+}
+
 function ensureProjectArtifacts(paths, projectId = DEFAULTS.projectId) {
   const dir = projectDir(paths, projectId);
   ensureDir(dir);
@@ -282,6 +378,72 @@ function ensureProjectArtifacts(paths, projectId = DEFAULTS.projectId) {
       global_experiences: []
     });
   }
+
+  ensureDir(projectSkillsDir(paths, projectId));
+  if (!fs.existsSync(projectSkillsIndexFile(paths, projectId))) {
+    writeJson(projectSkillsIndexFile(paths, projectId), { skills: [] });
+  }
+}
+
+function ensureUserArtifacts(paths, userId = DEFAULTS.userId) {
+  const normalizedUserId = resolveUserId(userId);
+  const dir = userDir(paths, normalizedUserId);
+  ensureDir(dir);
+
+  const legacyGlobal = loadGlobalState(paths);
+  const state = createUserState(normalizedUserId, readJson(userStateFile(paths, normalizedUserId), {
+    user_id: normalizedUserId,
+    preferences: legacyGlobal.user_preferences || {}
+  }));
+  writeJson(userStateFile(paths, normalizedUserId), state);
+
+  if (!fs.existsSync(userMemoriesFile(paths, normalizedUserId))) {
+    writeCollection(
+      userMemoriesFile(paths, normalizedUserId),
+      'memories',
+      (legacyGlobal.important_facts || []).map((entry) => ({
+        ...entry,
+        scope: 'user',
+        type: entry.type || 'memory',
+        source_user: normalizedUserId,
+        heat: entry.heat || 60,
+        access_count: entry.access_count || 1,
+        access_sessions: entry.access_sessions || [],
+        validation: normalizeValidation(entry.validation),
+        archived: Boolean(entry.archived)
+      }))
+    );
+  }
+
+  if (!fs.existsSync(userExperiencesFile(paths, normalizedUserId))) {
+    writeCollection(
+      userExperiencesFile(paths, normalizedUserId),
+      'experiences',
+      (legacyGlobal.global_experiences || []).map((entry) => ({
+        ...entry,
+        scope: 'user',
+        source_user: normalizedUserId,
+        heat: entry.heat || 60,
+        access_count: entry.access_count || 1,
+        access_sessions: entry.access_sessions || [],
+        validation: normalizeValidation(entry.validation),
+        archived: Boolean(entry.archived)
+      }))
+    );
+  }
+
+  ensureDir(userSkillsDir(paths, normalizedUserId));
+  if (!fs.existsSync(userSkillsIndexFile(paths, normalizedUserId))) {
+    writeJson(userSkillsIndexFile(paths, normalizedUserId), { skills: [] });
+  }
+
+  if (!fs.existsSync(userHeatIndexFile(paths, normalizedUserId))) {
+    writeJson(userHeatIndexFile(paths, normalizedUserId), {
+      user_id: normalizedUserId,
+      last_updated: nowIso(),
+      entries: []
+    });
+  }
 }
 
 function loadProjectState(paths, projectId = DEFAULTS.projectId) {
@@ -314,6 +476,84 @@ function writeProjectExperiences(paths, projectId, experiences) {
 function loadProjectFacts(paths, projectId = DEFAULTS.projectId) {
   ensureProjectArtifacts(paths, projectId);
   return loadCollection(projectFactsFile(paths, projectId), 'facts');
+}
+
+function loadProjectSkills(paths, projectId = DEFAULTS.projectId) {
+  ensureProjectArtifacts(paths, projectId);
+  return loadCollection(projectSkillsIndexFile(paths, projectId), 'skills');
+}
+
+function writeProjectSkills(paths, projectId, skills) {
+  writeCollection(projectSkillsIndexFile(paths, projectId), 'skills', skills);
+}
+
+function loadSessionExperiences(paths, sessionKey) {
+  return loadCollection(sessionExperiencesFile(paths, sessionKey), 'experiences');
+}
+
+function writeSessionExperiences(paths, sessionKey, experiences) {
+  writeCollection(sessionExperiencesFile(paths, sessionKey), 'experiences', experiences);
+}
+
+function loadSessionSkills(paths, sessionKey) {
+  return loadCollection(sessionSkillsIndexFile(paths, sessionKey), 'skills');
+}
+
+function writeSessionSkills(paths, sessionKey, skills) {
+  ensureDir(sessionSkillsDir(paths, sessionKey));
+  writeCollection(sessionSkillsIndexFile(paths, sessionKey), 'skills', skills);
+}
+
+function loadUserState(paths, userId = DEFAULTS.userId) {
+  ensureUserArtifacts(paths, userId);
+  return createUserState(userId, readJson(userStateFile(paths, userId), {}));
+}
+
+function writeUserState(paths, userId, state) {
+  writeJson(userStateFile(paths, userId), state);
+}
+
+function loadUserMemories(paths, userId = DEFAULTS.userId) {
+  ensureUserArtifacts(paths, userId);
+  return loadCollection(userMemoriesFile(paths, userId), 'memories');
+}
+
+function writeUserMemories(paths, userId, memories) {
+  writeCollection(userMemoriesFile(paths, userId), 'memories', memories);
+}
+
+function loadUserExperiences(paths, userId = DEFAULTS.userId) {
+  ensureUserArtifacts(paths, userId);
+  return loadCollection(userExperiencesFile(paths, userId), 'experiences');
+}
+
+function writeUserExperiences(paths, userId, experiences) {
+  writeCollection(userExperiencesFile(paths, userId), 'experiences', experiences);
+}
+
+function loadUserSkills(paths, userId = DEFAULTS.userId) {
+  ensureUserArtifacts(paths, userId);
+  return loadCollection(userSkillsIndexFile(paths, userId), 'skills');
+}
+
+function writeUserSkills(paths, userId, skills) {
+  writeCollection(userSkillsIndexFile(paths, userId), 'skills', skills);
+}
+
+function writeCompactPacket(paths, sessionKey, packet) {
+  writeJson(compactPacketFile(paths, sessionKey), packet);
+}
+
+function loadCompactPacket(paths, sessionKey) {
+  return readJson(compactPacketFile(paths, sessionKey), {});
+}
+
+function writeSessionSummary(paths, sessionKey, summary) {
+  writeJson(sessionSummaryFile(paths, sessionKey), summary);
+}
+
+function loadSessionSummary(paths, sessionKey) {
+  return readJson(sessionSummaryFile(paths, sessionKey), {});
 }
 
 function writeProjectFacts(paths, projectId, facts) {
@@ -434,6 +674,38 @@ function recordHeatEntry(paths, projectId, entry) {
   heatIndex.entries = entries.sort((left, right) => right.heat - left.heat);
   heatIndex.last_updated = nowIso();
   writeHeatIndex(paths, projectId, heatIndex);
+  return heatIndex;
+}
+
+function recordUserHeatEntry(paths, userId, entry) {
+  ensureUserArtifacts(paths, userId);
+  const heatIndex = readJson(userHeatIndexFile(paths, userId), {
+    user_id: resolveUserId(userId),
+    last_updated: nowIso(),
+    entries: []
+  });
+  const entries = Array.isArray(heatIndex.entries) ? heatIndex.entries : [];
+  const idx = entries.findIndex((item) => item.id === entry.id);
+  const next = {
+    id: entry.id,
+    type: entry.type,
+    heat: Number(entry.heat || 0),
+    last_accessed: entry.last_accessed || entry.created_at || nowIso(),
+    last_evaluated: entry.last_evaluated || nowIso(),
+    access_count: Number(entry.access_count || entry.applied_count || 0),
+    access_sessions: uniqueList(entry.access_sessions || []),
+    archived: Boolean(entry.archived)
+  };
+
+  if (idx >= 0) {
+    entries[idx] = next;
+  } else {
+    entries.push(next);
+  }
+
+  heatIndex.entries = entries.sort((left, right) => right.heat - left.heat);
+  heatIndex.last_updated = nowIso();
+  writeJson(userHeatIndexFile(paths, userId), heatIndex);
   return heatIndex;
 }
 
@@ -569,52 +841,89 @@ module.exports = {
   ensureDir,
   ensureExperienceValidation,
   ensureProjectArtifacts,
+  ensureUserArtifacts,
   generateId,
   getOpenClawHome,
   getRepoRoot,
   getSkillsRoot,
   getRecentSessions,
+  loadCompactPacket,
   loadCollection,
   loadGlobalState,
   loadHeatIndex,
   loadProjectDecisions,
   loadProjectExperiences,
   loadProjectFacts,
+  loadProjectSkills,
   loadProjectState,
   loadSessionMemory,
+  loadSessionExperiences,
+  loadSessionSkills,
   loadSessionState,
+  loadSessionSummary,
+  loadUserExperiences,
+  loadUserMemories,
+  loadUserSkills,
+  loadUserState,
   mergeAccessMetadata,
   normalizeValidation,
   nowIso,
+  compactPacketFile,
   projectDecisionsFile,
   projectDir,
   projectExperiencesFile,
   projectFactsFile,
   projectHeatIndexFile,
+  projectSkillsDir,
+  projectSkillsIndexFile,
   projectStateFile,
   readJson,
   readText,
   recordHeatEntry,
+  recordUserHeatEntry,
   resolveWorkspace,
+  resolveProjectId,
+  resolveUserId,
   sanitizeKey,
+  sessionExperiencesFile,
   sessionCheckpointFile,
   sessionDir,
   sessionMemoryFile,
+  sessionSkillsDir,
+  sessionSkillsIndexFile,
   sessionStateFile,
+  sessionSummaryFile,
   sortByHeat,
   syncProjectStateMetadata,
   touchGlobalIndex,
   touchSessionIndex,
   uniqueList,
+  userDir,
+  userExperiencesFile,
+  userHeatIndexFile,
+  userMemoriesFile,
+  userSkillsDir,
+  userSkillsIndexFile,
+  userStateFile,
   writeCollection,
+  writeCompactPacket,
   writeGlobalState,
   writeHeatIndex,
   writeJson,
   writeProjectDecisions,
   writeProjectExperiences,
   writeProjectFacts,
+  writeProjectSkills,
   writeProjectState,
   writeSessionMemory,
+  writeSessionExperiences,
+  writeSessionSkills,
   writeSessionState,
+  writeSessionSummary,
   writeText
+  ,
+  writeUserExperiences,
+  writeUserMemories,
+  writeUserSkills,
+  writeUserState
 };

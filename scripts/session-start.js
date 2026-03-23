@@ -7,14 +7,22 @@ const {
   createPaths,
   ensureAnchorDirs,
   getRecentSessions,
-  loadGlobalState,
   loadProjectDecisions,
   loadProjectExperiences,
+  loadProjectSkills,
   loadProjectState,
+  loadSessionSkills,
   loadSessionState,
+  loadUserExperiences,
+  loadUserMemories,
+  loadUserSkills,
+  loadUserState,
   mergeAccessMetadata,
   readText,
   recordHeatEntry,
+  recordUserHeatEntry,
+  resolveProjectId,
+  resolveUserId,
   sanitizeKey,
   sessionCheckpointFile,
   sortByHeat,
@@ -22,7 +30,10 @@ const {
   touchGlobalIndex,
   touchSessionIndex,
   writeProjectDecisions,
-  writeProjectExperiences
+  writeProjectExperiences,
+  writeSessionState,
+  writeUserExperiences,
+  writeUserMemories
 } = require('./lib/context-anchor');
 
 function detectLegacyMemory(workspace) {
@@ -46,7 +57,7 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg) {
   ensureAnchorDirs(paths);
 
   const sessionKey = sanitizeKey(sessionKeyArg || DEFAULTS.sessionKey);
-  const projectId = projectIdArg || DEFAULTS.projectId;
+  const projectId = resolveProjectId(paths.workspace, projectIdArg);
   const checkpointFile = sessionCheckpointFile(paths, sessionKey);
   const hadCheckpoint = fs.existsSync(checkpointFile);
 
@@ -54,16 +65,23 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg) {
     createIfMissing: true,
     touch: true
   });
+  sessionState.user_id = resolveUserId(sessionState.user_id || DEFAULTS.userId);
+  writeSessionState(paths, sessionState.session_key, sessionState);
   const projectState = loadProjectState(paths, sessionState.project_id);
   const loadedDecisions = loadProjectDecisions(paths, sessionState.project_id);
   const loadedExperiences = loadProjectExperiences(paths, sessionState.project_id);
+  const projectSkills = loadProjectSkills(paths, sessionState.project_id);
+  const sessionSkills = loadSessionSkills(paths, sessionState.session_key);
   const decisions = sortByHeat(loadedDecisions).filter(
     (entry) => !entry.archived
   );
   const experiences = sortByHeat(loadedExperiences).filter(
     (entry) => !entry.archived
   );
-  const globalState = loadGlobalState(paths);
+  const userState = loadUserState(paths, sessionState.user_id);
+  const userMemories = sortByHeat(loadUserMemories(paths, sessionState.user_id)).filter((entry) => !entry.archived);
+  const userExperiences = sortByHeat(loadUserExperiences(paths, sessionState.user_id)).filter((entry) => !entry.archived);
+  const userSkills = loadUserSkills(paths, sessionState.user_id);
   const checkpoint = hadCheckpoint ? readText(checkpointFile, '') : '';
   const relatedSessions = getRecentSessions(paths)
     .filter(
@@ -78,6 +96,14 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg) {
     .slice(0, 5)
     .map((entry) => entry.id);
   const injectedExperienceIds = experiences
+    .filter((entry) => Number(entry.heat || 0) >= 60)
+    .slice(0, 5)
+    .map((entry) => entry.id);
+  const injectedUserMemoryIds = userMemories
+    .filter((entry) => Number(entry.heat || 0) >= 60)
+    .slice(0, 5)
+    .map((entry) => entry.id);
+  const injectedUserExperienceIds = userExperiences
     .filter((entry) => Number(entry.heat || 0) >= 60)
     .slice(0, 5)
     .map((entry) => entry.id);
@@ -120,6 +146,38 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg) {
     writeProjectExperiences(paths, sessionState.project_id, nextExperiences);
   }
 
+  if (injectedUserMemoryIds.length > 0) {
+    const nextUserMemories = userMemories.map((entry) => {
+      if (!injectedUserMemoryIds.includes(entry.id)) {
+        return entry;
+      }
+
+      const isCrossSession = !(entry.access_sessions || []).includes(sessionState.session_key);
+      const nextEntry = mergeAccessMetadata(entry, sessionState.session_key, {
+        heatDelta: isCrossSession ? 10 : 5
+      });
+      recordUserHeatEntry(paths, sessionState.user_id, nextEntry);
+      return nextEntry;
+    });
+    writeUserMemories(paths, sessionState.user_id, nextUserMemories);
+  }
+
+  if (injectedUserExperienceIds.length > 0) {
+    const nextUserExperiences = userExperiences.map((entry) => {
+      if (!injectedUserExperienceIds.includes(entry.id)) {
+        return entry;
+      }
+
+      const isCrossSession = !(entry.access_sessions || []).includes(sessionState.session_key);
+      const nextEntry = mergeAccessMetadata(entry, sessionState.session_key, {
+        heatDelta: isCrossSession ? 10 : 5
+      });
+      recordUserHeatEntry(paths, sessionState.user_id, nextEntry);
+      return nextEntry;
+    });
+    writeUserExperiences(paths, sessionState.user_id, nextUserExperiences);
+  }
+
   syncProjectStateMetadata(paths, sessionState.project_id);
   touchGlobalIndex(paths);
 
@@ -132,6 +190,7 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg) {
     session: {
       key: sessionState.session_key,
       project: sessionState.project_id,
+      user: sessionState.user_id,
       restored: hadCheckpoint || pendingCommitments.length > 0 || Boolean(sessionState.active_task)
     },
     project: {
@@ -142,11 +201,27 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg) {
       key_decisions: projectState.key_decisions || [],
       key_experiences: projectState.key_experiences || []
     },
+    user: {
+      id: sessionState.user_id,
+      preferences_count: Object.keys(userState.preferences || {}).length,
+      memories_count: userMemories.length,
+      experiences_count: userExperiences.length,
+      skills_count: userSkills.length
+    },
     recovery: {
       active_task: sessionState.active_task,
       pending_commitments: pendingCommitments,
       checkpoint_available: hadCheckpoint,
       checkpoint_excerpt: checkpoint ? checkpoint.split('\n').slice(0, 10).join('\n') : null
+    },
+    boot_packet: {
+      active_task: sessionState.active_task,
+      pending_commitments: pendingCommitments,
+      active_skills: {
+        session: sessionSkills.slice(0, 5),
+        project: projectSkills.slice(0, 5),
+        user: userSkills.slice(0, 5)
+      }
     },
     memories_to_inject: [],
     related_sessions: relatedSessions,
@@ -179,15 +254,45 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg) {
     });
   }
 
-  if (Object.keys(globalState.user_preferences || {}).length > 0) {
+  if (Object.keys(userState.preferences || {}).length > 0) {
     summary.memories_to_inject.push({
-      source: 'global_preferences',
-      entries: Object.entries(globalState.user_preferences).map(([key, value]) => ({
+      source: 'user_preferences',
+      entries: Object.entries(userState.preferences).map(([key, value]) => ({
         key,
         value
       }))
     });
   }
+
+  if (userMemories.length > 0) {
+    summary.memories_to_inject.push({
+      source: 'user_memories',
+      entries: userMemories.slice(0, 5).map((entry) => ({
+        id: entry.id,
+        summary: entry.summary || entry.content,
+        heat: entry.heat
+      }))
+    });
+  }
+
+  if (userExperiences.length > 0) {
+    summary.memories_to_inject.push({
+      source: 'user_experiences',
+      entries: userExperiences.slice(0, 5).map((entry) => ({
+        id: entry.id,
+        type: entry.type,
+        summary: entry.summary,
+        heat: entry.heat,
+        validation_status: entry.validation?.status || 'pending'
+      }))
+    });
+  }
+
+  summary.skills_to_activate = {
+    session: sessionSkills.slice(0, 5),
+    project: projectSkills.slice(0, 5),
+    user: userSkills.slice(0, 5)
+  };
 
   return summary;
 }

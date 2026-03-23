@@ -2,6 +2,7 @@
 
 const { createPaths, loadSessionState, sanitizeKey, writeSessionState } = require('./lib/context-anchor');
 const { runCheckpointCreate } = require('./checkpoint-create');
+const { runCompactPacketCreate } = require('./compact-packet-create');
 const { evaluatePressure } = require('./context-pressure');
 const { runMemoryFlow } = require('./memory-flow');
 
@@ -34,6 +35,14 @@ function runContextPressureHandle(workspaceArg, sessionKeyArg, usagePercentArg) 
   });
   result.actions.push('checkpoint_created');
   result.messages.push(`已创建检查点（${checkpoint.reason}）`);
+
+  const compact = runCompactPacketCreate(paths.workspace, sessionKey, {
+    reason: evaluation.level,
+    usagePercent,
+    userId: sessionState.user_id
+  });
+  result.actions.push('compact_packet_created');
+  result.messages.push(`已生成压缩包（${compact.compact_packet_file}）`);
 
   const flow = runMemoryFlow(paths.workspace, sessionKey, {
     minimumHeat: evaluation.level === 'warning' ? 70 : 60
