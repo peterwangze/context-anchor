@@ -1136,6 +1136,56 @@ test('status report summarizes user project session counts and governance', () =
   }
 });
 
+test('status report can write a snapshot file and return adaptive budget guidance', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'snapshot-session', 'demo');
+      const sessionSkillDir = path.join(workspace, '.context-anchor', 'sessions', 'snapshot-session', 'skills');
+      fs.mkdirSync(sessionSkillDir, { recursive: true });
+      writeJson(path.join(sessionSkillDir, 'index.json'), {
+        skills: [
+          {
+            id: 'snap-s1',
+            name: 'snap-s1',
+            conflict_key: 'snap-s1',
+            scope: 'session',
+            status: 'draft',
+            load_policy: { priority: 90, budget_weight: 1, auto_load: true }
+          },
+          {
+            id: 'snap-s2',
+            name: 'snap-s2',
+            conflict_key: 'snap-s2',
+            scope: 'session',
+            status: 'draft',
+            load_policy: { priority: 80, budget_weight: 1, auto_load: true }
+          },
+          {
+            id: 'snap-s3',
+            name: 'snap-s3',
+            conflict_key: 'snap-s3',
+            scope: 'session',
+            status: 'draft',
+            load_policy: { priority: 70, budget_weight: 1, auto_load: true }
+          }
+        ]
+      });
+
+      const report = runStatusReport(workspace, 'snapshot-session', 'demo', 'default-user', {
+        writeSnapshot: true
+      });
+
+      assert.ok(fs.existsSync(report.snapshot_file));
+      assert.ok(report.adaptive_budget);
+      assert.ok(report.adaptive_budget.recommended.total >= report.adaptive_budget.current.total);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('skill diagnose explains active shadowed superseded and budgeted skills', () => {
   const workspace = makeWorkspace();
 
@@ -1213,6 +1263,37 @@ test('skill diagnose explains active shadowed superseded and budgeted skills', (
       assert.equal(diagShadowed.reasons[0].diagnosis, 'shadowed');
       assert.equal(diagSuperseded.reasons[0].diagnosis, 'superseded');
       assert.equal(diagBudget.reasons[0].diagnosis, 'budgeted_out');
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('skill diagnose returns recommended actions for non-active diagnoses', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'diag-actions', 'demo');
+      const projectSkillDir = path.join(workspace, '.context-anchor', 'projects', 'demo', 'skills');
+      fs.mkdirSync(projectSkillDir, { recursive: true });
+      writeJson(path.join(projectSkillDir, 'index.json'), {
+        skills: [
+          {
+            id: 'diag-archived',
+            name: 'diag-archived',
+            conflict_key: 'diag-archived',
+            scope: 'project',
+            status: 'archived',
+            archived: true
+          }
+        ]
+      });
+
+      const result = runSkillDiagnose(workspace, 'diag-archived', 'diag-actions', 'demo', 'default-user');
+
+      assert.equal(result.reasons[0].diagnosis, 'archived');
+      assert.ok(result.recommendations.length >= 1);
     });
   } finally {
     cleanupWorkspace(workspace);

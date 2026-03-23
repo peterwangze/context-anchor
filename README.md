@@ -389,6 +389,12 @@ node ~/.openclaw/skills/context-anchor/scripts/skill-supersede.js <workspace> <s
 node ~/.openclaw/skills/context-anchor/scripts/status-report.js <workspace> [session-key] [project-id] [user-id]
 ```
 
+如果你要把当前状态直接落盘成快照：
+
+```bash
+node ~/.openclaw/skills/context-anchor/scripts/status-report.js <workspace> [session-key] [project-id] [user-id] snapshot
+```
+
 报告会输出：
 
 - user/project/session 的 memory/experience/skill 计数
@@ -396,6 +402,7 @@ node ~/.openclaw/skills/context-anchor/scripts/status-report.js <workspace> [ses
 - session 最近一次 summary 摘要
 - health warnings
 - 当前激活预算影响下的治理结果
+- 可选的 `snapshot_file`
 
 ### 单条 skill 诊断
 
@@ -416,6 +423,7 @@ node ~/.openclaw/skills/context-anchor/scripts/skill-diagnose.js <workspace> <sk
   - 调整 budget
   - 声明 supersede
   - 手动 inactive / archive
+- `recommendations` 字段会直接给出下一步建议
 
 ## 常见操作
 

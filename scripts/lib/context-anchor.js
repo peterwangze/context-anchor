@@ -116,6 +116,7 @@ function createPaths(workspaceArg) {
   const sessionsDir = path.join(anchorDir, 'sessions');
   const projectsDir = path.join(anchorDir, 'projects');
   const globalDir = path.join(projectsDir, '_global');
+  const reportsDir = path.join(anchorDir, 'reports');
 
   return {
     workspace,
@@ -123,6 +124,7 @@ function createPaths(workspaceArg) {
     anchorHomeDir,
     usersDir,
     anchorDir,
+    reportsDir,
     sessionsDir,
     sessionIndexFile: path.join(sessionsDir, '_index.json'),
     projectsDir,
@@ -136,6 +138,7 @@ function ensureAnchorDirs(paths) {
   ensureDir(paths.anchorHomeDir);
   ensureDir(paths.usersDir);
   ensureDir(paths.anchorDir);
+  ensureDir(paths.reportsDir);
   ensureDir(paths.sessionsDir);
   ensureDir(paths.projectsDir);
   ensureDir(paths.globalDir);
@@ -219,6 +222,10 @@ function compactPacketFile(paths, sessionKey) {
 
 function sessionSummaryFile(paths, sessionKey) {
   return path.join(sessionDir(paths, sessionKey), 'session-summary.json');
+}
+
+function statusSnapshotFile(paths, sessionKey = 'latest') {
+  return path.join(paths.reportsDir, `${sanitizeKey(sessionKey)}-status.json`);
 }
 
 function userDir(paths, userId = DEFAULTS.userId) {
@@ -1121,10 +1128,48 @@ function buildHealthSummary(input) {
   };
 }
 
+function buildAdaptiveBudget(baseBudget = DEFAULTS.skillActivationBudget, report = {}) {
+  const nextBudget = {
+    total: Number(baseBudget.total || DEFAULTS.skillActivationBudget.total),
+    session: Number(baseBudget.session || DEFAULTS.skillActivationBudget.session),
+    project: Number(baseBudget.project || DEFAULTS.skillActivationBudget.project),
+    user: Number(baseBudget.user || DEFAULTS.skillActivationBudget.user)
+  };
+
+  const notes = [];
+  const budgetedOut = Number(report?.governance?.budgeted_out || 0);
+  const shadowed = Number(report?.governance?.shadowed || 0);
+  const superseded = Number(report?.governance?.superseded || 0);
+
+  if (budgetedOut > 0) {
+    nextBudget.total += 1;
+    nextBudget.project += 1;
+    notes.push('budgeted_out skills detected, recommended temporary increase to total/project budget');
+  }
+
+  if (shadowed > 3 || superseded > 3) {
+    nextBudget.user = Math.max(0, nextBudget.user - 1);
+    notes.push('many shadowed/superseded skills detected, recommended reducing user budget');
+  }
+
+  return {
+    current: baseBudget,
+    recommended: nextBudget,
+    notes
+  };
+}
+
+function writeStatusSnapshot(paths, sessionKey, report) {
+  const file = statusSnapshotFile(paths, sessionKey || 'latest');
+  writeJson(file, report);
+  return file;
+}
+
 module.exports = {
   DEFAULTS,
   SKILL_STATUSES,
   VALIDATION_STATUSES,
+  buildAdaptiveBudget,
   buildHealthSummary,
   buildCheckpointContent,
   buildScopedSkillMarkdown,
@@ -1191,6 +1236,7 @@ module.exports = {
   sessionSkillsIndexFile,
   sessionStateFile,
   sessionSummaryFile,
+  statusSnapshotFile,
   sortByHeat,
   isSkillLoadable,
   matchSkillIdentifier,
@@ -1223,6 +1269,7 @@ module.exports = {
   writeSessionSkills,
   writeSessionState,
   writeSessionSummary,
+  writeStatusSnapshot,
   writeText,
   writeUserExperiences,
   writeUserMemories,

@@ -32,6 +32,43 @@ function runSkillDiagnose(workspaceArg, identifier, sessionKeyArg, projectIdArg,
   });
 
   const matches = diagnostics.all.filter((skill) => matchSkillIdentifier(skill, identifier));
+  const reasons = matches.map((skill) => ({
+    id: skill.id,
+    scope: skill.scope,
+    diagnosis: skill.diagnosis,
+    status: skill.status,
+    superseded_by: skill.superseded_by || null,
+    shadowed_by: skill.shadowed_by || null,
+    budget_reason: skill.budget_reason || null
+  }));
+  const recommendations = [];
+
+  if (matches.length === 0) {
+    recommendations.push('Check the skill id, name, or conflict_key.');
+  }
+
+  reasons.forEach((reason) => {
+    switch (reason.diagnosis) {
+      case 'shadowed':
+        recommendations.push(`Skill ${reason.id} is shadowed; consider lowering the winner scope, renaming conflict_key, or inactivating the winner.`);
+        break;
+      case 'superseded':
+        recommendations.push(`Skill ${reason.id} is superseded; inspect the winner skill and remove or update the supersede relation if this is no longer intended.`);
+        break;
+      case 'budgeted_out':
+        recommendations.push(`Skill ${reason.id} is budgeted out; consider increasing the activation budget or lowering competing skills' budget_weight/priority.`);
+        break;
+      case 'inactive':
+        recommendations.push(`Skill ${reason.id} is inactive; reactivate it manually if it should load again, or keep it inactive if deprecated.`);
+        break;
+      case 'archived':
+        recommendations.push(`Skill ${reason.id} is archived; unarchive or recreate it only if it has renewed supporting evidence.`);
+        break;
+      default:
+        break;
+    }
+  });
+
   return {
     status: 'ok',
     identifier,
@@ -40,15 +77,8 @@ function runSkillDiagnose(workspaceArg, identifier, sessionKeyArg, projectIdArg,
     user_id: userId,
     matches,
     effective_match: diagnostics.active.find((skill) => matchSkillIdentifier(skill, identifier)) || null,
-    reasons: matches.map((skill) => ({
-      id: skill.id,
-      scope: skill.scope,
-      diagnosis: skill.diagnosis,
-      status: skill.status,
-      superseded_by: skill.superseded_by || null,
-      shadowed_by: skill.shadowed_by || null,
-      budget_reason: skill.budget_reason || null
-    }))
+    reasons,
+    recommendations: Array.from(new Set(recommendations))
   };
 }
 

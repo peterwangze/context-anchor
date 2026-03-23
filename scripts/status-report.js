@@ -2,6 +2,7 @@
 
 const {
   DEFAULTS,
+  buildAdaptiveBudget,
   buildHealthSummary,
   collectSkillDiagnostics,
   countByStatus,
@@ -22,10 +23,11 @@ const {
   loadUserState,
   resolveProjectId,
   resolveUserId,
-  sanitizeKey
+  sanitizeKey,
+  writeStatusSnapshot
 } = require('./lib/context-anchor');
 
-function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg) {
+function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, options = {}) {
   const paths = createPaths(workspaceArg);
   const projectId = resolveProjectId(paths.workspace, projectIdArg);
   const userId = resolveUserId(userIdArg || DEFAULTS.userId);
@@ -102,6 +104,12 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg) {
   };
 
   report.health = buildHealthSummary(report);
+  report.adaptive_budget = buildAdaptiveBudget(DEFAULTS.skillActivationBudget, report);
+
+  if (options.writeSnapshot) {
+    report.snapshot_file = writeStatusSnapshot(paths, sessionKey, report);
+  }
+
   return report;
 }
 
@@ -110,7 +118,10 @@ function main() {
     process.argv[2],
     process.argv[3],
     process.argv[4],
-    process.argv[5]
+    process.argv[5],
+    {
+      writeSnapshot: process.argv[6] === 'snapshot'
+    }
   );
   console.log(JSON.stringify(result, null, 2));
 }
