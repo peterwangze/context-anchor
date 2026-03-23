@@ -155,5 +155,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  calculateSkillificationScore,
+  suggestSkillName,
   runSkillificationScore
 };

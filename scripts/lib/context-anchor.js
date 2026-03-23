@@ -610,6 +610,8 @@ function normalizeValidation(validation = {}) {
   return {
     status,
     count: Number(validation.count || 0),
+    evidence_count: Number(validation.evidence_count || validation.count || 0),
+    cross_project_count: Number(validation.cross_project_count || 0),
     auto_validated: Boolean(validation.auto_validated),
     last_reviewed_at: validation.last_reviewed_at || null,
     notes: Array.isArray(validation.notes) ? validation.notes : []
@@ -828,10 +830,45 @@ function copyDir(sourceDir, targetDir) {
   });
 }
 
+function buildScopedSkillMarkdown(skill) {
+  return [
+    '---',
+    `id: ${skill.id}`,
+    `name: ${skill.name}`,
+    `scope: ${skill.scope}`,
+    `status: ${skill.status || 'active'}`,
+    `created_at: ${skill.created_at || nowIso()}`,
+    skill.source_experience ? `source_experience: ${skill.source_experience}` : null,
+    skill.source_session ? `source_session: ${skill.source_session}` : null,
+    skill.source_project ? `source_project: ${skill.source_project}` : null,
+    skill.source_user ? `source_user: ${skill.source_user}` : null,
+    '---',
+    '',
+    `# ${skill.name}`,
+    '',
+    skill.summary || 'Scoped skill generated from validated experience.',
+    '',
+    '## Source',
+    '',
+    skill.source_experience ? `- experience: ${skill.source_experience}` : '- experience: none',
+    skill.source_scope ? `- source_scope: ${skill.source_scope}` : null,
+    '',
+    '## Notes',
+    '',
+    `- scope: ${skill.scope}`,
+    `- status: ${skill.status || 'active'}`,
+    skill.notes ? `- notes: ${skill.notes}` : null
+  ]
+    .filter((line) => line !== null)
+    .join('\n')
+    .concat('\n');
+}
+
 module.exports = {
   DEFAULTS,
   VALIDATION_STATUSES,
   buildCheckpointContent,
+  buildScopedSkillMarkdown,
   calculateDaysSince,
   clamp,
   copyDir,

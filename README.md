@@ -7,6 +7,7 @@
 - 项目级经验沉淀
 - 上下文压力下的 checkpoint、`compact-packet` 和记忆同步
 - Session 结束前的自动总结、经验提炼和技能草稿沉淀
+- 满足条件的项目级 / 用户级经验自动晋升为 active skill
 - 经验校验与技能化候选
 - gateway 重启后的恢复提示
 
@@ -333,6 +334,7 @@ node ~/.openclaw/hooks/context-anchor-hook/handler.js command:stop "{\"workspace
 - session experience 提炼
 - `session skill draft` 生成
 - project heat / skillification 刷新
+- 满足条件的 `project/user active skill` 晋升
 
 ## 常见操作
 
@@ -396,7 +398,8 @@ node ~/.openclaw/skills/context-anchor/scripts/skill-create.js <workspace> <expe
 - `usage_percent` 需要宿主提供，`context-anchor` 不负责计算
 - 当前只有单用户：`default-user`
 - 旧 `projects/_global` 仍兼容读取，但新的长期用户数据应写入 `user` 层
-- `session skill draft` 已实现，但自动升格为 `project/user active skill` 还会继续演进
+- `session skill draft` 已实现
+- `project/user active skill` 已支持基础自动晋升，但更复杂的晋升治理仍会继续演进
 
 ## 故障排查
 
@@ -449,6 +452,7 @@ npm test
 - session close
 - session skill draft
 - `_global -> user` 迁移
+- validated experience -> `project/user active skill`
 - session 记忆二次同步的 upsert
 - 自动校验与技能化候选
 - skill 创建

@@ -17,6 +17,7 @@ const { runCheckpointCreate } = require('./checkpoint-create');
 const { runCompactPacketCreate } = require('./compact-packet-create');
 const { runHeatEvaluation } = require('./heat-eval');
 const { runMemoryFlow } = require('./memory-flow');
+const { runScopePromote } = require('./scope-promote');
 const { runSkillDraftCreate } = require('./skill-draft-create');
 const { runSkillificationScore } = require('./skillification-score');
 
@@ -92,6 +93,11 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
   const skillDraft = runSkillDraftCreate(paths.workspace, sessionKey);
   const heat = runHeatEvaluation(paths.workspace, sessionState.project_id);
   const skillification = runSkillificationScore(paths.workspace, sessionState.project_id);
+  const promotions = runScopePromote(paths.workspace, {
+    sessionKey: sessionState.session_key,
+    projectId: sessionState.project_id,
+    userId: sessionState.user_id
+  });
   const summary = {
     session_key: sessionState.session_key,
     project_id: sessionState.project_id,
@@ -103,6 +109,8 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
     memory_count: sessionMemories.length,
     new_session_experiences: allExperiences.length - existingExperiences.length,
     compact_packet_file: compact.compact_packet_file,
+    promoted_project_skills: promotions.project_skills,
+    promoted_user_skills: promotions.user_skills,
     skill_draft: skillDraft.status === 'created' ? {
       id: skillDraft.skill_id,
       name: skillDraft.skill_name
@@ -124,6 +132,7 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
     session_summary_file: require('./lib/context-anchor').sessionSummaryFile(paths, sessionKey),
     session_experiences: allExperiences.length,
     skill_draft: skillDraft,
+    promotions,
     heat,
     skillification
   };

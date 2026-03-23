@@ -18,6 +18,8 @@ const { runInstallHostAssets } = require('../scripts/install-host-assets');
 const { runMigrateGlobalToUser } = require('../scripts/migrate-global-to-user');
 const { runMemoryFlow } = require('../scripts/memory-flow');
 const { runMemorySave } = require('../scripts/memory-save');
+const { runHeartbeat } = require('../scripts/heartbeat');
+const { runScopePromote } = require('../scripts/scope-promote');
 const { runSessionClose } = require('../scripts/session-close');
 const { runSessionStart } = require('../scripts/session-start');
 const { runSkillCreate } = require('../scripts/skill-create');
@@ -515,6 +517,121 @@ test('command stop hook runs unified session close lifecycle', () => {
       assert.equal(result.status, 'handled');
       assert.equal(result.result.status, 'closed');
       assert.ok(fs.existsSync(path.join(workspace, '.context-anchor', 'sessions', 'hook-close', 'session-summary.json')));
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('heartbeat promotes validated project experiences into active project skills', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'promote-project', 'demo');
+      const saved = runMemorySave(
+        workspace,
+        'promote-project',
+        'project',
+        'best_practice',
+        'Use scoped checkpoints',
+        JSON.stringify({
+          heat: 95,
+          access_count: 8,
+          access_sessions: ['session-b', 'session-c'],
+          tags: ['checkpoint'],
+          validation_status: 'validated'
+        })
+      );
+
+      const experiencesFile = path.join(
+        workspace,
+        '.context-anchor',
+        'projects',
+        'demo',
+        'experiences.json'
+      );
+      const experiences = readJson(experiencesFile, { experiences: [] });
+      experiences.experiences[0].created_at = '2026-03-01T00:00:00Z';
+      writeJson(experiencesFile, experiences);
+
+      const result = runHeartbeat(workspace, 'promote-project', 'demo', 50);
+      const projectSkills = readJson(
+        path.join(workspace, '.context-anchor', 'projects', 'demo', 'skills', 'index.json'),
+        { skills: [] }
+      ).skills;
+
+      assert.equal(result.promotions.project_promotions, 1);
+      assert.equal(projectSkills.length, 1);
+      assert.equal(projectSkills[0].scope, 'project');
+      assert.equal(projectSkills[0].source_experience, saved.id);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('scope promote creates active user skills from validated user experiences with cross-project evidence', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runMemorySave(
+        workspace,
+        'promote-user',
+        'user',
+        'best_practice',
+        'Keep user-facing summaries concise',
+        JSON.stringify({
+          user_id: 'default-user',
+          heat: 95,
+          access_count: 8,
+          access_sessions: ['session-a', 'session-b'],
+          validation: {
+            status: 'validated',
+            count: 2,
+            evidence_count: 4,
+            cross_project_count: 2,
+            auto_validated: false,
+            last_reviewed_at: '2026-03-22T00:00:00Z',
+            notes: []
+          }
+        })
+      );
+
+      const userExperiencesFile = path.join(
+        workspace,
+        'openclaw-home',
+        'context-anchor',
+        'users',
+        'default-user',
+        'experiences.json'
+      );
+      const experiences = readJson(userExperiencesFile, { experiences: [] });
+      experiences.experiences[0].created_at = '2026-03-01T00:00:00Z';
+      writeJson(userExperiencesFile, experiences);
+
+      const result = runScopePromote(workspace, {
+        sessionKey: 'promote-user',
+        projectId: 'demo',
+        userId: 'default-user'
+      });
+      const userSkills = readJson(
+        path.join(
+          workspace,
+          'openclaw-home',
+          'context-anchor',
+          'users',
+          'default-user',
+          'skills',
+          'index.json'
+        ),
+        { skills: [] }
+      ).skills;
+
+      assert.equal(result.user_promotions, 1);
+      assert.equal(userSkills.length, 1);
+      assert.equal(userSkills[0].scope, 'user');
     });
   } finally {
     cleanupWorkspace(workspace);
