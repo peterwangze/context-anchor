@@ -2,9 +2,11 @@
 
 `context-anchor` 是一个给 OpenClaw 使用的记忆持久化 skill。它把 skill、本地运行时、hook 和宿主侧辅助配置组合起来，让 OpenClaw 具备：
 
+- 用户级 / 项目级 / Session级 三层记忆加载
 - Session 状态持久化
 - 项目级经验沉淀
-- 上下文压力下的 checkpoint 和记忆同步
+- 上下文压力下的 checkpoint、`compact-packet` 和记忆同步
+- Session 结束前的自动总结、经验提炼和技能草稿沉淀
 - 经验校验与技能化候选
 - gateway 重启后的恢复提示
 
@@ -29,6 +31,19 @@
 - 宿主安装脚本：`scripts/install-host-assets.js`
 
 安装后会在 `~/.openclaw` 下落一份自包含快照，供 OpenClaw 加载和调用。
+
+## 分层模型
+
+第一阶段已经落地的作用域：
+
+- `session`：当前会话的工作记忆、会话经验、技能草稿
+- `project`：当前 workspace 的长期决策、项目经验、项目技能索引
+- `user`：跨项目偏好、用户级记忆、用户级经验、用户级技能索引
+
+默认：
+
+- `user_id = default-user`
+- `project_id = workspace basename`，如果显式传入则优先显式值
 
 ## 前置条件
 
@@ -248,8 +263,21 @@ node ~/.openclaw/hooks/context-anchor-hook/handler.js command:stop "{\"workspace
 
 ```text
 .context-anchor/
-├── projects/
-├── sessions/
+├── projects/{project-id}/
+│   ├── state.json
+│   ├── decisions.json
+│   ├── experiences.json
+│   ├── facts.json
+│   ├── heat-index.json
+│   └── skills/index.json
+├── sessions/{session-key}/
+│   ├── state.json
+│   ├── memory-hot.json
+│   ├── experiences.json
+│   ├── skills/index.json
+│   ├── checkpoint.md
+│   ├── compact-packet.json
+│   └── session-summary.json
 └── index.json
 ```
 
@@ -258,6 +286,53 @@ node ~/.openclaw/hooks/context-anchor-hook/handler.js command:stop "{\"workspace
 - 记忆数据按 workspace 隔离
 - 同一个 workspace 里的不同 session 会共享项目级记忆
 - 换 workspace 不会自动继承旧项目记忆
+
+用户级数据保存在：
+
+```text
+~/.openclaw/context-anchor/users/default-user/
+├── state.json
+├── memories.json
+├── experiences.json
+├── skills/index.json
+└── heat-index.json
+```
+
+## 自动生命周期
+
+### Session Start
+
+`session-start` 现在会自动加载三层资产：
+
+- `session`
+- `project`
+- `user`
+
+并返回：
+
+- 记忆注入摘要
+- 激活技能列表
+- `boot_packet`
+
+### 上下文压力
+
+达到压力阈值时，会自动：
+
+- 创建 checkpoint
+- 生成 `compact-packet.json`
+- 同步高热记忆到项目级
+
+### Session End / Command Stop
+
+退出前会统一执行：
+
+- checkpoint
+- `compact-packet.json`
+- session memory 保存
+- `session-summary.json`
+- session experience 提炼
+- `session skill draft` 生成
+- project heat / skillification 刷新
 
 ## 常见操作
 
@@ -273,10 +348,34 @@ node ~/.openclaw/skills/context-anchor/scripts/checkpoint-create.js <workspace> 
 node ~/.openclaw/skills/context-anchor/scripts/heartbeat.js <workspace> <session-key> <project-id> 80
 ```
 
+### 手动生成 compact packet
+
+```bash
+node ~/.openclaw/skills/context-anchor/scripts/compact-packet-create.js <workspace> <session-key> manual 80
+```
+
+### 手动执行 session close
+
+```bash
+node ~/.openclaw/skills/context-anchor/scripts/session-close.js <workspace> <session-key> session-end 80 <project-id>
+```
+
 ### 手动记录一条项目经验
 
 ```bash
 node ~/.openclaw/skills/context-anchor/scripts/memory-save.js <workspace> <session-key> project best_practice "use smaller diffs"
+```
+
+### 手动记录一条用户级记忆/经验
+
+```bash
+node ~/.openclaw/skills/context-anchor/scripts/memory-save.js <workspace> <session-key> user best_practice "keep responses concise"
+```
+
+### 从旧 `_global` 迁移到 user
+
+```bash
+node ~/.openclaw/skills/context-anchor/scripts/migrate-global-to-user.js <workspace> default-user
 ```
 
 ### 手动校验经验
@@ -295,8 +394,9 @@ node ~/.openclaw/skills/context-anchor/scripts/skill-create.js <workspace> <expe
 
 - 操作系统层面的 cron / Task Scheduler 需要你自己注册
 - `usage_percent` 需要宿主提供，`context-anchor` 不负责计算
-- global scope 当前只存 `user_preferences` 和 `important_facts`
-- global 条目当前不参与 heat、validation、skillification
+- 当前只有单用户：`default-user`
+- 旧 `projects/_global` 仍兼容读取，但新的长期用户数据应写入 `user` 层
+- `session skill draft` 已实现，但自动升格为 `project/user active skill` 还会继续演进
 
 ## 故障排查
 
@@ -342,8 +442,13 @@ npm test
 
 当前测试覆盖：
 
+- user/project/session 三层加载
 - session 恢复
 - checkpoint 与压力处理
+- compact packet
+- session close
+- session skill draft
+- `_global -> user` 迁移
 - session 记忆二次同步的 upsert
 - 自动校验与技能化候选
 - skill 创建

@@ -5,6 +5,7 @@
 ```text
 session 行为
   -> 经验记录
+  -> session skill draft
   -> validation
   -> skillification score
   -> skill create
@@ -62,3 +63,12 @@ node scripts/skill-create.js <workspace> <experience-id> <skill-name> [project-i
 
 - `CONTEXT_ANCHOR_GIT_INIT=1`：初始化 skill 自己的 git 仓库
 - `CONTEXT_ANCHOR_FORCE_SKILL_CREATE=1`：跳过校验门槛强制创建
+
+## Session Skill Draft
+
+第一阶段新增：
+
+- `session-close.js` 会根据当前 session memory / experience 自动生成 `session skill draft`
+- draft 只写入 `sessions/{session-key}/skills/`
+- draft 不会自动晋升为 `project/user active skill`
+- active skill 晋升会在后续阶段继续完善

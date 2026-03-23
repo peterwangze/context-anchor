@@ -5,6 +5,7 @@
 ```json
 {
   "session_key": "session-a",
+  "user_id": "default-user",
   "project_id": "default",
   "started_at": "2026-03-22T12:00:00.000Z",
   "last_active": "2026-03-22T12:30:00.000Z",
@@ -17,6 +18,8 @@
   "checkpoint_reason": null,
   "last_pressure_check": null,
   "last_pressure_usage": null,
+  "closed_at": null,
+  "last_summary": null,
   "metadata": {}
 }
 ```
@@ -107,5 +110,66 @@
   "access_count": 1,
   "access_sessions": ["session-a"],
   "archived": false
+}
+```
+
+## Session Summary
+
+```json
+{
+  "session_key": "session-a",
+  "project_id": "default",
+  "user_id": "default-user",
+  "created_at": "2026-03-22T12:45:00.000Z",
+  "reason": "session-end",
+  "active_task": "修复 context-anchor",
+  "pending_commitments": [],
+  "memory_count": 3,
+  "new_session_experiences": 1,
+  "compact_packet_file": "D:/workspace/.context-anchor/sessions/session-a/compact-packet.json",
+  "skill_draft": {
+    "id": "skill-draft-20260322124500-abcd12",
+    "name": "session-a-draft"
+  }
+}
+```
+
+## Compact Packet
+
+```json
+{
+  "session_key": "session-a",
+  "project_id": "default",
+  "user_id": "default-user",
+  "reason": "pressure",
+  "usage_percent": 82,
+  "active_task": "修复 context-anchor",
+  "pending_commitments": [],
+  "session_memories": [],
+  "project_memories": [],
+  "user_memories": [],
+  "active_skills": {
+    "session": [],
+    "project": [],
+    "user": []
+  }
+}
+```
+
+## User State
+
+```json
+{
+  "user_id": "default-user",
+  "created_at": "2026-03-22T00:00:00.000Z",
+  "last_updated": "2026-03-22T12:45:00.000Z",
+  "preferences": {
+    "language": "zh-CN"
+  },
+  "profile": {},
+  "key_memories": [],
+  "key_experiences": [],
+  "key_skills": [],
+  "metadata": {}
 }
 ```
