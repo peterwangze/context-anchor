@@ -117,7 +117,11 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
     promoted_project_skills: promotions.project_skills,
     promoted_user_skills: promotions.user_skills,
     deactivated_project_skills: reconcile.project_deactivated,
+    reactivated_project_skills: reconcile.project_reactivated,
     deactivated_user_skills: reconcile.user_deactivated,
+    reactivated_user_skills: reconcile.user_reactivated,
+    archived_project_skills: reconcile.project_archived,
+    archived_user_skills: reconcile.user_archived,
     skill_draft: skillDraft.status === 'created' ? {
       id: skillDraft.skill_id,
       name: skillDraft.skill_name

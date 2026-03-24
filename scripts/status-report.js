@@ -24,8 +24,33 @@ const {
   resolveProjectId,
   resolveUserId,
   sanitizeKey,
+  summarizeEvidence,
   writeStatusSnapshot
 } = require('./lib/context-anchor');
+
+function summarizeSkillEvidence(skills = []) {
+  const entries = skills.flatMap((skill) =>
+    (Array.isArray(skill.evidence) ? skill.evidence : []).map((event) => ({
+      ...event,
+      skill_id: skill.id,
+      skill_name: skill.name,
+      skill_scope: skill.scope
+    }))
+  );
+  const summary = summarizeEvidence(entries);
+  return {
+    ...summary,
+    recent: summary.recent.map((event) => ({
+      type: event.type,
+      at: event.at,
+      reason: event.reason,
+      actor: event.actor,
+      skill_id: event.skill_id,
+      skill_name: event.skill_name,
+      scope: event.skill_scope
+    }))
+  };
+}
 
 function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, options = {}) {
   const paths = createPaths(workspaceArg);
@@ -91,7 +116,11 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
         promoted_project_skills: (sessionSummary.promoted_project_skills || []).length,
         promoted_user_skills: (sessionSummary.promoted_user_skills || []).length,
         deactivated_project_skills: sessionSummary.deactivated_project_skills || 0,
-        deactivated_user_skills: sessionSummary.deactivated_user_skills || 0
+        reactivated_project_skills: sessionSummary.reactivated_project_skills || 0,
+        deactivated_user_skills: sessionSummary.deactivated_user_skills || 0,
+        reactivated_user_skills: sessionSummary.reactivated_user_skills || 0,
+        archived_project_skills: sessionSummary.archived_project_skills || 0,
+        archived_user_skills: sessionSummary.archived_user_skills || 0
       } : null
     },
     governance: {
@@ -105,6 +134,11 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
 
   report.health = buildHealthSummary(report);
   report.adaptive_budget = buildAdaptiveBudget(DEFAULTS.skillActivationBudget, report);
+  report.evidence = {
+    session_skills: summarizeSkillEvidence(diagnostics.all.filter((skill) => skill.scope === 'session')),
+    project_skills: summarizeSkillEvidence(diagnostics.all.filter((skill) => skill.scope === 'project')),
+    user_skills: summarizeSkillEvidence(diagnostics.all.filter((skill) => skill.scope === 'user'))
+  };
 
   if (options.writeSnapshot) {
     report.snapshot_file = writeStatusSnapshot(paths, sessionKey, report);

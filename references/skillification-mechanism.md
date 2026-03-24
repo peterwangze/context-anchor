@@ -72,7 +72,7 @@ node scripts/skill-create.js <workspace> <experience-id> <skill-name> [project-i
 - draft 只写入 `sessions/{session-key}/skills/`
 - draft 仍然是独立对象，不会直接替代 active skill
 - 满足门槛的 validated experience 现在会自动晋升为 `project/user active skill`
-- 更复杂的晋升治理会在后续阶段继续完善
+- `skill-reconcile` 会基于 supporting evidence 自动降级、回流与归档 skill，并保留 evidence 轨迹
 
 ## Governance
 

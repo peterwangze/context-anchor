@@ -3,6 +3,7 @@
 const path = require('path');
 const {
   DEFAULTS,
+  appendEvidence,
   buildScopedSkillMarkdown,
   createPaths,
   generateId,
@@ -85,9 +86,22 @@ function createSkillRecord(scope, targetDir, experience, defaults = {}) {
     created_at: new Date().toISOString(),
     path: skillPath
   };
+  const withEvidence = appendEvidence(record, {
+    type: 'skill_promoted',
+    at: record.created_at,
+    scope,
+    source_session: record.source_session,
+    source_project: record.source_project,
+    source_user: record.source_user,
+    actor: 'scope-promote',
+    reason: 'validated_experience',
+    details: {
+      source_experience: experience.id
+    }
+  });
 
-  writeText(skillPath, buildScopedSkillMarkdown(record));
-  return record;
+  writeText(skillPath, buildScopedSkillMarkdown(withEvidence));
+  return withEvidence;
 }
 
 function reuseOrCreateSkill(skills, scope, dir, experience, defaults) {
@@ -115,10 +129,23 @@ function reuseOrCreateSkill(skills, scope, dir, experience, defaults) {
         }
       ]
     };
+    const mergedWithEvidence = appendEvidence(merged, {
+      type: 'skill_reused',
+      at: new Date().toISOString(),
+      scope,
+      source_session: defaults.sessionKey || null,
+      source_project: defaults.projectId || null,
+      source_user: defaults.userId || null,
+      actor: 'scope-promote',
+      reason: 'same_conflict_key_or_source_experience',
+      details: {
+        source_experience: experience.id
+      }
+    });
     const idx = skills.findIndex((skill) => skill.id === existingSkill.id);
-    skills[idx] = merged;
+    skills[idx] = mergedWithEvidence;
     return {
-      skill: merged,
+      skill: mergedWithEvidence,
       created: false
     };
   }
@@ -151,7 +178,19 @@ function promoteProjectSkills(paths, projectId, sessionKey) {
     }
 
     return {
-      ...experience,
+      ...appendEvidence(experience, {
+        type: 'experience_promoted_to_skill',
+        at: skill.created_at,
+        scope: 'project',
+        source_session: sessionKey || null,
+        source_project: projectId,
+        source_user: experience.source_user || null,
+        actor: 'scope-promote',
+        reason: skill.name,
+        details: {
+          skill_id: skill.id
+        }
+      }),
       skill_name: skill.name,
       skill_id: skill.id,
       skill_scope: 'project',
@@ -214,7 +253,19 @@ function promoteUserSkills(paths, userId) {
     }
 
     return {
-      ...experience,
+      ...appendEvidence(experience, {
+        type: 'experience_promoted_to_skill',
+        at: skill.created_at,
+        scope: 'user',
+        source_session: experience.source_session || null,
+        source_project: experience.source_project || null,
+        source_user: userId,
+        actor: 'scope-promote',
+        reason: skill.name,
+        details: {
+          skill_id: skill.id
+        }
+      }),
       skill_name: skill.name,
       skill_id: skill.id,
       skill_scope: 'user',

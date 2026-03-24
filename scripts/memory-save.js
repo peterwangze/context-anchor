@@ -2,6 +2,7 @@
 
 const {
   DEFAULTS,
+  appendEvidence,
   clamp,
   createPaths,
   ensureAnchorDirs,
@@ -215,14 +216,27 @@ function saveExperience(paths, sessionState, type, content, metadata) {
     archived: false,
     source_session_entry_id: metadata.source_session_entry_id || existing?.source_session_entry_id || null
   };
+  const entryWithEvidence = appendEvidence(entry, {
+    type: idx >= 0 ? 'experience_updated' : 'experience_saved',
+    at: timestamp,
+    scope: 'project',
+    source_session: sessionState.session_key,
+    source_project: sessionState.project_id,
+    source_user: sessionState.user_id,
+    actor: 'memory-save',
+    reason: normalizedType,
+    details: {
+      entry_id: entry.id
+    }
+  });
 
   if (idx >= 0) {
-    experiences[idx] = entry;
+    experiences[idx] = entryWithEvidence;
   } else {
-    experiences.push(entry);
+    experiences.push(entryWithEvidence);
   }
   writeProjectExperiences(paths, sessionState.project_id, experiences);
-  recordHeatEntry(paths, sessionState.project_id, entry);
+  recordHeatEntry(paths, sessionState.project_id, entryWithEvidence);
 
   sessionState.experiences_count = Number(sessionState.experiences_count || 0) + 1;
   writeSessionState(paths, sessionState.session_key, sessionState);
@@ -230,10 +244,10 @@ function saveExperience(paths, sessionState, type, content, metadata) {
 
   return {
     scope: 'project',
-    id: entry.id,
-    type: entry.type,
-    heat: entry.heat,
-    validation_status: entry.validation.status
+    id: entryWithEvidence.id,
+    type: entryWithEvidence.type,
+    heat: entryWithEvidence.heat,
+    validation_status: entryWithEvidence.validation.status
   };
 }
 
@@ -379,19 +393,32 @@ function saveToGlobal(paths, type, content, metadata) {
       archived: false,
       source_session_entry_id: metadata.source_session_entry_id || existing?.source_session_entry_id || null
     };
+    const entryWithEvidence = appendEvidence(entry, {
+      type: idx >= 0 ? 'user_experience_updated' : 'user_experience_saved',
+      at: timestamp,
+      scope: 'user',
+      source_session: metadata.source_session || null,
+      source_project: metadata.source_project || null,
+      source_user: userId,
+      actor: 'memory-save',
+      reason: type,
+      details: {
+        entry_id: entry.id
+      }
+    });
     if (idx >= 0) {
-      userExperiences[idx] = entry;
+      userExperiences[idx] = entryWithEvidence;
     } else {
-      userExperiences.push(entry);
+      userExperiences.push(entryWithEvidence);
     }
     writeUserExperiences(paths, userId, userExperiences);
-    recordUserHeatEntry(paths, userId, entry);
-    userState.key_experiences = uniqueList([...(userState.key_experiences || []), entry.id]).slice(0, 20);
+    recordUserHeatEntry(paths, userId, entryWithEvidence);
+    userState.key_experiences = uniqueList([...(userState.key_experiences || []), entryWithEvidence.id]).slice(0, 20);
     userState.last_updated = timestamp;
     writeUserState(paths, userId, userState);
     return {
       scope: 'user',
-      id: entry.id,
+      id: entryWithEvidence.id,
       type
     };
   }

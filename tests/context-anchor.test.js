@@ -936,8 +936,11 @@ test('skill supersede deactivates loser and keeps only winner effective', () => 
       });
 
       runSkillSupersede(workspace, 'project', 'project-skill-a', 'project-skill-b', 'demo');
+      const skills = readJson(path.join(projectSkillDir, 'index.json'), { skills: [] }).skills;
       const result = runSessionStart(workspace, 'supersede-project', 'demo');
 
+      assert.ok((skills[0].evidence || []).some((event) => event.type === 'skill_supersede_winner'));
+      assert.ok((skills[1].evidence || []).some((event) => event.type === 'skill_superseded'));
       assert.ok(result.effective_skills.some((skill) => skill.id === 'project-skill-a'));
       assert.ok(!result.effective_skills.some((skill) => skill.id === 'project-skill-b'));
       assert.ok(result.shadowed_skills.length === 0);
@@ -1084,6 +1087,66 @@ test('skill reconcile archives low-value inactive skills', () => {
       assert.equal(result.project_archived, 1);
       assert.equal(projectSkills[0].status, 'archived');
       assert.equal(projectSkills[0].archived, true);
+      assert.ok((projectSkills[0].evidence || []).some((event) => event.type === 'skill_archived'));
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('skill reconcile reactivates inactive skills when supporting evidence returns', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'reactivate-skill', 'demo');
+      const projectSkillDir = path.join(workspace, '.context-anchor', 'projects', 'demo', 'skills');
+      const projectExperiencesFile = path.join(workspace, '.context-anchor', 'projects', 'demo', 'experiences.json');
+      fs.mkdirSync(projectSkillDir, { recursive: true });
+      writeJson(projectExperiencesFile, {
+        experiences: [
+          {
+            id: 'exp-reactivate',
+            type: 'best_practice',
+            summary: 'Reusable lesson',
+            validation: { status: 'validated' },
+            skillification_suggested: true,
+            archived: false,
+            source_project: 'demo',
+            source_user: 'default-user'
+          }
+        ]
+      });
+      writeJson(path.join(projectSkillDir, 'index.json'), {
+        skills: [
+          {
+            id: 'project-skill-reactivate',
+            name: 'reactivate-me',
+            scope: 'project',
+            status: 'inactive',
+            related_experiences: ['exp-reactivate'],
+            source_project: 'demo',
+            source_user: 'default-user',
+            status_history: [
+              {
+                status: 'inactive',
+                at: '2026-03-24T00:00:00Z',
+                reason: 'manual'
+              }
+            ]
+          }
+        ]
+      });
+
+      const result = runSkillReconcile(workspace, {
+        projectId: 'demo',
+        userId: 'default-user'
+      });
+      const projectSkills = readJson(path.join(projectSkillDir, 'index.json'), { skills: [] }).skills;
+
+      assert.equal(result.project_reactivated, 1);
+      assert.equal(projectSkills[0].status, 'active');
+      assert.ok((projectSkills[0].evidence || []).some((event) => event.type === 'skill_reactivated'));
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -1130,6 +1193,7 @@ test('status report summarizes user project session counts and governance', () =
       assert.equal(report.session.key, 'report-session');
       assert.ok(report.session.last_summary_snapshot);
       assert.ok(typeof report.governance.active === 'number');
+      assert.ok(report.evidence.project_skills);
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -1294,6 +1358,7 @@ test('skill diagnose returns recommended actions for non-active diagnoses', () =
 
       assert.equal(result.reasons[0].diagnosis, 'archived');
       assert.ok(result.recommendations.length >= 1);
+      assert.ok(result.reasons[0].evidence_summary);
     });
   } finally {
     cleanupWorkspace(workspace);

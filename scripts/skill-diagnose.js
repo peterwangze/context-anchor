@@ -10,7 +10,8 @@ const {
   matchSkillIdentifier,
   resolveProjectId,
   resolveUserId,
-  sanitizeKey
+  sanitizeKey,
+  summarizeEvidence
 } = require('./lib/context-anchor');
 
 function runSkillDiagnose(workspaceArg, identifier, sessionKeyArg, projectIdArg, userIdArg) {
@@ -39,7 +40,8 @@ function runSkillDiagnose(workspaceArg, identifier, sessionKeyArg, projectIdArg,
     status: skill.status,
     superseded_by: skill.superseded_by || null,
     shadowed_by: skill.shadowed_by || null,
-    budget_reason: skill.budget_reason || null
+    budget_reason: skill.budget_reason || null,
+    evidence_summary: summarizeEvidence(skill.evidence || [])
   }));
   const recommendations = [];
 

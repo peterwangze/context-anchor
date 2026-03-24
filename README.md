@@ -488,7 +488,7 @@ node ~/.openclaw/skills/context-anchor/scripts/skill-create.js <workspace> <expe
 - 当前只有单用户：`default-user`
 - 旧 `projects/_global` 仍兼容读取，但新的长期用户数据应写入 `user` 层
 - `session skill draft` 已实现
-- `project/user active skill` 已支持基础自动晋升，但更复杂的晋升治理仍会继续演进
+- `project/user active skill` 已支持自动晋升、自动回收/回流、归档与 evidence 追踪
 
 ## 故障排查
 

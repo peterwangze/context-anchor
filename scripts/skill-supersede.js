@@ -2,6 +2,7 @@
 
 const {
   DEFAULTS,
+  appendEvidence,
   createPaths,
   loadProjectSkills,
   loadUserSkills,
@@ -22,20 +23,35 @@ function applySupersede(skills, winnerId, loserId) {
 
   const winner = normalizeSkillRecord(skills[winnerIdx], skills[winnerIdx].scope);
   const loser = normalizeSkillRecord(skills[loserIdx], skills[loserIdx].scope);
+  const updatedAt = new Date().toISOString();
   winner.supersedes = Array.from(new Set([...(winner.supersedes || []), loser.conflict_key, loser.id]));
   winner.status_history = [
     ...(winner.status_history || []),
     {
       status: winner.status,
-      at: new Date().toISOString(),
+      at: updatedAt,
       reason: `supersedes ${loser.id}`
     }
   ];
+  const nextWinner = appendEvidence(winner, {
+    type: 'skill_supersede_winner',
+    at: updatedAt,
+    scope: winner.scope,
+    source_session: winner.source_session || null,
+    source_project: winner.source_project || null,
+    source_user: winner.source_user || null,
+    actor: 'skill-supersede',
+    reason: `supersedes ${loser.id}`,
+    details: {
+      loser_id: loser.id,
+      loser_conflict_key: loser.conflict_key
+    }
+  });
 
   loser.superseded_by = winner.id;
   loser.status = 'inactive';
   loser.status_note = `superseded by ${winner.id}`;
-  loser.status_updated_at = new Date().toISOString();
+  loser.status_updated_at = updatedAt;
   loser.status_history = [
     ...(loser.status_history || []),
     {
@@ -44,12 +60,26 @@ function applySupersede(skills, winnerId, loserId) {
       reason: `superseded by ${winner.id}`
     }
   ];
+  const nextLoser = appendEvidence(loser, {
+    type: 'skill_superseded',
+    at: updatedAt,
+    scope: loser.scope,
+    source_session: loser.source_session || null,
+    source_project: loser.source_project || null,
+    source_user: loser.source_user || null,
+    actor: 'skill-supersede',
+    reason: `superseded by ${winner.id}`,
+    details: {
+      winner_id: winner.id,
+      winner_conflict_key: winner.conflict_key
+    }
+  });
 
-  skills[winnerIdx] = winner;
-  skills[loserIdx] = loser;
+  skills[winnerIdx] = nextWinner;
+  skills[loserIdx] = nextLoser;
   return {
-    winner,
-    loser
+    winner: nextWinner,
+    loser: nextLoser
   };
 }
 

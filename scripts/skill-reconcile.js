@@ -2,6 +2,7 @@
 
 const {
   DEFAULTS,
+  appendEvidence,
   createPaths,
   loadProjectExperiences,
   loadProjectSkills,
@@ -26,9 +27,49 @@ function isExperienceSupportingSkill(experience) {
 function reconcileSkillCollection(skills, experiences, scope) {
   const experienceMap = new Map(experiences.map((experience) => [experience.id, experience]));
   let deactivated = 0;
+  let reactivated = 0;
   let archived = 0;
   const nextSkills = skills.map((rawSkill) => {
     const skill = normalizeSkillRecord(rawSkill, scope);
+    const related = (skill.related_experiences || []).map((id) => experienceMap.get(id)).filter(Boolean);
+    const supportingExperiences = related.filter(isExperienceSupportingSkill);
+
+    if (skill.status === 'inactive' && !skill.archived && supportingExperiences.length > 0) {
+      reactivated += 1;
+      const statusUpdatedAt = new Date().toISOString();
+      return appendEvidence(
+        {
+          ...skill,
+          status: 'active',
+          archived: false,
+          superseded_by: null,
+          status_updated_at: statusUpdatedAt,
+          status_note: 'auto-reconcile: validated supporting experiences restored',
+          status_history: [
+            ...(skill.status_history || []),
+            {
+              status: 'active',
+              at: statusUpdatedAt,
+              reason: 'auto-reconcile: validated supporting experiences restored'
+            }
+          ]
+        },
+        {
+          type: 'skill_reactivated',
+          at: statusUpdatedAt,
+          scope,
+          source_session: null,
+          source_project: skill.source_project || supportingExperiences[0]?.source_project || null,
+          source_user: skill.source_user || supportingExperiences[0]?.source_user || null,
+          actor: 'skill-reconcile',
+          reason: 'validated_support_restored',
+          details: {
+            supporting_experiences: supportingExperiences.map((experience) => experience.id)
+          }
+        }
+      );
+    }
+
     if (
       skill.status === 'inactive' &&
       !skill.archived &&
@@ -36,54 +77,85 @@ function reconcileSkillCollection(skills, experiences, scope) {
       Number(skill.usage_count || 0) <= DEFAULTS.skillArchiveUsageThreshold
     ) {
       archived += 1;
-      return {
-        ...skill,
-        status: 'archived',
-        archived: true,
-        status_updated_at: new Date().toISOString(),
-        status_note: 'auto-reconcile: archived low-value inactive skill',
-        status_history: [
-          ...(skill.status_history || []),
-          {
-            status: 'archived',
-            at: new Date().toISOString(),
-            reason: 'auto-reconcile: archived low-value inactive skill'
+      const statusUpdatedAt = new Date().toISOString();
+      return appendEvidence(
+        {
+          ...skill,
+          status: 'archived',
+          archived: true,
+          status_updated_at: statusUpdatedAt,
+          status_note: 'auto-reconcile: archived low-value inactive skill',
+          status_history: [
+            ...(skill.status_history || []),
+            {
+              status: 'archived',
+              at: statusUpdatedAt,
+              reason: 'auto-reconcile: archived low-value inactive skill'
+            }
+          ]
+        },
+        {
+          type: 'skill_archived',
+          at: statusUpdatedAt,
+          scope,
+          source_session: null,
+          source_project: skill.source_project || null,
+          source_user: skill.source_user || null,
+          actor: 'skill-reconcile',
+          reason: 'low_value_inactive_skill',
+          details: {
+            usage_count: Number(skill.usage_count || 0),
+            priority: Number(skill.load_policy?.priority || 0)
           }
-        ]
-      };
+        }
+      );
     }
 
     if (skill.status !== 'active' || skill.archived) {
       return skill;
     }
 
-    const related = (skill.related_experiences || []).map((id) => experienceMap.get(id)).filter(Boolean);
-    const supportingExperiences = related.filter(isExperienceSupportingSkill);
-
     if (supportingExperiences.length > 0) {
       return skill;
     }
 
     deactivated += 1;
-    return {
-      ...skill,
-      status: 'inactive',
-      status_updated_at: new Date().toISOString(),
-      status_note: 'auto-reconcile: no validated supporting experiences',
-      status_history: [
-        ...(skill.status_history || []),
-        {
-          status: 'inactive',
-          at: new Date().toISOString(),
-          reason: 'auto-reconcile: no validated supporting experiences'
+    const statusUpdatedAt = new Date().toISOString();
+    return appendEvidence(
+      {
+        ...skill,
+        status: 'inactive',
+        status_updated_at: statusUpdatedAt,
+        status_note: 'auto-reconcile: no validated supporting experiences',
+        status_history: [
+          ...(skill.status_history || []),
+          {
+            status: 'inactive',
+            at: statusUpdatedAt,
+            reason: 'auto-reconcile: no validated supporting experiences'
+          }
+        ]
+      },
+      {
+        type: 'skill_deactivated',
+        at: statusUpdatedAt,
+        scope,
+        source_session: null,
+        source_project: skill.source_project || null,
+        source_user: skill.source_user || null,
+        actor: 'skill-reconcile',
+        reason: 'no_validated_supporting_experiences',
+        details: {
+          related_experiences: (skill.related_experiences || []).slice(0, 20)
         }
-      ]
-    };
+      }
+    );
   });
 
   return {
     skills: nextSkills,
     deactivated,
+    reactivated,
     archived
   };
 }
@@ -108,7 +180,9 @@ function runSkillReconcile(workspaceArg, options = {}) {
     project_id: projectId,
     user_id: userId,
     project_deactivated: nextProject.deactivated,
+    project_reactivated: nextProject.reactivated,
     user_deactivated: nextUser.deactivated,
+    user_reactivated: nextUser.reactivated,
     project_archived: nextProject.archived,
     user_archived: nextUser.archived
   };

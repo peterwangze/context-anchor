@@ -73,6 +73,27 @@ function readJson(file, defaultValue = {}) {
   }
 }
 
+function normalizeEvidenceArray(evidence = []) {
+  return (Array.isArray(evidence) ? evidence : []).map((entry) => ({
+    type: entry.type || 'event',
+    at: entry.at || nowIso(),
+    scope: entry.scope || null,
+    source_session: entry.source_session || null,
+    source_project: entry.source_project || null,
+    source_user: entry.source_user || null,
+    actor: entry.actor || 'system',
+    reason: entry.reason || null,
+    details: entry.details || {}
+  }));
+}
+
+function appendEvidence(entity = {}, event = {}) {
+  return {
+    ...entity,
+    evidence: normalizeEvidenceArray([...(entity.evidence || []), event])
+  };
+}
+
 function writeText(file, content) {
   ensureDir(path.dirname(file));
   fs.writeFileSync(file, content, 'utf8');
@@ -871,6 +892,7 @@ function normalizeSkillRecord(skill = {}, defaultScope = 'project') {
     superseded_by: skill.superseded_by || null,
     usage_count: Number(skill.usage_count || 0),
     last_used_at: skill.last_used_at || null,
+    evidence: normalizeEvidenceArray(skill.evidence),
     load_policy: {
       auto_load: skill.load_policy?.auto_load !== false,
       priority: Number(skill.load_policy?.priority || 50),
@@ -1087,6 +1109,20 @@ function collectSkillDiagnostics(skillGroups = {}, budgets = DEFAULTS.skillActiv
   };
 }
 
+function summarizeEvidence(evidence = []) {
+  const normalized = normalizeEvidenceArray(evidence);
+  const counts = normalized.reduce((acc, item) => {
+    acc[item.type] = Number(acc[item.type] || 0) + 1;
+    return acc;
+  }, {});
+
+  return {
+    count: normalized.length,
+    by_type: counts,
+    recent: normalized.slice(-5).reverse()
+  };
+}
+
 function countByStatus(items = []) {
   return items.reduce((acc, item) => {
     const key = item.status || 'unknown';
@@ -1169,6 +1205,7 @@ module.exports = {
   DEFAULTS,
   SKILL_STATUSES,
   VALIDATION_STATUSES,
+  appendEvidence,
   buildAdaptiveBudget,
   buildHealthSummary,
   buildCheckpointContent,
@@ -1209,6 +1246,7 @@ module.exports = {
   loadUserState,
   mergeAccessMetadata,
   normalizeValidation,
+  normalizeEvidenceArray,
   normalizeSkillRecord,
   nowIso,
   compactPacketFile,
@@ -1238,6 +1276,7 @@ module.exports = {
   sessionSummaryFile,
   statusSnapshotFile,
   sortByHeat,
+  summarizeEvidence,
   isSkillLoadable,
   matchSkillIdentifier,
   selectEffectiveSkills,

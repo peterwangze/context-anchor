@@ -190,7 +190,7 @@ context-anchor/
 
 - `session skill draft` 会在 `session-close` 时自动生成
 - 满足门槛的 validated experience 会自动晋升为 `project/user active skill`
-- 更复杂的晋升治理后续继续演进
+- `skill-reconcile` 会根据 supporting evidence 自动降级、回流与归档 skill，并写入 evidence
 
 生成 skill 的目标目录默认为当前 skill 仓的上级目录，可通过 `CONTEXT_ANCHOR_SKILLS_ROOT` 覆盖。
 
