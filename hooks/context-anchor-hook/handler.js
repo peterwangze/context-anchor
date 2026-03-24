@@ -33,7 +33,21 @@ function parsePayload(rawArg) {
   }
 }
 
+function requirePayloadFields(payload, eventName, requiredFields) {
+  const missing = requiredFields.filter((field) => {
+    const value = payload?.[field];
+    return value === undefined || value === null || value === '';
+  });
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Event ${eventName} requires payload field(s): ${missing.join(', ')}. Use a payload JSON file if manual shell quoting is difficult.`
+    );
+  }
+}
+
 function handleStartup(payload) {
+  requirePayloadFields(payload, 'gateway:startup', ['workspace']);
   const paths = createPaths(payload.workspace);
   const recentSessions = getRecentSessions(paths);
 
@@ -78,11 +92,12 @@ function handleStartup(payload) {
 }
 
 function handleStop(payload) {
+  requirePayloadFields(payload, 'command:stop', ['workspace', 'session_key']);
   return {
     status: 'handled',
     event: 'command:stop',
     actions: ['session_closed'],
-    result: runSessionClose(payload.workspace, payload.session_key || DEFAULTS.sessionKey, {
+    result: runSessionClose(payload.workspace, payload.session_key, {
       reason: 'command-stop',
       usagePercent: payload.usage_percent,
       projectId: payload.project_id
@@ -91,11 +106,12 @@ function handleStop(payload) {
 }
 
 function handleSessionEnd(payload) {
+  requirePayloadFields(payload, 'session:end', ['workspace', 'session_key']);
   return {
     status: 'handled',
     event: 'session:end',
     actions: ['session_closed'],
-    result: runSessionClose(payload.workspace, payload.session_key || DEFAULTS.sessionKey, {
+    result: runSessionClose(payload.workspace, payload.session_key, {
       reason: 'session-end',
       usagePercent: payload.usage_percent,
       projectId: payload.project_id
@@ -104,6 +120,7 @@ function handleSessionEnd(payload) {
 }
 
 function handleHeartbeat(payload) {
+  requirePayloadFields(payload, 'heartbeat', ['workspace', 'session_key']);
   return {
     status: 'handled',
     event: 'heartbeat',

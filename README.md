@@ -286,15 +286,24 @@ node "<openclaw-home>/automation/context-anchor/context-pressure-monitor.js" "<w
 
 检查：
 
-- `~/.openclaw/skills/context-anchor/` 是否存在
-- `~/.openclaw/config.json` 的 `extraDirs` 是否包含 `~/.openclaw/skills`
+- `<installed-skill-dir>/` 是否存在
+- `<openclaw-home>/config.json` 的 `extraDirs` 是否包含 `<skills-root>`
+- `node scripts/doctor.js` 输出中的 `installation.ready` 是否为 `true`
 
 ### 2. 验证 startup 恢复
 
-先准备一个测试工作区，然后触发：
+先准备一个测试工作区，并写一个最小 payload 文件：
+
+```json
+{
+  "workspace": "D:/workspace/project"
+}
+```
+
+然后触发：
 
 ```bash
-node ~/.openclaw/hooks/context-anchor-hook/handler.js gateway:startup "{\"workspace\":\"D:/workspace/project\"}"
+node "<openclaw-home>/hooks/context-anchor-hook/handler.js" gateway:startup "./context-anchor-payload.json"
 ```
 
 预期：
@@ -304,8 +313,19 @@ node ~/.openclaw/hooks/context-anchor-hook/handler.js gateway:startup "{\"worksp
 
 ### 3. 验证 heartbeat
 
+```json
+{
+  "workspace": "D:/workspace/project",
+  "session_key": "chat-session-001",
+  "project_id": "default",
+  "usage_percent": 82
+}
+```
+
+然后执行：
+
 ```bash
-node ~/.openclaw/hooks/context-anchor-hook/handler.js heartbeat "{\"workspace\":\"D:/workspace/project\",\"session_key\":\"chat-session-001\",\"project_id\":\"default\",\"usage_percent\":82}"
+node "<openclaw-home>/hooks/context-anchor-hook/handler.js" heartbeat "./context-anchor-payload.json"
 ```
 
 预期：
@@ -316,14 +336,25 @@ node ~/.openclaw/hooks/context-anchor-hook/handler.js heartbeat "{\"workspace\":
 
 ### 4. 验证 stop / session end
 
+```json
+{
+  "workspace": "D:/workspace/project",
+  "session_key": "chat-session-001",
+  "project_id": "default"
+}
+```
+
+然后执行：
+
 ```bash
-node ~/.openclaw/hooks/context-anchor-hook/handler.js command:stop "{\"workspace\":\"D:/workspace/project\",\"session_key\":\"chat-session-001\",\"project_id\":\"default\"}"
+node "<openclaw-home>/hooks/context-anchor-hook/handler.js" command:stop "./context-anchor-payload.json"
 ```
 
 预期：
 
 - `sessions/<session-key>/checkpoint.md` 被创建
 - 热记忆会尝试同步到项目级
+- 如果 payload 缺失 `workspace` 或 `session_key`，CLI 会直接返回明确错误，而不是写到默认目录
 
 ## 工作区中的运行时数据
 

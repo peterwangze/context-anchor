@@ -17,6 +17,13 @@ node "handler.js" <event-name> <payload-file-or-json>
 
 对零基础用户，推荐优先传 JSON 文件路径，不要直接在命令行内联 JSON。
 
+事件要求：
+
+- `gateway:startup`：payload 至少包含 `workspace`
+- `command:stop`：payload 至少包含 `workspace` 和 `session_key`
+- `session:end`：payload 至少包含 `workspace` 和 `session_key`
+- `heartbeat`：payload 至少包含 `workspace` 和 `session_key`，通常还应包含 `usage_percent`
+
 payload 示例：
 
 ```json

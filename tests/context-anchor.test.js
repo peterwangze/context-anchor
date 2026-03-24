@@ -401,6 +401,33 @@ test('doctor reports installed absolute paths and wrapper returns a helpful payl
   }
 });
 
+test('hook handler rejects missing required payload fields before mutating state', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      assert.throws(
+        () => handleHookEvent('gateway:startup', {}),
+        /gateway:startup requires payload field\(s\): workspace/
+      );
+
+      assert.throws(
+        () => handleHookEvent('heartbeat', { workspace }),
+        /heartbeat requires payload field\(s\): session_key/
+      );
+
+      assert.throws(
+        () => handleHookEvent('command:stop', { workspace }),
+        /command:stop requires payload field\(s\): session_key/
+      );
+
+      assert.equal(fs.existsSync(path.join(workspace, '.context-anchor')), false);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('session-start loads user scope memories and skills', () => {
   const workspace = makeWorkspace();
 
