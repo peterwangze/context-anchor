@@ -32,7 +32,7 @@
 - hook 处理器：`hooks/context-anchor-hook/`
 - 宿主安装脚本：`scripts/install-host-assets.js`
 
-安装后会在 `~/.openclaw` 下落一份自包含快照，供 OpenClaw 加载和调用。
+安装后会在 `<openclaw-home>` 下落一份自包含快照，供 OpenClaw 加载和调用。
 
 ## 分层模型
 
@@ -51,11 +51,31 @@
 
 - 已安装 Node.js
 - 已有 OpenClaw 运行环境
-- 允许在本地 `~/.openclaw` 目录写入配置、hook 和 automation 文件
+- 允许在本地 OpenClaw 目录写入配置、hook 和 automation 文件
 
 可选：
 
 - 如果你要在独立目录生成由经验沉淀出的新 skill，可提前规划 `CONTEXT_ANCHOR_SKILLS_ROOT`
+
+## 路径说明
+
+本文后面会反复使用几个占位符：
+
+- `<openclaw-home>`：OpenClaw 数据目录
+- `<skills-root>`：OpenClaw 扫描 skill 的目录
+- `<installed-skill-dir>`：安装后的 `context-anchor` 快照目录，也就是 `<skills-root>/context-anchor`
+
+默认情况下：
+
+- Windows：`C:/Users/<你自己的用户名>/.openclaw`
+- macOS：`/Users/<你自己的用户名>/.openclaw`
+- Linux：`/home/<你自己的用户名>/.openclaw`
+
+建议：
+
+- 手工执行命令时总是给路径加双引号
+- 配置文件里不要写 `~/.openclaw`，要写真实绝对路径
+- 安装后先运行一次 `doctor`，直接复制它输出的真实路径
 
 ## 快速安装
 
@@ -67,13 +87,19 @@ node scripts/install-host-assets.js
 
 默认结果：
 
-- 把当前 skill 的自包含快照安装到固定目录 `~/.openclaw/skills/context-anchor/`
-- 更新 `~/.openclaw/config.json`
-- 确保 `config.json.extraDirs` 包含 `~/.openclaw/skills`
-- 写入 hook wrapper 到 `~/.openclaw/hooks/context-anchor-hook/`
-- 写入 monitor wrapper 到 `~/.openclaw/automation/context-anchor/`
+- 把当前 skill 的自包含快照安装到固定目录 `<installed-skill-dir>`
+- 更新 `<openclaw-home>/config.json`
+- 确保 `config.json.extraDirs` 包含 `<skills-root>`
+- 写入 hook wrapper 到 `<openclaw-home>/hooks/context-anchor-hook/`
+- 写入 monitor wrapper 到 `<openclaw-home>/automation/context-anchor/`
 
 这里的安装目录名始终是 `context-anchor`，不受你本地源码目录名影响。
+
+这个安装命令在 Windows PowerShell、macOS Terminal、Linux shell 中都一样：
+
+```bash
+node scripts/install-host-assets.js
+```
 
 如果你要覆盖默认位置：
 
@@ -87,16 +113,30 @@ node scripts/install-host-assets.js <openclaw-home> <skills-root>
 node scripts/install-host-assets.js "D:/openclaw-home" "D:/openclaw-home/skills"
 ```
 
+安装后立刻执行一次自检：
+
+```bash
+node scripts/doctor.js
+```
+
+如果你使用了自定义目录：
+
+```bash
+node scripts/doctor.js --openclaw-home "D:/openclaw-home" --skills-root "D:/openclaw-home/skills"
+```
+
+`doctor` 会输出真实路径、安装完整性检查和可直接复制的命令。
+
 ## 安装后你应该看到什么
 
 至少检查这几个路径：
 
-- `~/.openclaw/config.json`
-- `~/.openclaw/skills/context-anchor/README.md`
-- `~/.openclaw/skills/context-anchor/SKILL.md`
-- `~/.openclaw/skills/context-anchor/scripts/heartbeat.js`
-- `~/.openclaw/hooks/context-anchor-hook/handler.js`
-- `~/.openclaw/automation/context-anchor/context-pressure-monitor.js`
+- `<openclaw-home>/config.json`
+- `<installed-skill-dir>/README.md`
+- `<installed-skill-dir>/SKILL.md`
+- `<installed-skill-dir>/scripts/heartbeat.js`
+- `<openclaw-home>/hooks/context-anchor-hook/handler.js`
+- `<openclaw-home>/automation/context-anchor/context-pressure-monitor.js`
 
 如果这些文件不存在，说明安装没有完成。
 
@@ -104,7 +144,7 @@ node scripts/install-host-assets.js "D:/openclaw-home" "D:/openclaw-home/skills"
 
 ### 1. skill 加载
 
-安装脚本会把 `~/.openclaw/skills` 写进 `config.json.extraDirs`。  
+安装脚本会把 `<skills-root>` 写进 `config.json.extraDirs`。  
 这意味着 OpenClaw 之后应从该目录发现 `context-anchor`。
 
 ## OpenClaw 配置示例
@@ -115,21 +155,22 @@ node scripts/install-host-assets.js "D:/openclaw-home" "D:/openclaw-home/skills"
 ```json
 {
   "extraDirs": [
-    "~/.openclaw/skills"
+    "<skills-root>"
   ],
   "hooks": {
-    "gateway:startup": "node ~/.openclaw/hooks/context-anchor-hook/handler.js gateway:startup <payload-file-or-json>",
-    "command:stop": "node ~/.openclaw/hooks/context-anchor-hook/handler.js command:stop <payload-file-or-json>",
-    "session:end": "node ~/.openclaw/hooks/context-anchor-hook/handler.js session:end <payload-file-or-json>",
-    "heartbeat": "node ~/.openclaw/hooks/context-anchor-hook/handler.js heartbeat <payload-file-or-json>"
+    "gateway:startup": "node \"<openclaw-home>/hooks/context-anchor-hook/handler.js\" gateway:startup <payload-file-or-json>",
+    "command:stop": "node \"<openclaw-home>/hooks/context-anchor-hook/handler.js\" command:stop <payload-file-or-json>",
+    "session:end": "node \"<openclaw-home>/hooks/context-anchor-hook/handler.js\" session:end <payload-file-or-json>",
+    "heartbeat": "node \"<openclaw-home>/hooks/context-anchor-hook/handler.js\" heartbeat <payload-file-or-json>"
   },
   "automation": {
-    "context-pressure-monitor": "node ~/.openclaw/automation/context-anchor/context-pressure-monitor.js <workspace> <snapshot-file>"
+    "context-pressure-monitor": "node \"<openclaw-home>/automation/context-anchor/context-pressure-monitor.js\" <workspace> <snapshot-file>"
   }
 }
 ```
 
-如果你的 OpenClaw 版本没有集中式配置文件，也可以把同样的命令挂到你自己的启动脚本、事件桥接层或任务调度器里。
+如果你的 OpenClaw 版本没有集中式配置文件，也可以把同样的命令挂到你自己的启动脚本、事件桥接层或任务调度器里。  
+如果你不知道 `<openclaw-home>` 和 `<skills-root>` 的真实值，直接运行 `node scripts/doctor.js` 看输出。
 
 ### 2. hook 接入
 
@@ -143,10 +184,10 @@ node scripts/install-host-assets.js "D:/openclaw-home" "D:/openclaw-home/skills"
 安装后可调用的入口是：
 
 ```bash
-node ~/.openclaw/hooks/context-anchor-hook/handler.js <event-name> '<json-payload>'
+node "<openclaw-home>/hooks/context-anchor-hook/handler.js" <event-name> <payload-file-or-json>
 ```
 
-如果你在 Windows PowerShell 下调用，推荐把 payload 先写到文件，再把文件路径传给 handler，避免 JSON 转义问题。
+对零基础用户，推荐始终把 payload 先写到文件，再把文件路径传给 handler，避免 Bash、zsh、PowerShell 的 JSON 转义差异。
 
 例如：
 
@@ -159,8 +200,25 @@ $payload = @{
 } | ConvertTo-Json
 
 $payload | Set-Content .\context-anchor-payload.json
-node $HOME\.openclaw\hooks\context-anchor-hook\handler.js heartbeat .\context-anchor-payload.json
+node "C:/Users/<你自己的用户名>/.openclaw/hooks/context-anchor-hook/handler.js" heartbeat ".\context-anchor-payload.json"
 ```
+
+macOS / Linux 示例：
+
+```bash
+cat > ./context-anchor-payload.json <<'EOF'
+{
+  "workspace": "/tmp/demo-project",
+  "session_key": "chat-session-001",
+  "project_id": "default",
+  "usage_percent": 82
+}
+EOF
+
+node "/Users/<你自己的用户名>/.openclaw/hooks/context-anchor-hook/handler.js" heartbeat "./context-anchor-payload.json"
+```
+
+如果 payload 不是合法 JSON，hook 会直接返回明确报错，而不是静默失败。
 
 payload 至少应包含：
 
@@ -186,14 +244,22 @@ payload 至少应包含：
 你需要让宿主或调度器定期调用：
 
 ```bash
-node ~/.openclaw/automation/context-anchor/context-pressure-monitor.js <workspace> <snapshot-file>
+node "<openclaw-home>/automation/context-anchor/context-pressure-monitor.js" "<workspace>" "<snapshot-file>"
 ```
 
 或单 session 简化调用：
 
 ```bash
-node ~/.openclaw/automation/context-anchor/context-pressure-monitor.js <workspace> <session-key> <usage-percent>
+node "<openclaw-home>/automation/context-anchor/context-pressure-monitor.js" "<workspace>" "<session-key>" 82
 ```
+
+调度建议：
+
+- Windows：Task Scheduler 调用上面的 `node "..." ...` 命令
+- macOS：`launchd` 或你自己的宿主轮询逻辑调用上面的命令
+- Linux：`cron`、`systemd timer` 或你自己的宿主轮询逻辑调用上面的命令
+
+如果你是第一次接这类定时任务，先不要做系统级调度，先手工运行一次 monitor，确认输出正常。
 
 `snapshot-file` 格式示例：
 
@@ -292,7 +358,7 @@ node ~/.openclaw/hooks/context-anchor-hook/handler.js command:stop "{\"workspace
 用户级数据保存在：
 
 ```text
-~/.openclaw/context-anchor/users/default-user/
+<openclaw-home>/context-anchor/users/default-user/
 ├── state.json
 ├── memories.json
 ├── experiences.json
@@ -364,19 +430,19 @@ node ~/.openclaw/hooks/context-anchor-hook/handler.js command:stop "{\"workspace
 可以手动更新 skill 状态：
 
 ```bash
-node ~/.openclaw/skills/context-anchor/scripts/skill-status-update.js <workspace> <scope> <skill-id> <status> [session-key|project-id|user-id] [note]
+node "<installed-skill-dir>/scripts/skill-status-update.js" "<workspace>" <scope> <skill-id> <status> [session-key|project-id|user-id] [note]
 ```
 
 也可以手动执行 reconcile：
 
 ```bash
-node ~/.openclaw/skills/context-anchor/scripts/skill-reconcile.js <workspace> [project-id] [user-id]
+node "<installed-skill-dir>/scripts/skill-reconcile.js" "<workspace>" [project-id] [user-id]
 ```
 
 也可以手动声明 supersede：
 
 ```bash
-node ~/.openclaw/skills/context-anchor/scripts/skill-supersede.js <workspace> <scope> <winner-skill-id> <loser-skill-id> [project-id|user-id]
+node "<installed-skill-dir>/scripts/skill-supersede.js" "<workspace>" <scope> <winner-skill-id> <loser-skill-id> [project-id|user-id]
 ```
 
 ## 观测与诊断
@@ -386,13 +452,13 @@ node ~/.openclaw/skills/context-anchor/scripts/skill-supersede.js <workspace> <s
 可以直接查看当前 workspace 下 user/project/session 三层的统计和治理状态：
 
 ```bash
-node ~/.openclaw/skills/context-anchor/scripts/status-report.js <workspace> [session-key] [project-id] [user-id]
+node "<installed-skill-dir>/scripts/status-report.js" "<workspace>" [session-key] [project-id] [user-id]
 ```
 
 如果你要把当前状态直接落盘成快照：
 
 ```bash
-node ~/.openclaw/skills/context-anchor/scripts/status-report.js <workspace> [session-key] [project-id] [user-id] snapshot
+node "<installed-skill-dir>/scripts/status-report.js" "<workspace>" [session-key] [project-id] [user-id] snapshot
 ```
 
 报告会输出：
@@ -409,7 +475,7 @@ node ~/.openclaw/skills/context-anchor/scripts/status-report.js <workspace> [ses
 可以解释某条 skill 为什么生效、被遮蔽、被 supersede 或被预算裁掉：
 
 ```bash
-node ~/.openclaw/skills/context-anchor/scripts/skill-diagnose.js <workspace> <skill-id|name|conflict-key> [session-key] [project-id] [user-id]
+node "<installed-skill-dir>/scripts/skill-diagnose.js" "<workspace>" <skill-id|name|conflict-key> [session-key] [project-id] [user-id]
 ```
 
 诊断输出会说明：
@@ -430,60 +496,60 @@ node ~/.openclaw/skills/context-anchor/scripts/skill-diagnose.js <workspace> <sk
 ### 手动创建 checkpoint
 
 ```bash
-node ~/.openclaw/skills/context-anchor/scripts/checkpoint-create.js <workspace> <session-key> manual
+node "<installed-skill-dir>/scripts/checkpoint-create.js" "<workspace>" "<session-key>" manual
 ```
 
 ### 手动跑一次 heartbeat
 
 ```bash
-node ~/.openclaw/skills/context-anchor/scripts/heartbeat.js <workspace> <session-key> <project-id> 80
+node "<installed-skill-dir>/scripts/heartbeat.js" "<workspace>" "<session-key>" "<project-id>" 80
 ```
 
 ### 手动生成 compact packet
 
 ```bash
-node ~/.openclaw/skills/context-anchor/scripts/compact-packet-create.js <workspace> <session-key> manual 80
+node "<installed-skill-dir>/scripts/compact-packet-create.js" "<workspace>" "<session-key>" manual 80
 ```
 
 ### 手动执行 session close
 
 ```bash
-node ~/.openclaw/skills/context-anchor/scripts/session-close.js <workspace> <session-key> session-end 80 <project-id>
+node "<installed-skill-dir>/scripts/session-close.js" "<workspace>" "<session-key>" session-end 80 "<project-id>"
 ```
 
 ### 手动记录一条项目经验
 
 ```bash
-node ~/.openclaw/skills/context-anchor/scripts/memory-save.js <workspace> <session-key> project best_practice "use smaller diffs"
+node "<installed-skill-dir>/scripts/memory-save.js" "<workspace>" "<session-key>" project best_practice "use smaller diffs"
 ```
 
 ### 手动记录一条用户级记忆/经验
 
 ```bash
-node ~/.openclaw/skills/context-anchor/scripts/memory-save.js <workspace> <session-key> user best_practice "keep responses concise"
+node "<installed-skill-dir>/scripts/memory-save.js" "<workspace>" "<session-key>" user best_practice "keep responses concise"
 ```
 
 ### 从旧 `_global` 迁移到 user
 
 ```bash
-node ~/.openclaw/skills/context-anchor/scripts/migrate-global-to-user.js <workspace> default-user
+node "<installed-skill-dir>/scripts/migrate-global-to-user.js" "<workspace>" default-user
 ```
 
 ### 手动校验经验
 
 ```bash
-node ~/.openclaw/skills/context-anchor/scripts/experience-validate.js <workspace> <experience-id> validated <project-id> "reviewed manually"
+node "<installed-skill-dir>/scripts/experience-validate.js" "<workspace>" <experience-id> validated "<project-id>" "reviewed manually"
 ```
 
 ### 从经验生成 skill
 
 ```bash
-node ~/.openclaw/skills/context-anchor/scripts/skill-create.js <workspace> <experience-id> <skill-name> <project-id>
+node "<installed-skill-dir>/scripts/skill-create.js" "<workspace>" <experience-id> <skill-name> "<project-id>"
 ```
 
 ## 重要边界
 
-- 操作系统层面的 cron / Task Scheduler 需要你自己注册
+- 操作系统层面的 Task Scheduler / launchd / cron / systemd timer 需要你自己注册
 - `usage_percent` 需要宿主提供，`context-anchor` 不负责计算
 - 当前只有单用户：`default-user`
 - 旧 `projects/_global` 仍兼容读取，但新的长期用户数据应写入 `user` 层
@@ -496,16 +562,17 @@ node ~/.openclaw/skills/context-anchor/scripts/skill-create.js <workspace> <expe
 
 检查：
 
-- `~/.openclaw/config.json.extraDirs`
-- `~/.openclaw/skills/context-anchor/SKILL.md`
+- `<openclaw-home>/config.json.extraDirs`
+- `<installed-skill-dir>/SKILL.md`
+- `node scripts/doctor.js` 的 `installation` 字段
 
 ### hook 调用失败
 
 检查：
 
-- `~/.openclaw/hooks/context-anchor-hook/handler.js` 是否存在
+- `<openclaw-home>/hooks/context-anchor-hook/handler.js` 是否存在
 - payload 是否包含 `workspace`
-- JSON 字符串是否是合法 JSON
+- 如果手工传 JSON 字符串失败，先改成 payload 文件方式
 
 ### heartbeat 没有触发 checkpoint
 

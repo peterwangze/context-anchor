@@ -221,12 +221,19 @@ context-anchor/
 node scripts/install-host-assets.js [openclaw-home] [skills-root]
 ```
 
+安装后建议立刻执行：
+
+```bash
+node scripts/doctor.js [--openclaw-home <openclaw-home>] [--skills-root <skills-root>]
+```
+
 作用：
 
 - 默认把当前 skill 的自包含快照部署到 `~/.openclaw/skills/context-anchor/`
 - 向 `~/.openclaw/config.json` 追加 `extraDirs`，默认注册 `~/.openclaw/skills`
 - 写入 hook wrapper 到 `~/.openclaw/hooks/context-anchor-hook/`
 - 写入压力监控 wrapper 到 `~/.openclaw/automation/context-anchor/`
+- `doctor` 会输出当前系统下应使用的真实绝对路径和安装检查结果
 
 wrapper 会指向安装后的 skill 快照，不再依赖当前源码仓继续存在。
 

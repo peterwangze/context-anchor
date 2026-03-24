@@ -20,14 +20,16 @@ function parsePayload(rawArg) {
   }
 
   const maybeFile = path.resolve(rawArg);
-  if (fs.existsSync(maybeFile)) {
-    return JSON.parse(fs.readFileSync(maybeFile, 'utf8'));
-  }
-
   try {
+    if (fs.existsSync(maybeFile)) {
+      return JSON.parse(fs.readFileSync(maybeFile, 'utf8'));
+    }
+
     return JSON.parse(rawArg);
-  } catch {
-    return {};
+  } catch (error) {
+    throw new Error(
+      'Payload must be valid JSON or a path to a JSON file. Use a payload file if your shell quoting is difficult.'
+    );
   }
 }
 
@@ -132,8 +134,22 @@ function handleHookEvent(eventName, payload = {}) {
 }
 
 function main() {
-  const result = handleHookEvent(process.argv[2], parsePayload(process.argv[3]));
-  console.log(JSON.stringify(result, null, 2));
+  try {
+    const result = handleHookEvent(process.argv[2], parsePayload(process.argv[3]));
+    console.log(JSON.stringify(result, null, 2));
+  } catch (error) {
+    console.log(
+      JSON.stringify(
+        {
+          status: 'error',
+          message: error.message
+        },
+        null,
+        2
+      )
+    );
+    process.exit(1);
+  }
 }
 
 if (require.main === module) {
@@ -141,5 +157,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  handleHookEvent
+  handleHookEvent,
+  parsePayload
 };

@@ -57,27 +57,19 @@ function runInstallHostAssets(openClawHomeArg, skillsRootArg) {
   copySkillSnapshot(repoRoot, installedSkillDir);
 
   const handlerWrapper = `#!/usr/bin/env node
-const fs = require('fs');
-const path = require('path');
-const { handleHookEvent } = require(${JSON.stringify(
+const { handleHookEvent, parsePayload } = require(${JSON.stringify(
     path.join(installedSkillDir, 'hooks', 'context-anchor-hook', 'handler.js')
   )});
-
-function parsePayload(rawArg) {
-  if (!rawArg) {
-    return {};
-  }
-
-  const maybeFile = path.resolve(rawArg);
-  if (fs.existsSync(maybeFile)) {
-    return JSON.parse(fs.readFileSync(maybeFile, 'utf8'));
-  }
-
-  return JSON.parse(rawArg);
+try {
+  const result = handleHookEvent(process.argv[2], parsePayload(process.argv[3]));
+  console.log(JSON.stringify(result, null, 2));
+} catch (error) {
+  console.log(JSON.stringify({
+    status: 'error',
+    message: error.message
+  }, null, 2));
+  process.exit(1);
 }
-
-const result = handleHookEvent(process.argv[2], parsePayload(process.argv[3]));
-console.log(JSON.stringify(result, null, 2));
 `;
   writeText(path.join(hooksTargetDir, 'handler.js'), handlerWrapper);
   writeText(
@@ -101,7 +93,10 @@ console.log(JSON.stringify(result, null, 2));
     installed_skill_dir: installedSkillDir,
     config_file: configFile,
     hooks_dir: hooksTargetDir,
-    automation_dir: automationTargetDir
+    automation_dir: automationTargetDir,
+    hook_handler: path.join(hooksTargetDir, 'handler.js'),
+    monitor_script: path.join(automationTargetDir, 'context-pressure-monitor.js'),
+    doctor_script: path.join(installedSkillDir, 'scripts', 'doctor.js')
   };
 }
 

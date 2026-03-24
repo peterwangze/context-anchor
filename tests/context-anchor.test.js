@@ -1,6 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
@@ -19,6 +20,7 @@ const { runMigrateGlobalToUser } = require('../scripts/migrate-global-to-user');
 const { runMemoryFlow } = require('../scripts/memory-flow');
 const { runMemorySave } = require('../scripts/memory-save');
 const { runHeartbeat } = require('../scripts/heartbeat');
+const { runDoctor } = require('../scripts/doctor');
 const { runSkillDiagnose } = require('../scripts/skill-diagnose');
 const { runScopePromote } = require('../scripts/scope-promote');
 const { runSkillReconcile } = require('../scripts/skill-reconcile');
@@ -364,6 +366,35 @@ test('install-host-assets deploys a self-contained skill snapshot and registers 
       )
     );
     assert.ok(normalizedWrapper.includes(installedSkillDir));
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('doctor reports installed absolute paths and wrapper returns a helpful payload error', () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+
+  try {
+    withOpenClawHome(workspace, () => {
+      const result = runInstallHostAssets(openClawHome);
+      const doctor = runDoctor({ openclawHome: openClawHome });
+
+      assert.equal(doctor.status, 'ok');
+      assert.equal(doctor.installation.ready, true);
+      assert.equal(doctor.paths.hook_handler, result.hook_handler);
+      assert.equal(doctor.paths.monitor_script, result.monitor_script);
+      assert.ok(fs.existsSync(result.doctor_script));
+      assert.ok(doctor.commands.hook_with_payload_file.includes(result.hook_handler));
+
+      assert.throws(
+        () => execFileSync(process.execPath, [result.hook_handler, 'heartbeat', '{broken-json'], { encoding: 'utf8' }),
+        (error) => {
+          assert.match(error.stdout || '', /Payload must be valid JSON or a path to a JSON file/);
+          return true;
+        }
+      );
     });
   } finally {
     cleanupWorkspace(workspace);

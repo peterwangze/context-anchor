@@ -4,6 +4,7 @@
   "private": true,
   "description": "Session memory persistence, validation, and skillification runtime for OpenClaw",
   "scripts": {
+    "doctor": "node scripts/doctor.js",
     "test": "node --test tests/*.test.js"
   }
 }
