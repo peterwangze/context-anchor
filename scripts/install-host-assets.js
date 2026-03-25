@@ -18,6 +18,12 @@ function copyFile(sourceFile, targetFile) {
   fs.copyFileSync(sourceFile, targetFile);
 }
 
+function removeDirIfExists(targetDir) {
+  if (fs.existsSync(targetDir)) {
+    fs.rmSync(targetDir, { recursive: true, force: true });
+  }
+}
+
 function copySkillSnapshot(repoRoot, installedSkillDir) {
   ensureDir(installedSkillDir);
 
@@ -64,6 +70,9 @@ function runInstallHostAssets(openClawHomeArg, skillsRootArg) {
   config.extraDirs = extraDirs;
   writeJson(configFile, config);
 
+  removeDirIfExists(installedSkillDir);
+  removeDirIfExists(hooksTargetDir);
+  removeDirIfExists(automationTargetDir);
   ensureDir(automationTargetDir);
   ensureDir(hooksTargetDir);
   copySkillSnapshot(repoRoot, installedSkillDir);

@@ -16,6 +16,7 @@ const { runContextPressureHandle } = require('../scripts/context-pressure-handle
 const { handleHookEvent } = require('../hooks/context-anchor-hook/handler');
 const { runExperienceValidate } = require('../scripts/experience-validate');
 const { runInstallHostAssets } = require('../scripts/install-host-assets');
+const { runOneClickInstall } = require('../scripts/install-one-click');
 const { runMigrateGlobalToUser } = require('../scripts/migrate-global-to-user');
 const { runMemoryFlow } = require('../scripts/memory-flow');
 const { runMemorySave } = require('../scripts/memory-save');
@@ -368,6 +369,75 @@ test('install-host-assets deploys a self-contained skill snapshot and registers 
     );
     assert.ok(normalizedWrapper.includes(installedSkillDir));
     });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('one-click install preserves memories while cleaning previous install files when requested', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const memoryFile = path.join(openClawHome, 'context-anchor', 'users', 'default-user', 'memories.json');
+  const staleInstalledFile = path.join(openClawHome, 'skills', 'context-anchor', 'stale.txt');
+  const staleHookFile = path.join(openClawHome, 'hooks', 'context-anchor-hook', 'stale.txt');
+  const staleAutomationFile = path.join(openClawHome, 'automation', 'context-anchor', 'stale.txt');
+
+  try {
+    fs.mkdirSync(path.dirname(memoryFile), { recursive: true });
+    fs.writeFileSync(memoryFile, '{"memories":[{"id":"keep-me"}]}\n', 'utf8');
+    fs.mkdirSync(path.dirname(staleInstalledFile), { recursive: true });
+    fs.writeFileSync(staleInstalledFile, 'stale', 'utf8');
+    fs.mkdirSync(path.dirname(staleHookFile), { recursive: true });
+    fs.writeFileSync(staleHookFile, 'stale', 'utf8');
+    fs.mkdirSync(path.dirname(staleAutomationFile), { recursive: true });
+    fs.writeFileSync(staleAutomationFile, 'stale', 'utf8');
+
+    const result = await runOneClickInstall(openClawHome, undefined, {
+      ask: async (prompt) => {
+        if (prompt.includes('Clean previous install files')) {
+          return true;
+        }
+
+        if (prompt.includes('Preserve these memories')) {
+          return true;
+        }
+
+        throw new Error(`Unexpected prompt: ${prompt}`);
+      }
+    });
+
+    assert.equal(result.status, 'installed');
+    assert.equal(result.previous_install_detected, true);
+    assert.equal(result.previous_memory_detected, true);
+    assert.equal(result.preserved_memories, true);
+    assert.ok(fs.existsSync(memoryFile));
+    assert.equal(fs.existsSync(staleInstalledFile), false);
+    assert.equal(fs.existsSync(staleHookFile), false);
+    assert.equal(fs.existsSync(staleAutomationFile), false);
+    assert.ok(fs.existsSync(path.join(openClawHome, 'skills', 'context-anchor', 'SKILL.md')));
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('one-click install can drop old memories when requested', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const memoryRoot = path.join(openClawHome, 'context-anchor');
+
+  try {
+    fs.mkdirSync(path.join(memoryRoot, 'users', 'default-user'), { recursive: true });
+    fs.writeFileSync(path.join(memoryRoot, 'users', 'default-user', 'memories.json'), '{"memories":[]}\n', 'utf8');
+
+    const result = await runOneClickInstall(openClawHome, undefined, {
+      assumeYes: true,
+      preserveMemories: false
+    });
+
+    assert.equal(result.status, 'installed');
+    assert.equal(result.preserved_memories, false);
+    assert.equal(fs.existsSync(memoryRoot), false);
+    assert.ok(fs.existsSync(path.join(openClawHome, 'skills', 'context-anchor', 'SKILL.md')));
   } finally {
     cleanupWorkspace(workspace);
   }

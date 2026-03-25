@@ -82,6 +82,24 @@
 在当前仓根目录执行：
 
 ```bash
+node scripts/install-one-click.js
+```
+
+或：
+
+```bash
+npm run install:host
+```
+
+这是推荐入口，适合零基础用户。
+
+- 默认使用当前系统的 `<openclaw-home>` 和 `<skills-root>`
+- 如果检测到之前安装过 `context-anchor`，会先询问是否清理旧安装文件后重装
+- 如果检测到旧的记忆/经验数据，会上来询问是“保留记忆只重装”还是“连记忆一起清理”
+
+底层安装入口仍然保留：
+
+```bash
 node scripts/install-host-assets.js
 ```
 
@@ -95,22 +113,34 @@ node scripts/install-host-assets.js
 
 这里的安装目录名始终是 `context-anchor`，不受你本地源码目录名影响。
 
-这个安装命令在 Windows PowerShell、macOS Terminal、Linux shell 中都一样：
+一键安装命令在 Windows PowerShell、macOS Terminal、Linux shell 中都一样：
 
 ```bash
-node scripts/install-host-assets.js
+node scripts/install-one-click.js
 ```
 
 如果你要覆盖默认位置：
 
 ```bash
-node scripts/install-host-assets.js <openclaw-home> <skills-root>
+node scripts/install-one-click.js --openclaw-home "<openclaw-home>" --skills-root "<skills-root>"
 ```
 
 例如：
 
 ```bash
-node scripts/install-host-assets.js "D:/openclaw-home" "D:/openclaw-home/skills"
+node scripts/install-one-click.js --openclaw-home "D:/openclaw-home" --skills-root "D:/openclaw-home/skills"
+```
+
+如果你明确知道要自动保留旧记忆并直接重装：
+
+```bash
+node scripts/install-one-click.js --yes --keep-memory
+```
+
+如果你明确知道要清空旧记忆再重装：
+
+```bash
+node scripts/install-one-click.js --yes --drop-memory
 ```
 
 安装后立刻执行一次自检：

@@ -219,7 +219,7 @@ context-anchor/
 安装脚本：
 
 ```bash
-node scripts/install-host-assets.js [openclaw-home] [skills-root]
+node scripts/install-one-click.js [--openclaw-home <openclaw-home>] [--skills-root <skills-root>] [--yes] [--keep-memory|--drop-memory]
 ```
 
 安装后建议立刻执行：
@@ -230,10 +230,13 @@ node scripts/doctor.js [--openclaw-home <openclaw-home>] [--skills-root <skills-
 
 作用：
 
+- 推荐作为零基础用户的一键安装入口
 - 默认把当前 skill 的自包含快照部署到 `<openclaw-home>/skills/context-anchor/`
 - 向 `<openclaw-home>/config.json` 追加 `extraDirs`，默认注册 `<openclaw-home>/skills`
 - 写入 hook wrapper 到 `<openclaw-home>/hooks/context-anchor-hook/`
 - 写入压力监控 wrapper 到 `<openclaw-home>/automation/context-anchor/`
+- 如果检测到旧安装，会先清理旧安装文件再重装
+- 如果检测到旧记忆，会询问用户是否保留记忆数据
 - `doctor` 会输出当前系统下应使用的真实绝对路径和安装检查结果
 
 wrapper 会指向安装后的 skill 快照，不再依赖当前源码仓继续存在。

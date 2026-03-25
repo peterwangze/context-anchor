@@ -92,7 +92,7 @@ function runDoctor(options = {}) {
     },
     installation,
     commands: {
-      install: `node ${quoteArg(path.join(__dirname, 'install-host-assets.js'))}`,
+      install: `node ${quoteArg(path.join(__dirname, 'install-one-click.js'))}`,
       hook_with_payload_file: `node ${quoteArg(hookHandler)} heartbeat ${quoteArg(
         process.platform === 'win32' ? '.\\context-anchor-payload.json' : './context-anchor-payload.json'
       )}`,
@@ -103,7 +103,8 @@ function runDoctor(options = {}) {
     notes: [
       'Prefer absolute paths and always wrap paths in double quotes when running commands manually.',
       'Do not rely on "~" expansion inside config files; use the actual path shown in this report.',
-      'If shell quoting is difficult, write payload JSON to a file and pass the file path to the hook handler.'
+      'If shell quoting is difficult, write payload JSON to a file and pass the file path to the hook handler.',
+      'The one-click installer will ask whether to preserve existing memories before it cleans previous installation files.'
     ]
   };
 }
