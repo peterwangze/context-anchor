@@ -35,6 +35,48 @@ function parsePayload(rawArg) {
   }
 }
 
+function stripInvocationEnvelope(request = {}) {
+  const next = { ...request };
+  ['event', 'eventName', 'name', 'hook', 'type', 'payload', 'data', 'body', 'input', 'args'].forEach((key) => {
+    delete next[key];
+  });
+  return next;
+}
+
+function resolveHookInvocation(arg1, arg2, arg3) {
+  if (typeof arg1 === 'string') {
+    return {
+      eventName: arg1,
+      payload: arg2 && typeof arg2 === 'object' ? arg2 : {}
+    };
+  }
+
+  const request = arg1 && typeof arg1 === 'object' ? arg1 : {};
+  const context = arg2 && typeof arg2 === 'object' ? arg2 : arg3 && typeof arg3 === 'object' ? arg3 : {};
+  const eventName =
+    request.event ||
+    request.eventName ||
+    request.name ||
+    request.hook ||
+    context.event ||
+    context.eventName ||
+    context.name ||
+    context.hook ||
+    null;
+  const payloadCandidate =
+    request.payload ||
+    request.data ||
+    request.body ||
+    request.input ||
+    request.args ||
+    null;
+
+  return {
+    eventName,
+    payload: payloadCandidate && typeof payloadCandidate === 'object' ? payloadCandidate : stripInvocationEnvelope(request)
+  };
+}
+
 function requirePayloadFields(payload, eventName, requiredFields) {
   const missing = requiredFields.filter((field) => {
     const value = payload?.[field];
@@ -223,6 +265,20 @@ function handleHookEvent(eventName, payload = {}) {
   }
 }
 
+function defaultHookHandler(arg1, arg2, arg3) {
+  const invocation = resolveHookInvocation(arg1, arg2, arg3);
+  if (!invocation.eventName) {
+    return {
+      status: 'error',
+      event: null,
+      actions: [],
+      message: 'Hook invocation did not include an event name.'
+    };
+  }
+
+  return handleHookEvent(invocation.eventName, invocation.payload);
+}
+
 function main() {
   try {
     const result = handleHookEvent(process.argv[2], parsePayload(process.argv[3]));
@@ -247,6 +303,9 @@ if (require.main === module) {
 }
 
 module.exports = {
+  default: defaultHookHandler,
+  defaultHookHandler,
   handleHookEvent,
-  parsePayload
+  parsePayload,
+  resolveHookInvocation
 };

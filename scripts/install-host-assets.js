@@ -79,19 +79,39 @@ function runInstallHostAssets(openClawHomeArg, skillsRootArg) {
   copySkillSnapshot(repoRoot, installedSkillDir);
 
   const handlerWrapper = `#!/usr/bin/env node
-const { handleHookEvent, parsePayload } = require(${JSON.stringify(
+const {
+  default: defaultHookHandler,
+  handleHookEvent,
+  parsePayload,
+  resolveHookInvocation
+} = require(${JSON.stringify(
     path.join(installedSkillDir, 'hooks', 'context-anchor-hook', 'handler.js')
   )});
-try {
-  const result = handleHookEvent(process.argv[2], parsePayload(process.argv[3]));
-  console.log(JSON.stringify(result, null, 2));
-} catch (error) {
-  console.log(JSON.stringify({
-    status: 'error',
-    message: error.message
-  }, null, 2));
-  process.exit(1);
+function defaultExport(arg1, arg2, arg3) {
+  return defaultHookHandler(arg1, arg2, arg3);
 }
+function main() {
+  try {
+    const result = handleHookEvent(process.argv[2], parsePayload(process.argv[3]));
+    console.log(JSON.stringify(result, null, 2));
+  } catch (error) {
+    console.log(JSON.stringify({
+      status: 'error',
+      message: error.message
+    }, null, 2));
+    process.exit(1);
+  }
+}
+if (require.main === module) {
+  main();
+}
+module.exports = {
+  default: defaultExport,
+  defaultHookHandler: defaultExport,
+  handleHookEvent,
+  parsePayload,
+  resolveHookInvocation
+};
 `;
   writeText(path.join(hooksTargetDir, 'handler.js'), handlerWrapper);
   writeText(

@@ -366,6 +366,7 @@ test('install-host-assets deploys a self-contained skill snapshot and registers 
       path.join(openClawHome, 'hooks', 'context-anchor-hook', 'handler.js'),
       'utf8'
     );
+    const hookModule = require(path.join(openClawHome, 'hooks', 'context-anchor-hook', 'handler.js'));
     const normalizedWrapper = hookWrapper.replaceAll('\\\\', '\\');
 
     assert.equal(result.status, 'installed');
@@ -384,6 +385,13 @@ test('install-host-assets deploys a self-contained skill snapshot and registers 
       fs.existsSync(path.join(openClawHome, 'automation', 'context-anchor', 'workspace-monitor.js'))
     );
     assert.ok(normalizedWrapper.includes(installedSkillDir));
+    assert.equal(typeof hookModule.default, 'function');
+    const hookResult = hookModule.default('heartbeat', {
+      workspace,
+      session_key: 'installed-wrapper-session',
+      usage_percent: 66
+    });
+    assert.equal(hookResult.status, 'needs_configuration');
     });
   } finally {
     cleanupWorkspace(workspace);
