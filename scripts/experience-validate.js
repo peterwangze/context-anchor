@@ -6,6 +6,7 @@ const {
   createPaths,
   loadProjectExperiences,
   normalizeValidation,
+  resolveProjectId,
   writeProjectExperiences
 } = require('./lib/context-anchor');
 
@@ -21,7 +22,7 @@ function runExperienceValidate(workspaceArg, experienceId, statusArg, projectIdA
   }
 
   const paths = createPaths(workspaceArg);
-  const projectId = projectIdArg || DEFAULTS.projectId;
+  const projectId = resolveProjectId(paths.workspace, projectIdArg);
   const experiences = loadProjectExperiences(paths, projectId);
   const idx = experiences.findIndex((entry) => entry.id === experienceId);
 

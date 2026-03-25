@@ -486,6 +486,8 @@ node "<installed-skill-dir>/scripts/skill-supersede.js" "<workspace>" <scope> <w
 node "<installed-skill-dir>/scripts/status-report.js" "<workspace>" [session-key] [project-id] [user-id]
 ```
 
+默认只读，不会创建或触碰 runtime 状态文件；只有 `snapshot` 模式会额外写出报告快照。
+
 如果你要把当前状态直接落盘成快照：
 
 ```bash
@@ -577,6 +579,12 @@ node "<installed-skill-dir>/scripts/experience-validate.js" "<workspace>" <exper
 ```bash
 node "<installed-skill-dir>/scripts/skill-create.js" "<workspace>" <experience-id> <skill-name> "<project-id>"
 ```
+
+`skill-name` 会直接作为目录名使用。
+
+- 必须是单个目录名
+- 不能包含 `/`、`\` 或 `..`
+- 建议只使用便于跨平台落盘的名称
 
 ## 重要边界
 

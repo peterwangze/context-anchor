@@ -185,6 +185,7 @@ context-anchor/
 - `node scripts/skill-create.js <workspace> <experience-id> <skill-name> [project-id]`
 
 `skill-create.js` 默认要求经验已校验；若明确强制，可通过 `CONTEXT_ANCHOR_FORCE_SKILL_CREATE=1` 放开。
+`skill-name` 会直接作为目录名使用，因此必须是单个、可跨平台落盘的目录名。
 
 第一阶段新增：
 

@@ -8,6 +8,7 @@ const {
   loadProjectExperiences,
   nowIso,
   recordHeatEntry,
+  resolveProjectId,
   syncProjectStateMetadata,
   writeProjectDecisions,
   writeProjectExperiences
@@ -41,7 +42,7 @@ function evaluateEntry(entry, type, defaultHeat) {
 
 function runHeatEvaluation(workspaceArg, projectIdArg) {
   const paths = createPaths(workspaceArg);
-  const projectId = projectIdArg || DEFAULTS.projectId;
+  const projectId = resolveProjectId(paths.workspace, projectIdArg);
   const decisions = loadProjectDecisions(paths, projectId).map((entry) =>
     evaluateEntry(entry, 'decision', 80)
   );

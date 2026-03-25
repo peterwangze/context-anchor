@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { DEFAULTS, createPaths } = require('./lib/context-anchor');
+const { createPaths, resolveProjectId } = require('./lib/context-anchor');
 const { runMemorySave } = require('./memory-save');
 
 function parseEntries(content) {
@@ -34,7 +34,7 @@ function parseEntries(content) {
 
 function runMigrateMemory(workspaceArg, projectIdArg) {
   const paths = createPaths(workspaceArg);
-  const projectId = projectIdArg || DEFAULTS.projectId;
+  const projectId = resolveProjectId(paths.workspace, projectIdArg);
   const memoryFile = path.join(paths.workspace, 'MEMORY.md');
   const memoryDir = path.join(paths.workspace, 'memory');
   const result = {

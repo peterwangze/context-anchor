@@ -30,6 +30,18 @@ function copySkillSnapshot(repoRoot, installedSkillDir) {
   });
 }
 
+function readJsonStrict(file, defaultValue) {
+  if (!fs.existsSync(file)) {
+    return defaultValue;
+  }
+
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (error) {
+    throw new Error(`Config file ${file} is not valid JSON. Fix or remove it before running install-host-assets.`);
+  }
+}
+
 function runInstallHostAssets(openClawHomeArg, skillsRootArg) {
   const openClawHome = getOpenClawHome(openClawHomeArg);
   const repoRoot = getRepoRoot();
@@ -41,7 +53,7 @@ function runInstallHostAssets(openClawHomeArg, skillsRootArg) {
   const configFile = path.join(openClawHome, 'config.json');
   const hooksTargetDir = path.join(openClawHome, 'hooks', 'context-anchor-hook');
   const automationTargetDir = path.join(openClawHome, 'automation', 'context-anchor');
-  const config = readJson(configFile, { extraDirs: [] });
+  const config = readJsonStrict(configFile, { extraDirs: [] });
   const extraDirs = Array.isArray(config.extraDirs) ? config.extraDirs : [];
 
   ensureDir(openClawHome);

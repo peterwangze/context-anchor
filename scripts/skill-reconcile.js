@@ -162,7 +162,7 @@ function reconcileSkillCollection(skills, experiences, scope) {
 
 function runSkillReconcile(workspaceArg, options = {}) {
   const paths = createPaths(workspaceArg);
-  const projectId = resolveProjectId(paths.workspace, options.projectId || DEFAULTS.projectId);
+  const projectId = resolveProjectId(paths.workspace, options.projectId);
   const userId = resolveUserId(options.userId || DEFAULTS.userId);
 
   const projectExperiences = loadProjectExperiences(paths, projectId);

@@ -7,6 +7,7 @@ const {
   ensureExperienceValidation,
   loadProjectExperiences,
   normalizeValidation,
+  resolveProjectId,
   writeProjectExperiences
 } = require('./lib/context-anchor');
 
@@ -80,7 +81,7 @@ function suggestSkillName(experience) {
 
 function runSkillificationScore(workspaceArg, projectIdArg) {
   const paths = createPaths(workspaceArg);
-  const projectId = projectIdArg || DEFAULTS.projectId;
+  const projectId = resolveProjectId(paths.workspace, projectIdArg);
   const experiences = loadProjectExperiences(paths, projectId);
   const candidates = [];
   const blockedByValidation = [];

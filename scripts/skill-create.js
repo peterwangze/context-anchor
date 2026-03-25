@@ -10,6 +10,7 @@ const {
   getSkillsRoot,
   loadProjectExperiences,
   normalizeValidation,
+  resolveProjectId,
   writeJson,
   writeProjectExperiences,
   writeText
@@ -75,6 +76,24 @@ function generateSkillMd(experience, skillName) {
   return `${lines.join('\n')}\n`;
 }
 
+function validateSkillName(skillName) {
+  const value = String(skillName || '').trim();
+
+  if (!value) {
+    throw new Error('Skill name must not be empty.');
+  }
+
+  if (value === '.' || value === '..' || value !== path.basename(value)) {
+    throw new Error('Skill name must be a single directory name without path separators.');
+  }
+
+  if (/[<>:"/\\|?*\x00-\x1F]/.test(value)) {
+    throw new Error('Skill name contains characters that are not portable across Windows, macOS, and Linux.');
+  }
+
+  return value;
+}
+
 function runSkillCreate(workspaceArg, experienceId, skillName, projectIdArg, options = {}) {
   if (!experienceId || !skillName) {
     throw new Error(
@@ -83,7 +102,8 @@ function runSkillCreate(workspaceArg, experienceId, skillName, projectIdArg, opt
   }
 
   const paths = createPaths(workspaceArg);
-  const projectId = projectIdArg || DEFAULTS.projectId;
+  const projectId = resolveProjectId(paths.workspace, projectIdArg);
+  const validatedSkillName = validateSkillName(skillName);
   const experiences = loadProjectExperiences(paths, projectId);
   const experience = experiences.find((entry) => entry.id === experienceId);
 
@@ -98,7 +118,7 @@ function runSkillCreate(workspaceArg, experienceId, skillName, projectIdArg, opt
   }
 
   const skillsRoot = getSkillsRoot(options.skillsRoot);
-  const skillDir = path.join(skillsRoot, skillName);
+  const skillDir = path.join(skillsRoot, validatedSkillName);
   const skillFile = path.join(skillDir, 'SKILL.md');
   const skillIndexFile = path.join(skillsRoot, '_skill-index.json');
 
@@ -107,7 +127,7 @@ function runSkillCreate(workspaceArg, experienceId, skillName, projectIdArg, opt
   }
 
   ensureDir(skillDir);
-  writeText(skillFile, generateSkillMd(experience, skillName));
+  writeText(skillFile, generateSkillMd(experience, validatedSkillName));
 
   const nextExperiences = experiences.map((entry) => {
     if (entry.id !== experienceId) {
@@ -116,7 +136,7 @@ function runSkillCreate(workspaceArg, experienceId, skillName, projectIdArg, opt
 
     return {
       ...entry,
-      skill_name: skillName,
+      skill_name: validatedSkillName,
       skillified_at: new Date().toISOString()
     };
   });
@@ -126,7 +146,7 @@ function runSkillCreate(workspaceArg, experienceId, skillName, projectIdArg, opt
     ? require('./lib/context-anchor').readJson(skillIndexFile, { skills: [] })
     : { skills: [] };
   skillIndex.skills.push({
-    name: skillName,
+    name: validatedSkillName,
     path: skillDir,
     source_experience: experienceId,
     source_project: projectId,
@@ -152,7 +172,7 @@ function runSkillCreate(workspaceArg, experienceId, skillName, projectIdArg, opt
 
   return {
     status: 'created',
-    skill_name: skillName,
+    skill_name: validatedSkillName,
     skill_dir: skillDir,
     source_experience: experienceId,
     validation_status: validation.status,

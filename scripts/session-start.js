@@ -295,19 +295,16 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg) {
     project: projectSkills.map((skill) => normalizeSkillRecord(skill, 'project')),
     user: userSkills.map((skill) => normalizeSkillRecord(skill, 'user'))
   });
-
-  summary.skills_to_activate = {
-    session: sessionSkills.slice(0, 5),
-    project: projectSkills.slice(0, 5),
-    user: userSkills.slice(0, 5)
-  };
-  summary.effective_skills = resolvedSkills.effective;
-  summary.shadowed_skills = resolvedSkills.shadowed;
-  summary.boot_packet.active_skills = {
+  const groupedEffectiveSkills = {
     session: resolvedSkills.effective.filter((skill) => skill.scope === 'session'),
     project: resolvedSkills.effective.filter((skill) => skill.scope === 'project'),
     user: resolvedSkills.effective.filter((skill) => skill.scope === 'user')
   };
+
+  summary.skills_to_activate = groupedEffectiveSkills;
+  summary.effective_skills = resolvedSkills.effective;
+  summary.shadowed_skills = resolvedSkills.shadowed;
+  summary.boot_packet.active_skills = groupedEffectiveSkills;
   summary.boot_packet.skill_governance = {
     shadowed: resolvedSkills.shadowed,
     superseded: resolvedSkills.superseded,

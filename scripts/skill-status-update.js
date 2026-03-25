@@ -85,7 +85,7 @@ function runSkillStatusUpdate(workspaceArg, scopeArg, skillId, statusArg, identi
     };
   }
 
-  const projectId = resolveProjectId(paths.workspace, identifierArg || DEFAULTS.projectId);
+  const projectId = resolveProjectId(paths.workspace, identifierArg);
   const skills = loadProjectSkills(paths, projectId);
   const updated = updateSkillStatus(skills, skillId, statusArg, noteArg);
   if (!updated) {

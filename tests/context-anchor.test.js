@@ -20,6 +20,7 @@ const { runMigrateGlobalToUser } = require('../scripts/migrate-global-to-user');
 const { runMemoryFlow } = require('../scripts/memory-flow');
 const { runMemorySave } = require('../scripts/memory-save');
 const { runHeartbeat } = require('../scripts/heartbeat');
+const { runHeatEvaluation } = require('../scripts/heat-eval');
 const { runDoctor } = require('../scripts/doctor');
 const { runSkillDiagnose } = require('../scripts/skill-diagnose');
 const { runScopePromote } = require('../scripts/scope-promote');
@@ -372,6 +373,27 @@ test('install-host-assets deploys a self-contained skill snapshot and registers 
   }
 });
 
+test('install-host-assets refuses to overwrite an invalid config.json', () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const configFile = path.join(openClawHome, 'config.json');
+
+  try {
+    withOpenClawHome(workspace, () => {
+      fs.mkdirSync(openClawHome, { recursive: true });
+      fs.writeFileSync(configFile, '{"broken": ', 'utf8');
+
+      assert.throws(
+        () => runInstallHostAssets(openClawHome),
+        /is not valid JSON/
+      );
+      assert.equal(fs.readFileSync(configFile, 'utf8'), '{"broken": ');
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('doctor reports installed absolute paths and wrapper returns a helpful payload error', () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');
@@ -422,6 +444,150 @@ test('hook handler rejects missing required payload fields before mutating state
       );
 
       assert.equal(fs.existsSync(path.join(workspace, '.context-anchor')), false);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('workspace basename is used as the default project id for project-scoped commands', () => {
+  const root = makeWorkspace();
+  const workspace = path.join(root, 'named-project');
+  const skillsRoot = path.join(root, 'skills-root');
+
+  fs.mkdirSync(workspace, { recursive: true });
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'named-session');
+      const saved = runMemorySave(
+        workspace,
+        'named-session',
+        'project',
+        'best_practice',
+        'Named project checklist',
+        JSON.stringify({
+          heat: 95,
+          access_count: 8,
+          access_sessions: ['session-a', 'session-b']
+        })
+      );
+
+      const validated = runExperienceValidate(workspace, saved.id, 'validated');
+      assert.equal(validated.project_id, 'named-project');
+
+      const experiencesFile = path.join(workspace, '.context-anchor', 'projects', 'named-project', 'experiences.json');
+      const experiences = readJson(experiencesFile, { experiences: [] });
+      experiences.experiences[0].created_at = '2026-03-01T00:00:00Z';
+      writeJson(experiencesFile, experiences);
+
+      const score = runSkillificationScore(workspace);
+      const heat = runHeatEvaluation(workspace);
+      const created = runSkillCreate(workspace, saved.id, 'portable-skill', undefined, { skillsRoot });
+      const skillIndex = readJson(path.join(skillsRoot, '_skill-index.json'), { skills: [] });
+
+      assert.equal(score.project_id, 'named-project');
+      assert.equal(heat.project_id, 'named-project');
+      assert.equal(created.skill_name, 'portable-skill');
+      assert.equal(skillIndex.skills[0].source_project, 'named-project');
+    });
+  } finally {
+    cleanupWorkspace(root);
+  }
+});
+
+test('workspace basename is used as the default project id for project skill governance commands', () => {
+  const root = makeWorkspace();
+  const workspace = path.join(root, 'named-project');
+
+  fs.mkdirSync(workspace, { recursive: true });
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'named-session');
+      const experiencesFile = path.join(workspace, '.context-anchor', 'projects', 'named-project', 'experiences.json');
+      const projectSkillDir = path.join(workspace, '.context-anchor', 'projects', 'named-project', 'skills');
+
+      runMemorySave(
+        workspace,
+        'named-session',
+        'project',
+        'best_practice',
+        'Govern named project skill',
+        JSON.stringify({
+          heat: 95,
+          access_count: 8,
+          access_sessions: ['session-a', 'session-b'],
+          validation_status: 'validated'
+        })
+      );
+
+      const experiences = readJson(experiencesFile, { experiences: [] });
+      experiences.experiences[0].created_at = '2026-03-01T00:00:00Z';
+      writeJson(experiencesFile, experiences);
+
+      runScopePromote(workspace, {
+        sessionKey: 'named-session',
+        userId: 'default-user'
+      });
+
+      let projectSkills = readJson(path.join(projectSkillDir, 'index.json'), { skills: [] }).skills;
+      const statusUpdated = runSkillStatusUpdate(workspace, 'project', projectSkills[0].id, 'inactive');
+      assert.equal(statusUpdated.project_id, 'named-project');
+
+      writeJson(path.join(projectSkillDir, 'index.json'), {
+        skills: [
+          {
+            id: 'winner-skill',
+            name: 'winner-skill',
+            conflict_key: 'winner-skill',
+            scope: 'project',
+            status: 'active'
+          },
+          {
+            id: 'loser-skill',
+            name: 'loser-skill',
+            conflict_key: 'loser-skill',
+            scope: 'project',
+            status: 'active'
+          }
+        ]
+      });
+
+      const superseded = runSkillSupersede(workspace, 'project', 'winner-skill', 'loser-skill');
+      const reconciled = runSkillReconcile(workspace, { userId: 'default-user' });
+
+      assert.equal(superseded.project_id, 'named-project');
+      assert.equal(reconciled.project_id, 'named-project');
+    });
+  } finally {
+    cleanupWorkspace(root);
+  }
+});
+
+test('skill-create rejects path traversal skill names', () => {
+  const workspace = makeWorkspace();
+  const skillsRoot = path.join(workspace, 'skills-root');
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'path-skill', 'demo');
+      const saved = runMemorySave(
+        workspace,
+        'path-skill',
+        'project',
+        'best_practice',
+        'Portable skill only',
+        JSON.stringify({
+          validation_status: 'validated'
+        })
+      );
+
+      assert.throws(
+        () => runSkillCreate(workspace, saved.id, '../escape', undefined, { skillsRoot }),
+        /single directory name/
+      );
+      assert.equal(fs.existsSync(path.join(workspace, 'escape')), false);
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -826,6 +992,9 @@ test('session-start prefers session over project over user skills with same conf
 
       assert.equal(result.effective_skills.length, 1);
       assert.equal(result.effective_skills[0].id, 'session-skill-1');
+      assert.equal(result.skills_to_activate.session.length, 1);
+      assert.equal(result.skills_to_activate.project.length, 0);
+      assert.equal(result.skills_to_activate.user.length, 0);
       assert.equal(result.shadowed_skills.length, 2);
     });
   } finally {
@@ -1252,6 +1421,22 @@ test('status report summarizes user project session counts and governance', () =
       assert.ok(report.session.last_summary_snapshot);
       assert.ok(typeof report.governance.active === 'number');
       assert.ok(report.evidence.project_skills);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('status report is read-only unless snapshot output is requested', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      const report = runStatusReport(workspace, 'dry-run-session');
+
+      assert.equal(report.status, 'ok');
+      assert.equal(fs.existsSync(path.join(workspace, '.context-anchor')), false);
+      assert.equal(fs.existsSync(path.join(workspace, 'openclaw-home', 'context-anchor')), false);
     });
   } finally {
     cleanupWorkspace(workspace);

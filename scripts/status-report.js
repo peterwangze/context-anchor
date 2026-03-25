@@ -7,26 +7,32 @@ const {
   collectSkillDiagnostics,
   countByStatus,
   createPaths,
-  loadProjectDecisions,
-  loadProjectExperiences,
-  loadProjectFacts,
-  loadProjectSkills,
-  loadProjectState,
-  loadSessionExperiences,
-  loadSessionMemory,
-  loadSessionSkills,
   loadSessionState,
-  loadSessionSummary,
-  loadUserExperiences,
-  loadUserMemories,
-  loadUserSkills,
-  loadUserState,
+  projectDecisionsFile,
+  projectExperiencesFile,
+  projectFactsFile,
+  projectSkillsIndexFile,
+  projectStateFile,
+  readJson,
   resolveProjectId,
   resolveUserId,
   sanitizeKey,
+  sessionExperiencesFile,
+  sessionMemoryFile,
+  sessionSkillsIndexFile,
+  sessionSummaryFile,
   summarizeEvidence,
+  userExperiencesFile,
+  userMemoriesFile,
+  userSkillsIndexFile,
+  userStateFile,
   writeStatusSnapshot
 } = require('./lib/context-anchor');
+
+function readCollection(file, key) {
+  const content = readJson(file, { [key]: [] });
+  return Array.isArray(content[key]) ? content[key] : [];
+}
 
 function summarizeSkillEvidence(skills = []) {
   const entries = skills.flatMap((skill) =>
@@ -58,24 +64,53 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
   const userId = resolveUserId(userIdArg || DEFAULTS.userId);
   const sessionKey = sanitizeKey(sessionKeyArg || DEFAULTS.sessionKey);
 
-  const projectState = loadProjectState(paths, projectId);
-  const userState = loadUserState(paths, userId);
-  const sessionState = loadSessionState(paths, sessionKey, projectId, {
-    createIfMissing: true,
-    touch: true
+  const projectState = readJson(projectStateFile(paths, projectId), {
+    project_id: projectId,
+    name: projectId,
+    created_at: null,
+    last_updated: null,
+    sessions_count: 0,
+    key_decisions: [],
+    key_experiences: [],
+    user_preferences: {},
+    metadata: {}
   });
+  const userState = readJson(userStateFile(paths, userId), {
+    user_id: userId,
+    created_at: null,
+    last_updated: null,
+    preferences: {},
+    profile: {},
+    key_memories: [],
+    key_experiences: [],
+    key_skills: [],
+    metadata: {}
+  });
+  const sessionState =
+    loadSessionState(paths, sessionKey, projectId, {
+      createIfMissing: false,
+      touch: false
+    }) || {
+      session_key: sessionKey,
+      project_id: projectId,
+      user_id: userId,
+      active_task: null,
+      commitments: [],
+      last_checkpoint: null,
+      last_summary: null
+    };
 
-  const sessionMemories = loadSessionMemory(paths, sessionKey);
-  const sessionExperiences = loadSessionExperiences(paths, sessionKey);
-  const sessionSkills = loadSessionSkills(paths, sessionKey);
-  const sessionSummary = loadSessionSummary(paths, sessionKey);
-  const projectDecisions = loadProjectDecisions(paths, projectId);
-  const projectExperiences = loadProjectExperiences(paths, projectId);
-  const projectFacts = loadProjectFacts(paths, projectId);
-  const projectSkills = loadProjectSkills(paths, projectId);
-  const userMemories = loadUserMemories(paths, userId);
-  const userExperiences = loadUserExperiences(paths, userId);
-  const userSkills = loadUserSkills(paths, userId);
+  const sessionMemories = readCollection(sessionMemoryFile(paths, sessionKey), 'entries');
+  const sessionExperiences = readCollection(sessionExperiencesFile(paths, sessionKey), 'experiences');
+  const sessionSkills = readCollection(sessionSkillsIndexFile(paths, sessionKey), 'skills');
+  const sessionSummary = readJson(sessionSummaryFile(paths, sessionKey), {});
+  const projectDecisions = readCollection(projectDecisionsFile(paths, projectId), 'decisions');
+  const projectExperiences = readCollection(projectExperiencesFile(paths, projectId), 'experiences');
+  const projectFacts = readCollection(projectFactsFile(paths, projectId), 'facts');
+  const projectSkills = readCollection(projectSkillsIndexFile(paths, projectId), 'skills');
+  const userMemories = readCollection(userMemoriesFile(paths, userId), 'memories');
+  const userExperiences = readCollection(userExperiencesFile(paths, userId), 'experiences');
+  const userSkills = readCollection(userSkillsIndexFile(paths, userId), 'skills');
 
   const diagnostics = collectSkillDiagnostics({
     session: sessionSkills,

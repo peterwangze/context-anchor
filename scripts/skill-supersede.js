@@ -109,7 +109,7 @@ function runSkillSupersede(workspaceArg, scopeArg, winnerId, loserId, identifier
     };
   }
 
-  const projectId = resolveProjectId(paths.workspace, identifierArg || DEFAULTS.projectId);
+  const projectId = resolveProjectId(paths.workspace, identifierArg);
   const skills = loadProjectSkills(paths, projectId);
   const result = applySupersede(skills, winnerId, loserId);
   if (!result) {
