@@ -302,10 +302,9 @@ if (require.main === module) {
   main();
 }
 
-module.exports = {
-  default: defaultHookHandler,
-  defaultHookHandler,
-  handleHookEvent,
-  parsePayload,
-  resolveHookInvocation
-};
+module.exports = defaultHookHandler;
+module.exports.default = defaultHookHandler;
+module.exports.defaultHookHandler = defaultHookHandler;
+module.exports.handleHookEvent = handleHookEvent;
+module.exports.parsePayload = parsePayload;
+module.exports.resolveHookInvocation = resolveHookInvocation;

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { pathToFileURL } = require('url');
 const { execFileSync } = require('child_process');
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -392,6 +393,29 @@ test('install-host-assets deploys a self-contained skill snapshot and registers 
       usage_percent: 66
     });
     assert.equal(hookResult.status, 'needs_configuration');
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('installed hook wrapper exposes a function as the ESM default export', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      const installedHandler = path.join(openClawHome, 'hooks', 'context-anchor-hook', 'handler.js');
+      const mod = await import(pathToFileURL(installedHandler).href);
+
+      assert.equal(typeof mod.default, 'function');
+      const result = mod.default('heartbeat', {
+        workspace,
+        session_key: 'esm-wrapper-session',
+        usage_percent: 60
+      });
+      assert.equal(result.status, 'needs_configuration');
     });
   } finally {
     cleanupWorkspace(workspace);

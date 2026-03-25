@@ -105,13 +105,12 @@ function main() {
 if (require.main === module) {
   main();
 }
-module.exports = {
-  default: defaultExport,
-  defaultHookHandler: defaultExport,
-  handleHookEvent,
-  parsePayload,
-  resolveHookInvocation
-};
+module.exports = defaultExport;
+module.exports.default = defaultExport;
+module.exports.defaultHookHandler = defaultExport;
+module.exports.handleHookEvent = handleHookEvent;
+module.exports.parsePayload = parsePayload;
+module.exports.resolveHookInvocation = resolveHookInvocation;
 `;
   writeText(path.join(hooksTargetDir, 'handler.js'), handlerWrapper);
   writeText(
