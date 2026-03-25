@@ -13,6 +13,7 @@ const {
   writeSessionState,
   writeSessionSummary
 } = require('./lib/context-anchor');
+const { recordSessionOwnership, resolveOwnership } = require('./lib/host-config');
 const { runCheckpointCreate } = require('./checkpoint-create');
 const { runCompactPacketCreate } = require('./compact-packet-create');
 const { runHeatEvaluation } = require('./heat-eval');
@@ -73,10 +74,20 @@ function deriveSessionExperiences(sessionState, sessionMemories, existingExperie
 function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
   const paths = createPaths(workspaceArg);
   const sessionKey = sanitizeKey(sessionKeyArg || DEFAULTS.sessionKey);
-  const sessionState = loadSessionState(paths, sessionKey, options.projectId, {
-    createIfMissing: true,
-    touch: true
+  const ownership = resolveOwnership(paths.openClawHome, {
+    workspace: paths.workspace,
+    sessionKey,
+    projectId: options.projectId,
+    userId: options.userId
   });
+  const sessionState = loadSessionState(paths, sessionKey, ownership.projectId, {
+    createIfMissing: true,
+    touch: true,
+    userId: ownership.userId
+  });
+  sessionState.user_id = ownership.userId;
+  sessionState.project_id = ownership.projectId;
+  writeSessionState(paths, sessionKey, sessionState);
   const checkpoint = runCheckpointCreate(paths.workspace, sessionKey, options.reason || 'session-close', {
     usagePercent: options.usagePercent
   });
@@ -132,6 +143,10 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
   sessionState.closed_at = new Date().toISOString();
   sessionState.last_summary = summary.created_at;
   writeSessionState(paths, sessionKey, sessionState);
+  recordSessionOwnership(paths.openClawHome, paths.workspace, sessionState, {
+    status: 'closed',
+    closedAt: sessionState.closed_at
+  });
 
   return {
     status: 'closed',

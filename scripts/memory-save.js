@@ -40,6 +40,7 @@ const {
   writeUserMemories,
   writeUserState
 } = require('./lib/context-anchor');
+const { recordSessionOwnership, resolveOwnership } = require('./lib/host-config');
 
 function parseMetadata(rawValue) {
   if (!rawValue) {
@@ -474,12 +475,21 @@ function runMemorySave(workspaceArg, sessionKeyArg, scopeArg, typeArg, contentAr
   const content = contentArg || '';
   const metadata = parseMetadata(metadataArg);
   const sessionKey = sanitizeKey(sessionKeyArg || DEFAULTS.sessionKey);
-  const projectId = resolveProjectId(paths.workspace, metadata.project_id);
+  const ownership = resolveOwnership(paths.openClawHome, {
+    workspace: paths.workspace,
+    sessionKey,
+    projectId: metadata.project_id,
+    userId: metadata.user_id
+  });
+  const projectId = ownership.projectId || resolveProjectId(paths.workspace, metadata.project_id);
   const sessionState = loadSessionState(paths, sessionKey, projectId, {
     createIfMissing: true,
-    touch: true
+    touch: true,
+    userId: ownership.userId
   });
-  sessionState.user_id = resolveUserId(metadata.user_id || sessionState.user_id || DEFAULTS.userId);
+  sessionState.user_id = resolveUserId(metadata.user_id || sessionState.user_id || ownership.userId || DEFAULTS.userId);
+  sessionState.project_id = projectId;
+  writeSessionState(paths, sessionState.session_key, sessionState);
 
   ensureProjectArtifacts(paths, sessionState.project_id);
 
@@ -499,6 +509,9 @@ function runMemorySave(workspaceArg, sessionKeyArg, scopeArg, typeArg, contentAr
   }
 
   touchSessionIndex(paths, sessionState);
+  recordSessionOwnership(paths.openClawHome, paths.workspace, sessionState, {
+    status: sessionState.closed_at ? 'closed' : 'active'
+  });
 
   return {
     status: 'saved',

@@ -3,14 +3,13 @@
 const fs = require('fs');
 const path = require('path');
 const {
-  DEFAULTS,
   createPaths,
   getRecentSessions,
   loadSessionState,
   readText,
   sessionCheckpointFile
 } = require('../../scripts/lib/context-anchor');
-const { runCheckpointCreate } = require('../../scripts/checkpoint-create');
+const { resolveOwnership } = require('../../scripts/lib/host-config');
 const { runHeartbeat } = require('../../scripts/heartbeat');
 const { runSessionClose } = require('../../scripts/session-close');
 
@@ -46,9 +45,26 @@ function requirePayloadFields(payload, eventName, requiredFields) {
   }
 }
 
+function normalizePayload(payload = {}) {
+  const ownership = resolveOwnership(undefined, {
+    workspace: payload.workspace,
+    sessionKey: payload.session_key,
+    projectId: payload.project_id,
+    userId: payload.user_id
+  });
+
+  return {
+    ...payload,
+    workspace: ownership.workspace || payload.workspace || null,
+    project_id: payload.project_id || ownership.projectId || null,
+    user_id: payload.user_id || ownership.userId || null
+  };
+}
+
 function handleStartup(payload) {
-  requirePayloadFields(payload, 'gateway:startup', ['workspace']);
-  const paths = createPaths(payload.workspace);
+  const normalizedPayload = normalizePayload(payload);
+  requirePayloadFields(normalizedPayload, 'gateway:startup', ['workspace']);
+  const paths = createPaths(normalizedPayload.workspace);
   const recentSessions = getRecentSessions(paths);
 
   if (recentSessions.length === 0) {
@@ -92,40 +108,53 @@ function handleStartup(payload) {
 }
 
 function handleStop(payload) {
-  requirePayloadFields(payload, 'command:stop', ['workspace', 'session_key']);
+  const normalizedPayload = normalizePayload(payload);
+  requirePayloadFields(normalizedPayload, 'command:stop', ['workspace', 'session_key']);
   return {
     status: 'handled',
     event: 'command:stop',
     actions: ['session_closed'],
-    result: runSessionClose(payload.workspace, payload.session_key, {
+    result: runSessionClose(normalizedPayload.workspace, normalizedPayload.session_key, {
       reason: 'command-stop',
-      usagePercent: payload.usage_percent,
-      projectId: payload.project_id
+      usagePercent: normalizedPayload.usage_percent,
+      projectId: normalizedPayload.project_id,
+      userId: normalizedPayload.user_id
     })
   };
 }
 
 function handleSessionEnd(payload) {
-  requirePayloadFields(payload, 'session:end', ['workspace', 'session_key']);
+  const normalizedPayload = normalizePayload(payload);
+  requirePayloadFields(normalizedPayload, 'session:end', ['workspace', 'session_key']);
   return {
     status: 'handled',
     event: 'session:end',
     actions: ['session_closed'],
-    result: runSessionClose(payload.workspace, payload.session_key, {
+    result: runSessionClose(normalizedPayload.workspace, normalizedPayload.session_key, {
       reason: 'session-end',
-      usagePercent: payload.usage_percent,
-      projectId: payload.project_id
+      usagePercent: normalizedPayload.usage_percent,
+      projectId: normalizedPayload.project_id,
+      userId: normalizedPayload.user_id
     })
   };
 }
 
 function handleHeartbeat(payload) {
-  requirePayloadFields(payload, 'heartbeat', ['workspace', 'session_key']);
+  const normalizedPayload = normalizePayload(payload);
+  requirePayloadFields(normalizedPayload, 'heartbeat', ['workspace', 'session_key']);
   return {
     status: 'handled',
     event: 'heartbeat',
     actions: ['heartbeat'],
-    result: runHeartbeat(payload.workspace, payload.session_key, payload.project_id, payload.usage_percent)
+    result: runHeartbeat(
+      normalizedPayload.workspace,
+      normalizedPayload.session_key,
+      normalizedPayload.project_id,
+      normalizedPayload.usage_percent,
+      {
+        userId: normalizedPayload.user_id
+      }
+    )
   };
 }
 

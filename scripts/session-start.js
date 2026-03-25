@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { recordSessionOwnership, resolveOwnership } = require('./lib/host-config');
 const {
   DEFAULTS,
   createPaths,
@@ -54,20 +55,28 @@ function detectLegacyMemory(workspace) {
   return results;
 }
 
-function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg) {
+function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}) {
   const paths = createPaths(workspaceArg);
   ensureAnchorDirs(paths);
 
   const sessionKey = sanitizeKey(sessionKeyArg || DEFAULTS.sessionKey);
-  const projectId = resolveProjectId(paths.workspace, projectIdArg);
+  const ownership = resolveOwnership(paths.openClawHome, {
+    workspace: paths.workspace,
+    sessionKey,
+    projectId: projectIdArg,
+    userId: options.userId
+  });
+  const projectId = ownership.projectId || resolveProjectId(paths.workspace, projectIdArg);
   const checkpointFile = sessionCheckpointFile(paths, sessionKey);
   const hadCheckpoint = fs.existsSync(checkpointFile);
 
   const sessionState = loadSessionState(paths, sessionKey, projectId, {
     createIfMissing: true,
-    touch: true
+    touch: true,
+    userId: ownership.userId
   });
-  sessionState.user_id = resolveUserId(sessionState.user_id || DEFAULTS.userId);
+  sessionState.user_id = resolveUserId(sessionState.user_id || ownership.userId || DEFAULTS.userId);
+  sessionState.project_id = projectId;
   writeSessionState(paths, sessionState.session_key, sessionState);
   const projectState = loadProjectState(paths, sessionState.project_id);
   const loadedDecisions = loadProjectDecisions(paths, sessionState.project_id);
@@ -182,6 +191,9 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg) {
 
   syncProjectStateMetadata(paths, sessionState.project_id);
   touchGlobalIndex(paths);
+  recordSessionOwnership(paths.openClawHome, paths.workspace, sessionState, {
+    status: sessionState.closed_at ? 'closed' : 'active'
+  });
 
   const pendingCommitments = (sessionState.commitments || []).filter(
     (entry) => entry.status === 'pending'

@@ -61,6 +61,7 @@ function runInstallHostAssets(openClawHomeArg, skillsRootArg) {
   const automationTargetDir = path.join(openClawHome, 'automation', 'context-anchor');
   const config = readJsonStrict(configFile, { extraDirs: [] });
   const extraDirs = Array.isArray(config.extraDirs) ? config.extraDirs : [];
+  const workspaceMonitorScript = path.join(automationTargetDir, 'workspace-monitor.js');
 
   ensureDir(openClawHome);
   ensureDir(path.dirname(configFile));
@@ -107,6 +108,15 @@ console.log(JSON.stringify(result, null, 2));
 `;
   writeText(path.join(automationTargetDir, 'context-pressure-monitor.js'), monitorWrapper);
 
+  const workspaceMonitorWrapper = `#!/usr/bin/env node
+const { runWorkspaceMonitor } = require(${JSON.stringify(
+    path.join(installedSkillDir, 'scripts', 'workspace-monitor.js')
+  )});
+const result = runWorkspaceMonitor(process.argv[2]);
+console.log(JSON.stringify(result, null, 2));
+`;
+  writeText(workspaceMonitorScript, workspaceMonitorWrapper);
+
   return {
     status: 'installed',
     openclaw_home: openClawHome,
@@ -117,6 +127,8 @@ console.log(JSON.stringify(result, null, 2));
     automation_dir: automationTargetDir,
     hook_handler: path.join(hooksTargetDir, 'handler.js'),
     monitor_script: path.join(automationTargetDir, 'context-pressure-monitor.js'),
+    workspace_monitor_script: workspaceMonitorScript,
+    configure_script: path.join(installedSkillDir, 'scripts', 'configure-host.js'),
     doctor_script: path.join(installedSkillDir, 'scripts', 'doctor.js')
   };
 }

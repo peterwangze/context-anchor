@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 const { getOpenClawHome } = require('./lib/context-anchor');
+const { runConfigureHost } = require('./configure-host');
 const { runInstallHostAssets } = require('./install-host-assets');
 
 function parseArgs(argv) {
@@ -11,7 +12,16 @@ function parseArgs(argv) {
     openclawHome: null,
     skillsRoot: null,
     assumeYes: false,
-    preserveMemories: undefined
+    preserveMemories: undefined,
+    applyConfig: undefined,
+    enableScheduler: undefined,
+    targetPlatform: null,
+    schedulerWorkspace: null,
+    intervalMinutes: null,
+    defaultUserId: undefined,
+    defaultWorkspace: undefined,
+    addUsers: undefined,
+    addWorkspaces: undefined
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -41,6 +51,70 @@ function parseArgs(argv) {
 
     if (arg === '--drop-memory') {
       options.preserveMemories = false;
+      continue;
+    }
+
+    if (arg === '--apply-config') {
+      options.applyConfig = true;
+      continue;
+    }
+
+    if (arg === '--skip-config') {
+      options.applyConfig = false;
+      continue;
+    }
+
+    if (arg === '--enable-scheduler') {
+      options.enableScheduler = true;
+      continue;
+    }
+
+    if (arg === '--skip-scheduler') {
+      options.enableScheduler = false;
+      continue;
+    }
+
+    if (arg === '--target-platform') {
+      options.targetPlatform = argv[index + 1] || null;
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--default-user') {
+      options.defaultUserId = argv[index + 1] || null;
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--default-workspace') {
+      options.defaultWorkspace = argv[index + 1] || null;
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--add-user') {
+      options.addUsers = options.addUsers || [];
+      options.addUsers.push(argv[index + 1] || null);
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--add-workspace') {
+      options.addWorkspaces = options.addWorkspaces || [];
+      options.addWorkspaces.push(argv[index + 1] || null);
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--workspace') {
+      options.schedulerWorkspace = argv[index + 1] || null;
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--interval-minutes') {
+      options.intervalMinutes = argv[index + 1] || null;
+      index += 1;
     }
   }
 
@@ -183,13 +257,29 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
 
   cleanupPreviousInstall(state, preserveMemories);
   const install = runInstallHostAssets(openClawHome, skillsRoot);
+  const configuration = await runConfigureHost(openClawHome, skillsRoot, {
+    assumeYes,
+    applyConfig: options.applyConfig,
+    enableScheduler: options.enableScheduler,
+    targetPlatform: options.targetPlatform,
+    schedulerWorkspace: options.schedulerWorkspace,
+    intervalMinutes: options.intervalMinutes,
+    defaultUserId: options.defaultUserId,
+    defaultWorkspace: options.defaultWorkspace,
+    addUsers: options.addUsers,
+    addWorkspaces: options.addWorkspaces,
+    ask,
+    askText: options.askText,
+    schedulerRegistrar: options.schedulerRegistrar
+  });
 
   return {
     status: 'installed',
     previous_install_detected: state.has_install_artifacts,
     previous_memory_detected: state.has_memory_data,
     preserved_memories: preserveMemories,
-    install
+    install,
+    configuration
   };
 }
 

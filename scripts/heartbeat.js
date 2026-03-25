@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-const { createPaths, loadSessionState, sanitizeKey } = require('./lib/context-anchor');
+const { createPaths, loadSessionState, sanitizeKey, writeSessionState } = require('./lib/context-anchor');
+const { recordSessionOwnership, resolveOwnership } = require('./lib/host-config');
 const { runContextPressureHandle } = require('./context-pressure-handle');
 const { runHeatEvaluation } = require('./heat-eval');
 const { runMemoryFlow } = require('./memory-flow');
@@ -8,12 +9,25 @@ const { runSkillReconcile } = require('./skill-reconcile');
 const { runScopePromote } = require('./scope-promote');
 const { runSkillificationScore } = require('./skillification-score');
 
-function runHeartbeat(workspaceArg, sessionKeyArg, projectIdArg, usagePercentArg) {
+function runHeartbeat(workspaceArg, sessionKeyArg, projectIdArg, usagePercentArg, options = {}) {
   const paths = createPaths(workspaceArg);
   const sessionKey = sanitizeKey(sessionKeyArg);
-  const sessionState = loadSessionState(paths, sessionKey, projectIdArg, {
+  const ownership = resolveOwnership(paths.openClawHome, {
+    workspace: paths.workspace,
+    sessionKey,
+    projectId: projectIdArg,
+    userId: options.userId
+  });
+  const sessionState = loadSessionState(paths, sessionKey, ownership.projectId, {
     createIfMissing: true,
-    touch: true
+    touch: true,
+    userId: ownership.userId
+  });
+  sessionState.user_id = ownership.userId;
+  sessionState.project_id = ownership.projectId;
+  writeSessionState(paths, sessionState.session_key, sessionState);
+  recordSessionOwnership(paths.openClawHome, paths.workspace, sessionState, {
+    status: sessionState.closed_at ? 'closed' : 'active'
   });
   const flow = runMemoryFlow(paths.workspace, sessionState.session_key, {});
   const heat = runHeatEvaluation(paths.workspace, sessionState.project_id);

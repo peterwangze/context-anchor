@@ -11,7 +11,9 @@ const {
   readJson,
   writeJson
 } = require('../scripts/lib/context-anchor');
+const { getHostConfigFile } = require('../scripts/lib/host-config');
 const { runCheckpointCreate } = require('../scripts/checkpoint-create');
+const { runConfigureHost } = require('../scripts/configure-host');
 const { runContextPressureHandle } = require('../scripts/context-pressure-handle');
 const { handleHookEvent } = require('../hooks/context-anchor-hook/handler');
 const { runExperienceValidate } = require('../scripts/experience-validate');
@@ -33,6 +35,7 @@ const { runSessionStart } = require('../scripts/session-start');
 const { runSkillStatusUpdate } = require('../scripts/skill-status-update');
 const { runSkillCreate } = require('../scripts/skill-create');
 const { runSkillificationScore } = require('../scripts/skillification-score');
+const { runWorkspaceMonitor } = require('../scripts/workspace-monitor');
 
 function makeWorkspace() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'context-anchor-'));
@@ -45,15 +48,25 @@ function cleanupWorkspace(workspace) {
 function withOpenClawHome(workspace, fn) {
   const previous = process.env.OPENCLAW_HOME;
   process.env.OPENCLAW_HOME = path.join(workspace, 'openclaw-home');
-
-  try {
-    return fn();
-  } finally {
+  const restore = () => {
     if (previous === undefined) {
       delete process.env.OPENCLAW_HOME;
     } else {
       process.env.OPENCLAW_HOME = previous;
     }
+  };
+
+  try {
+    const result = fn();
+    if (result && typeof result.then === 'function') {
+      return result.finally(restore);
+    }
+
+    restore();
+    return result;
+  } catch (error) {
+    restore();
+    throw error;
   }
 }
 
@@ -367,7 +380,312 @@ test('install-host-assets deploys a self-contained skill snapshot and registers 
         path.join(openClawHome, 'automation', 'context-anchor', 'context-pressure-monitor.js')
       )
     );
+    assert.ok(
+      fs.existsSync(path.join(openClawHome, 'automation', 'context-anchor', 'workspace-monitor.js'))
+    );
     assert.ok(normalizedWrapper.includes(installedSkillDir));
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('configure-host writes recommended hooks and workspace monitor entries and keeps a backup', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const configFile = path.join(openClawHome, 'config.json');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      writeJson(configFile, {
+        extraDirs: [],
+        hooks: {
+          heartbeat: 'custom-heartbeat'
+        },
+        automation: {
+          existing: 'keep-me'
+        }
+      });
+
+      const result = await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: null,
+        addUsers: [],
+        addWorkspaces: []
+      });
+      const config = readJson(configFile, {});
+
+      assert.equal(result.config.status, 'applied');
+      assert.ok(result.config.backup_file);
+      assert.ok(fs.existsSync(result.config.backup_file));
+      assert.ok(config.extraDirs.includes(path.join(openClawHome, 'skills')));
+      assert.match(config.hooks['gateway:startup'], /context-anchor-hook/);
+      assert.match(config.hooks.heartbeat, /context-anchor-hook/);
+      assert.equal(config.automation.existing, 'keep-me');
+      assert.match(
+        config.automation['context-anchor-workspace-monitor'],
+        /automation[\\/]+context-anchor[\\/]+workspace-monitor\.js/
+      );
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('configure-host writes default user and workspace ownership registry', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const defaultWorkspace = path.join(workspace, 'default-project');
+  const secondWorkspace = path.join(workspace, 'client-b');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+
+      const result = await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'alice',
+        defaultWorkspace,
+        addUsers: ['bob'],
+        addWorkspaces: [
+          {
+            workspace: secondWorkspace,
+            userId: 'bob',
+            projectId: 'client-b'
+          }
+        ]
+      });
+      const hostConfig = readJson(getHostConfigFile(openClawHome), {});
+
+      assert.equal(result.ownership.defaults.user_id, 'alice');
+      assert.equal(path.resolve(result.ownership.defaults.workspace), path.resolve(defaultWorkspace));
+      assert.equal(hostConfig.defaults.user_id, 'alice');
+      assert.equal(path.resolve(hostConfig.defaults.workspace), path.resolve(defaultWorkspace));
+      assert.ok(hostConfig.users.some((entry) => entry.user_id === 'alice'));
+      assert.ok(hostConfig.users.some((entry) => entry.user_id === 'bob'));
+      assert.ok(
+        hostConfig.workspaces.some(
+          (entry) =>
+            path.resolve(entry.workspace) === path.resolve(defaultWorkspace) &&
+            entry.user_id === 'alice' &&
+            entry.project_id === 'default-project'
+        )
+      );
+      assert.ok(
+        hostConfig.workspaces.some(
+          (entry) =>
+            path.resolve(entry.workspace) === path.resolve(secondWorkspace) &&
+            entry.user_id === 'bob' &&
+            entry.project_id === 'client-b'
+        )
+      );
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('configure-host can register a Windows scheduler when the selected platform is Windows', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const monitoredWorkspace = path.join(workspace, 'project-a');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      fs.mkdirSync(monitoredWorkspace, { recursive: true });
+
+      const calls = [];
+      const result = await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: true,
+        targetPlatform: 'windows',
+        schedulerWorkspace: monitoredWorkspace,
+        intervalMinutes: 7,
+        currentPlatform: 'win32',
+        defaultUserId: 'default-user',
+        defaultWorkspace: null,
+        addUsers: [],
+        addWorkspaces: [],
+        schedulerRegistrar: (...args) => {
+          calls.push(args);
+        }
+      });
+
+      assert.ok(fs.existsSync(result.scheduler.launcher_path));
+      assert.equal(path.resolve(result.scheduler.workspace), path.resolve(monitoredWorkspace));
+      assert.equal(result.scheduler.status, 'registered');
+      assert.equal(result.scheduler.target_platform, 'windows');
+      assert.equal(result.scheduler.interval_minutes, 7);
+      assert.equal(calls.length, 2);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('configure-host can prepare macOS and Linux scheduler assets by explicit platform choice', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const monitoredWorkspace = path.join(workspace, 'project-b');
+  const fakeHome = path.join(workspace, 'home');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      fs.mkdirSync(monitoredWorkspace, { recursive: true });
+
+      const macos = await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: true,
+        targetPlatform: 'macos',
+        schedulerWorkspace: monitoredWorkspace,
+        intervalMinutes: 9,
+        currentPlatform: 'linux',
+        defaultUserId: 'default-user',
+        defaultWorkspace: null,
+        addUsers: [],
+        addWorkspaces: [],
+        homeDir: fakeHome
+      });
+      const linux = await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: true,
+        targetPlatform: 'linux',
+        schedulerWorkspace: monitoredWorkspace,
+        intervalMinutes: 11,
+        currentPlatform: 'darwin',
+        defaultUserId: 'default-user',
+        defaultWorkspace: null,
+        addUsers: [],
+        addWorkspaces: [],
+        homeDir: fakeHome
+      });
+
+      assert.equal(macos.scheduler.status, 'prepared');
+      assert.equal(macos.scheduler.target_platform, 'macos');
+      assert.equal(macos.scheduler.mode, 'launchd');
+      assert.ok(fs.existsSync(macos.scheduler.plist_file));
+      assert.match(macos.scheduler.install_file, /LaunchAgents/);
+
+      assert.equal(linux.scheduler.status, 'prepared');
+      assert.equal(linux.scheduler.target_platform, 'linux');
+      assert.equal(linux.scheduler.mode, 'systemd_user');
+      assert.ok(fs.existsSync(linux.scheduler.service_file));
+      assert.ok(fs.existsSync(linux.scheduler.timer_file));
+      assert.match(linux.scheduler.install_service_file, /systemd/);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('configure-host falls back to prepared assets when automatic scheduler registration fails', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const monitoredWorkspace = path.join(workspace, 'project-c');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      fs.mkdirSync(monitoredWorkspace, { recursive: true });
+
+      const result = await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: true,
+        targetPlatform: 'linux',
+        schedulerWorkspace: monitoredWorkspace,
+        currentPlatform: 'linux',
+        defaultUserId: 'default-user',
+        defaultWorkspace: null,
+        addUsers: [],
+        addWorkspaces: [],
+        homeDir: path.join(workspace, 'home'),
+        schedulerRegistrar: () => {
+          throw new Error('systemctl unavailable');
+        }
+      });
+
+      assert.equal(result.scheduler.status, 'prepared');
+      assert.match(result.scheduler.registration_error, /systemctl unavailable/);
+      assert.ok(fs.existsSync(result.scheduler.service_file));
+      assert.ok(fs.existsSync(result.scheduler.timer_file));
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('hook runtime applies workspace ownership defaults and records session ownership', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const defaultWorkspace = path.join(workspace, 'workspace-a');
+  const secondWorkspace = path.join(workspace, 'workspace-b');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'alice',
+        defaultWorkspace,
+        addUsers: [],
+        addWorkspaces: [
+          {
+            workspace: secondWorkspace,
+            userId: 'bob',
+            projectId: 'client-b'
+          }
+        ]
+      });
+
+      const defaultResult = handleHookEvent('heartbeat', {
+        session_key: 'default-owned-session',
+        usage_percent: 72
+      });
+      const secondResult = handleHookEvent('heartbeat', {
+        workspace: secondWorkspace,
+        session_key: 'workspace-owned-session',
+        usage_percent: 88
+      });
+      const defaultState = readJson(
+        path.join(defaultWorkspace, '.context-anchor', 'sessions', 'default-owned-session', 'state.json'),
+        {}
+      );
+      const secondState = readJson(
+        path.join(secondWorkspace, '.context-anchor', 'sessions', 'workspace-owned-session', 'state.json'),
+        {}
+      );
+      const hostConfig = readJson(getHostConfigFile(openClawHome), {});
+
+      assert.equal(defaultResult.status, 'handled');
+      assert.equal(secondResult.status, 'handled');
+      assert.equal(defaultState.user_id, 'alice');
+      assert.equal(defaultState.project_id, 'workspace-a');
+      assert.equal(secondState.user_id, 'bob');
+      assert.equal(secondState.project_id, 'client-b');
+      assert.ok(
+        hostConfig.sessions.some(
+          (entry) =>
+            path.resolve(entry.workspace) === path.resolve(defaultWorkspace) &&
+            entry.session_key === 'default-owned-session' &&
+            entry.user_id === 'alice'
+        )
+      );
+      assert.ok(
+        hostConfig.sessions.some(
+          (entry) =>
+            path.resolve(entry.workspace) === path.resolve(secondWorkspace) &&
+            entry.session_key === 'workspace-owned-session' &&
+            entry.user_id === 'bob' &&
+            entry.project_id === 'client-b'
+        )
+      );
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -393,6 +711,12 @@ test('one-click install preserves memories while cleaning previous install files
     fs.writeFileSync(staleAutomationFile, 'stale', 'utf8');
 
     const result = await runOneClickInstall(openClawHome, undefined, {
+      applyConfig: false,
+      enableScheduler: false,
+      defaultUserId: 'default-user',
+      defaultWorkspace: null,
+      addUsers: [],
+      addWorkspaces: [],
       ask: async (prompt) => {
         if (prompt.includes('Clean previous install files')) {
           return true;
@@ -415,6 +739,7 @@ test('one-click install preserves memories while cleaning previous install files
     assert.equal(fs.existsSync(staleHookFile), false);
     assert.equal(fs.existsSync(staleAutomationFile), false);
     assert.ok(fs.existsSync(path.join(openClawHome, 'skills', 'context-anchor', 'SKILL.md')));
+    assert.equal(result.configuration.config.status, 'skipped');
   } finally {
     cleanupWorkspace(workspace);
   }
@@ -438,6 +763,36 @@ test('one-click install can drop old memories when requested', async () => {
     assert.equal(result.preserved_memories, false);
     assert.equal(fs.existsSync(memoryRoot), false);
     assert.ok(fs.existsSync(path.join(openClawHome, 'skills', 'context-anchor', 'SKILL.md')));
+    assert.equal(result.configuration.config.status, 'applied');
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('one-click install can apply recommended config without reinstall prompts', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      const result = await runOneClickInstall(openClawHome, undefined, {
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: null,
+        addUsers: [],
+        addWorkspaces: []
+      });
+      const config = readJson(path.join(openClawHome, 'config.json'), {});
+
+      assert.equal(result.status, 'installed');
+      assert.equal(result.configuration.config.status, 'applied');
+      assert.match(config.hooks['gateway:startup'], /context-anchor-hook/);
+      assert.match(
+        config.automation['context-anchor-workspace-monitor'],
+        /automation[\\/]+context-anchor[\\/]+workspace-monitor\.js/
+      );
+    });
   } finally {
     cleanupWorkspace(workspace);
   }
@@ -464,20 +819,30 @@ test('install-host-assets refuses to overwrite an invalid config.json', () => {
   }
 });
 
-test('doctor reports installed absolute paths and wrapper returns a helpful payload error', () => {
+test('doctor reports installed absolute paths and wrapper returns a helpful payload error', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');
 
   try {
-    withOpenClawHome(workspace, () => {
+    await withOpenClawHome(workspace, async () => {
       const result = runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: null,
+        addUsers: [],
+        addWorkspaces: []
+      });
       const doctor = runDoctor({ openclawHome: openClawHome });
 
       assert.equal(doctor.status, 'ok');
       assert.equal(doctor.installation.ready, true);
       assert.equal(doctor.paths.hook_handler, result.hook_handler);
       assert.equal(doctor.paths.monitor_script, result.monitor_script);
+      assert.equal(doctor.paths.workspace_monitor_script, result.workspace_monitor_script);
       assert.ok(fs.existsSync(result.doctor_script));
+      assert.equal(doctor.configuration.ready, true);
       assert.ok(doctor.commands.hook_with_payload_file.includes(result.hook_handler));
 
       assert.throws(
@@ -487,6 +852,57 @@ test('doctor reports installed absolute paths and wrapper returns a helpful payl
           return true;
         }
       );
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('workspace monitor runs maintenance for recent sessions without extending their last_active time', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'monitor-session', 'demo');
+      runMemorySave(
+        workspace,
+        'monitor-session',
+        'session',
+        'decision',
+        'keep last_active stable',
+        JSON.stringify({ heat: 90 })
+      );
+
+      const stateFile = path.join(
+        workspace,
+        '.context-anchor',
+        'sessions',
+        'monitor-session',
+        'state.json'
+      );
+      const indexFile = path.join(
+        workspace,
+        '.context-anchor',
+        'sessions',
+        '_index.json'
+      );
+      const state = readJson(stateFile, {});
+      const index = readJson(indexFile, { sessions: [] });
+      state.last_active = '2026-03-20T00:00:00.000Z';
+      index.sessions[0].last_active = state.last_active;
+      writeJson(stateFile, state);
+      writeJson(indexFile, index);
+
+      const result = runWorkspaceMonitor(workspace, {
+        windowMs: 7 * 24 * 60 * 60 * 1000
+      });
+      const nextState = readJson(stateFile, {});
+      const nextIndex = readJson(indexFile, { sessions: [] });
+
+      assert.equal(result.status, 'processed');
+      assert.equal(result.handled_sessions, 1);
+      assert.equal(nextState.last_active, '2026-03-20T00:00:00.000Z');
+      assert.equal(nextIndex.sessions[0].last_active, '2026-03-20T00:00:00.000Z');
     });
   } finally {
     cleanupWorkspace(workspace);

@@ -28,6 +28,7 @@ const {
   userStateFile,
   writeStatusSnapshot
 } = require('./lib/context-anchor');
+const { resolveOwnership } = require('./lib/host-config');
 
 function readCollection(file, key) {
   const content = readJson(file, { [key]: [] });
@@ -60,9 +61,19 @@ function summarizeSkillEvidence(skills = []) {
 
 function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, options = {}) {
   const paths = createPaths(workspaceArg);
-  const projectId = resolveProjectId(paths.workspace, projectIdArg);
-  const userId = resolveUserId(userIdArg || DEFAULTS.userId);
   const sessionKey = sanitizeKey(sessionKeyArg || DEFAULTS.sessionKey);
+  const ownership = resolveOwnership(paths.openClawHome, {
+    workspace: paths.workspace,
+    sessionKey,
+    projectId: projectIdArg,
+    userId: userIdArg
+  });
+  const projectId = ownership.projectId || resolveProjectId(paths.workspace, projectIdArg);
+  const existingSessionState = loadSessionState(paths, sessionKey, projectId, {
+    createIfMissing: false,
+    touch: false
+  });
+  const userId = resolveUserId(userIdArg || existingSessionState?.user_id || ownership.userId || DEFAULTS.userId);
 
   const projectState = readJson(projectStateFile(paths, projectId), {
     project_id: projectId,
@@ -87,10 +98,7 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
     metadata: {}
   });
   const sessionState =
-    loadSessionState(paths, sessionKey, projectId, {
-      createIfMissing: false,
-      touch: false
-    }) || {
+    existingSessionState || {
       session_key: sessionKey,
       project_id: projectId,
       user_id: userId,

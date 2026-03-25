@@ -44,7 +44,7 @@
 
 默认：
 
-- `user_id = default-user`
+- `user_id` 默认值是 `default-user`
 - `project_id = workspace basename`，如果显式传入则优先显式值
 
 ## 前置条件
@@ -91,32 +91,94 @@ node scripts/install-one-click.js
 npm run install:host
 ```
 
-这是推荐入口，适合零基础用户。
+这是推荐入口，适合零基础用户。你只需要按提示回答 `Y/N`，不需要自己理解 hook 命令、`config.json` 结构或定时任务参数。
 
-- 默认使用当前系统的 `<openclaw-home>` 和 `<skills-root>`
-- 如果检测到之前安装过 `context-anchor`，会先询问是否清理旧安装文件后重装
-- 如果检测到旧的记忆/经验数据，会上来询问是“保留记忆只重装”还是“连记忆一起清理”
+安装器会按顺序询问：
 
-底层安装入口仍然保留：
-
-```bash
-node scripts/install-host-assets.js
-```
+- 是否保留旧记忆并重装
+- 是否把推荐的 `hooks` 和 `automation` 写入当前 `<openclaw-home>/config.json`
+- 默认用户名是什么
+- 默认 workspace 是什么
+- 是否继续添加新的用户或 workspace
+- 是否为某个 workspace 启用后台巡检任务
+- 如果启用巡检，选择 `Windows` / `macOS` / `Linux`
 
 默认结果：
 
 - 把当前 skill 的自包含快照安装到固定目录 `<installed-skill-dir>`
-- 更新 `<openclaw-home>/config.json`
-- 确保 `config.json.extraDirs` 包含 `<skills-root>`
+- 更新 `<openclaw-home>/config.json.extraDirs`
 - 写入 hook wrapper 到 `<openclaw-home>/hooks/context-anchor-hook/`
 - 写入 monitor wrapper 到 `<openclaw-home>/automation/context-anchor/`
+- 如果你同意修改配置，再自动补上推荐的 `hooks` 和 `automation.context-anchor-workspace-monitor`
+- 写入 `<openclaw-home>/context-anchor-host-config.json`，登记默认用户、默认 workspace、附加用户、附加 workspace
+- 后续 session 会按 `workspace -> user/project` 默认归属自动落到登记表里
+- 如果你同意启用后台巡检，再为指定 workspace 生成对应平台的调度配置
+- Windows：生成 launcher 并注册 Task Scheduler
+- macOS：生成 launcher 和 `launchd plist`，并在本机尝试加载
+- Linux：生成 launcher、`systemd --user service/timer`，并在本机尝试启用
 
 这里的安装目录名始终是 `context-anchor`，不受你本地源码目录名影响。
 
-一键安装命令在 Windows PowerShell、macOS Terminal、Linux shell 中都一样：
+## 一键配置
+
+如果你已经安装过，只想重新跑配置，不想重装：
 
 ```bash
-node scripts/install-one-click.js
+npm run configure:host
+```
+
+或：
+
+```bash
+node scripts/configure-host.js
+```
+
+这个配置向导会继续使用同样的交互方式：
+
+- 是否覆盖写入推荐配置
+- 默认用户名
+- 默认 workspace
+- 是否继续添加新的用户或 workspace
+- 是否启用后台巡检
+- 如果启用巡检，选择目标平台
+- 如果启用巡检，要监控哪个 workspace
+
+## 常用无交互命令
+
+仅安装并自动写入推荐配置：
+
+```bash
+node scripts/install-one-click.js --yes --apply-config --default-user "alice" --default-workspace "D:/workspace/main"
+```
+
+安装并同时为某个 workspace 启用后台巡检：
+
+```bash
+node scripts/install-one-click.js --yes --apply-config --enable-scheduler --target-platform windows --workspace "D:/workspace/project" --interval-minutes 5
+```
+
+安装后单独重跑配置：
+
+```bash
+node scripts/configure-host.js --apply-config --default-user "alice" --default-workspace "D:/workspace/main"
+```
+
+仅补启一个后台巡检任务：
+
+```bash
+node scripts/configure-host.js --enable-scheduler --target-platform macos --workspace "/Users/me/workspace/project"
+```
+
+Linux 示例：
+
+```bash
+node scripts/configure-host.js --enable-scheduler --target-platform linux --workspace "/home/me/workspace/project"
+```
+
+如果你要直接补登记一个新用户和一个新 workspace：
+
+```bash
+node scripts/configure-host.js --yes --default-user "alice" --add-user "bob" --add-workspace "D:/workspace/client-b|bob|client-b"
 ```
 
 如果你要覆盖默认位置：
@@ -125,23 +187,33 @@ node scripts/install-one-click.js
 node scripts/install-one-click.js --openclaw-home "<openclaw-home>" --skills-root "<skills-root>"
 ```
 
-例如：
-
-```bash
-node scripts/install-one-click.js --openclaw-home "D:/openclaw-home" --skills-root "D:/openclaw-home/skills"
-```
-
 如果你明确知道要自动保留旧记忆并直接重装：
 
 ```bash
-node scripts/install-one-click.js --yes --keep-memory
+node scripts/install-one-click.js --yes --keep-memory --apply-config
 ```
 
 如果你明确知道要清空旧记忆再重装：
 
 ```bash
-node scripts/install-one-click.js --yes --drop-memory
+node scripts/install-one-click.js --yes --drop-memory --apply-config
 ```
+
+## 安装后你应该看到什么
+
+至少检查这几个路径：
+
+- `<openclaw-home>/config.json`
+- `<installed-skill-dir>/README.md`
+- `<installed-skill-dir>/SKILL.md`
+- `<installed-skill-dir>/scripts/heartbeat.js`
+- `<openclaw-home>/hooks/context-anchor-hook/handler.js`
+- `<openclaw-home>/automation/context-anchor/context-pressure-monitor.js`
+- `<openclaw-home>/automation/context-anchor/workspace-monitor.js`
+
+如果这些文件不存在，说明安装没有完成。
+
+## 安装后先做什么
 
 安装后立刻执行一次自检：
 
@@ -155,32 +227,24 @@ node scripts/doctor.js
 node scripts/doctor.js --openclaw-home "D:/openclaw-home" --skills-root "D:/openclaw-home/skills"
 ```
 
-`doctor` 会输出真实路径、安装完整性检查和可直接复制的命令。
+重点看两个字段：
 
-## 安装后你应该看到什么
+- `installation.ready`：安装文件是否齐全
+- `configuration.ready`：推荐配置是否已经写入
 
-至少检查这几个路径：
+`doctor` 还会输出真实路径，以及可直接复制的命令。
 
-- `<openclaw-home>/config.json`
-- `<installed-skill-dir>/README.md`
-- `<installed-skill-dir>/SKILL.md`
-- `<installed-skill-dir>/scripts/heartbeat.js`
-- `<openclaw-home>/hooks/context-anchor-hook/handler.js`
-- `<openclaw-home>/automation/context-anchor/context-pressure-monitor.js`
+另外，`<openclaw-home>/context-anchor-host-config.json` 会保存：
 
-如果这些文件不存在，说明安装没有完成。
+- 默认用户
+- 默认 workspace
+- 已登记的用户
+- 已登记的 workspace 及其默认 owner
+- 每个 session 的 workspace / project / user 归属
 
-## OpenClaw 最小接入方式
+## 高级手动接入
 
-### 1. skill 加载
-
-安装脚本会把 `<skills-root>` 写进 `config.json.extraDirs`。  
-这意味着 OpenClaw 之后应从该目录发现 `context-anchor`。
-
-## OpenClaw 配置示例
-
-下面是推荐配置片段，用来表达 `context-anchor` 需要宿主提供哪些接入点。  
-这不是对某个 OpenClaw 官方配置 schema 的硬承诺，而是一个“你应该在自己的配置层表达这些映射关系”的模板。
+如果你明确不想让安装器改配置，仍然可以手工接入。推荐最小配置如下：
 
 ```json
 {
@@ -188,125 +252,24 @@ node scripts/doctor.js --openclaw-home "D:/openclaw-home" --skills-root "D:/open
     "<skills-root>"
   ],
   "hooks": {
-    "gateway:startup": "node \"<openclaw-home>/hooks/context-anchor-hook/handler.js\" gateway:startup <payload-file-or-json>",
-    "command:stop": "node \"<openclaw-home>/hooks/context-anchor-hook/handler.js\" command:stop <payload-file-or-json>",
-    "session:end": "node \"<openclaw-home>/hooks/context-anchor-hook/handler.js\" session:end <payload-file-or-json>",
-    "heartbeat": "node \"<openclaw-home>/hooks/context-anchor-hook/handler.js\" heartbeat <payload-file-or-json>"
+    "gateway:startup": "\"<node-exec>\" \"<openclaw-home>/hooks/context-anchor-hook/handler.js\" gateway:startup <payload-file-or-json>",
+    "command:stop": "\"<node-exec>\" \"<openclaw-home>/hooks/context-anchor-hook/handler.js\" command:stop <payload-file-or-json>",
+    "session:end": "\"<node-exec>\" \"<openclaw-home>/hooks/context-anchor-hook/handler.js\" session:end <payload-file-or-json>",
+    "heartbeat": "\"<node-exec>\" \"<openclaw-home>/hooks/context-anchor-hook/handler.js\" heartbeat <payload-file-or-json>"
   },
   "automation": {
-    "context-pressure-monitor": "node \"<openclaw-home>/automation/context-anchor/context-pressure-monitor.js\" <workspace> <snapshot-file>"
+    "context-anchor-workspace-monitor": "\"<node-exec>\" \"<openclaw-home>/automation/context-anchor/workspace-monitor.js\" <workspace>"
   }
 }
 ```
 
-如果你的 OpenClaw 版本没有集中式配置文件，也可以把同样的命令挂到你自己的启动脚本、事件桥接层或任务调度器里。  
-如果你不知道 `<openclaw-home>` 和 `<skills-root>` 的真实值，直接运行 `node scripts/doctor.js` 看输出。
+高级手动入口保留如下：
 
-### 2. hook 接入
+- hook wrapper：`node "<openclaw-home>/hooks/context-anchor-hook/handler.js" <event-name> <payload-file-or-json>`
+- workspace 巡检：`node "<openclaw-home>/automation/context-anchor/workspace-monitor.js" "<workspace>"`
+- 压力快照 monitor：`node "<openclaw-home>/automation/context-anchor/context-pressure-monitor.js" "<workspace>" "<snapshot-file>"`
 
-宿主应把以下事件接到安装后的 hook wrapper：
-
-- `gateway:startup`
-- `command:stop`
-- `session:end`
-- `heartbeat`
-
-安装后可调用的入口是：
-
-```bash
-node "<openclaw-home>/hooks/context-anchor-hook/handler.js" <event-name> <payload-file-or-json>
-```
-
-对零基础用户，推荐始终把 payload 先写到文件，再把文件路径传给 handler，避免 Bash、zsh、PowerShell 的 JSON 转义差异。
-
-例如：
-
-```powershell
-$payload = @{
-  workspace = 'D:/workspace/project'
-  session_key = 'chat-session-001'
-  project_id = 'default'
-  usage_percent = 82
-} | ConvertTo-Json
-
-$payload | Set-Content .\context-anchor-payload.json
-node "C:/Users/<你自己的用户名>/.openclaw/hooks/context-anchor-hook/handler.js" heartbeat ".\context-anchor-payload.json"
-```
-
-macOS / Linux 示例：
-
-```bash
-cat > ./context-anchor-payload.json <<'EOF'
-{
-  "workspace": "/tmp/demo-project",
-  "session_key": "chat-session-001",
-  "project_id": "default",
-  "usage_percent": 82
-}
-EOF
-
-node "/Users/<你自己的用户名>/.openclaw/hooks/context-anchor-hook/handler.js" heartbeat "./context-anchor-payload.json"
-```
-
-如果 payload 不是合法 JSON，hook 会直接返回明确报错，而不是静默失败。
-
-payload 至少应包含：
-
-```json
-{
-  "workspace": "D:/workspace/project",
-  "session_key": "chat-session-001",
-  "project_id": "default"
-}
-```
-
-如果是 `heartbeat`，再补：
-
-```json
-{
-  "usage_percent": 82
-}
-```
-
-### 3. heartbeat / monitor 接入
-
-本仓不自动注册操作系统定时任务。  
-你需要让宿主或调度器定期调用：
-
-```bash
-node "<openclaw-home>/automation/context-anchor/context-pressure-monitor.js" "<workspace>" "<snapshot-file>"
-```
-
-或单 session 简化调用：
-
-```bash
-node "<openclaw-home>/automation/context-anchor/context-pressure-monitor.js" "<workspace>" "<session-key>" 82
-```
-
-调度建议：
-
-- Windows：Task Scheduler 调用上面的 `node "..." ...` 命令
-- macOS：`launchd` 或你自己的宿主轮询逻辑调用上面的命令
-- Linux：`cron`、`systemd timer` 或你自己的宿主轮询逻辑调用上面的命令
-
-如果你是第一次接这类定时任务，先不要做系统级调度，先手工运行一次 monitor，确认输出正常。
-
-`snapshot-file` 格式示例：
-
-```json
-{
-  "sessions": [
-    {
-      "session_key": "chat-session-001",
-      "usage_percent": 78
-    },
-    {
-      "session_key": "chat-session-002",
-      "usage_percent": 91
-    }
-  ]
-}
-```
+如果你是第一次接这类 hook 或 JSON payload，推荐继续使用安装器自动写配置，不要手抄这些命令。
 
 ## 最小验证流程
 
@@ -319,6 +282,7 @@ node "<openclaw-home>/automation/context-anchor/context-pressure-monitor.js" "<w
 - `<installed-skill-dir>/` 是否存在
 - `<openclaw-home>/config.json` 的 `extraDirs` 是否包含 `<skills-root>`
 - `node scripts/doctor.js` 输出中的 `installation.ready` 是否为 `true`
+- 如果你选择了自动写配置，再确认 `configuration.ready` 是否为 `true`
 
 ### 2. 验证 startup 恢复
 
@@ -618,9 +582,9 @@ node "<installed-skill-dir>/scripts/skill-create.js" "<workspace>" <experience-i
 
 ## 重要边界
 
-- 操作系统层面的 Task Scheduler / launchd / cron / systemd timer 需要你自己注册
+- Windows / macOS / Linux 都可以通过配置向导生成对应调度配置；如果自动注册失败，脚本会保留生成好的文件供你手工接管
 - `usage_percent` 需要宿主提供，`context-anchor` 不负责计算
-- 当前只有单用户：`default-user`
+- 未配置时默认用户仍是 `default-user`；现在可以通过一键配置额外登记多个用户和 workspace 归属
 - 旧 `projects/_global` 仍兼容读取，但新的长期用户数据应写入 `user` 层
 - `session skill draft` 已实现
 - `project/user active skill` 已支持自动晋升、自动回收/回流、归档与 evidence 追踪

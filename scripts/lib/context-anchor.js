@@ -293,12 +293,12 @@ function generateId(prefix) {
   return `${prefix}-${stamp}-${suffix}`;
 }
 
-function createSessionState(sessionKey, projectId, existing = {}) {
+function createSessionState(sessionKey, projectId, existing = {}, options = {}) {
   const timestamp = nowIso();
 
   return {
     session_key: sanitizeKey(existing.session_key || sessionKey),
-    user_id: resolveUserId(existing.user_id || DEFAULTS.userId),
+    user_id: resolveUserId(existing.user_id || options.userId || DEFAULTS.userId),
     project_id: existing.project_id || projectId || DEFAULTS.projectId,
     started_at: existing.started_at || timestamp,
     last_active: timestamp,
@@ -328,7 +328,7 @@ function loadSessionState(paths, sessionKey, projectId = DEFAULTS.projectId, opt
     return null;
   }
 
-  const state = createSessionState(normalizedKey, projectId, existing || {});
+  const state = createSessionState(normalizedKey, projectId, existing || {}, options);
 
   if (options.touch !== false || !existing) {
     writeJson(file, state);
@@ -756,6 +756,7 @@ function touchSessionIndex(paths, sessionState) {
   const next = {
     session_key: sessionState.session_key,
     project_id: sessionState.project_id,
+    user_id: sessionState.user_id,
     started_at: sessionState.started_at,
     last_active: sessionState.last_active
   };
