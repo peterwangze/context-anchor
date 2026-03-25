@@ -177,6 +177,42 @@ function findWorkspace(config, workspaceArg) {
   return config.workspaces.find((entry) => entry.workspace === workspace) || null;
 }
 
+function getWorkspaceRegistrationStatus(openClawHomeArg, workspaceArg, options = {}) {
+  if (!workspaceArg) {
+    return {
+      config: readHostConfig(openClawHomeArg),
+      workspace: null,
+      configured: false,
+      workspaceEntry: null,
+      suggestedUserId: normalizeUserId(options.userId || DEFAULT_USER_ID),
+      suggestedProjectId: normalizeProjectId(options.projectId, process.cwd())
+    };
+  }
+
+  const config = readHostConfig(openClawHomeArg);
+  const workspace = path.resolve(workspaceArg);
+  const workspaceEntry = findWorkspace(config, workspace);
+  const suggestedUserId = normalizeUserId(
+    options.userId ||
+      workspaceEntry?.user_id ||
+      config.defaults.user_id ||
+      DEFAULT_USER_ID
+  );
+  const suggestedProjectId = normalizeProjectId(
+    options.projectId || workspaceEntry?.project_id,
+    workspace
+  );
+
+  return {
+    config,
+    workspace,
+    configured: Boolean(workspaceEntry),
+    workspaceEntry,
+    suggestedUserId,
+    suggestedProjectId
+  };
+}
+
 function findSession(config, workspaceArg, sessionKeyArg) {
   if (!workspaceArg || !sessionKeyArg) {
     return null;
@@ -351,6 +387,7 @@ module.exports = {
   findSession,
   findUser,
   findWorkspace,
+  getWorkspaceRegistrationStatus,
   getHostConfigFile,
   getOpenClawHome,
   normalizeProjectId,

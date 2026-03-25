@@ -692,6 +692,43 @@ test('hook runtime applies workspace ownership defaults and records session owne
   }
 });
 
+test('unregistered workspace returns configuration guidance instead of auto-assigning ownership', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const unknownWorkspace = path.join(workspace, 'unknown-project');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'alice',
+        defaultWorkspace: path.join(workspace, 'configured-project'),
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      const startup = handleHookEvent('gateway:startup', {
+        workspace: unknownWorkspace
+      });
+      const heartbeat = handleHookEvent('heartbeat', {
+        workspace: unknownWorkspace,
+        session_key: 'unknown-session',
+        usage_percent: 70
+      });
+
+      assert.equal(startup.status, 'needs_configuration');
+      assert.equal(heartbeat.status, 'needs_configuration');
+      assert.match(startup.configure_command, /configure-host\.js/);
+      assert.match(heartbeat.message, /not registered yet/);
+      assert.equal(fs.existsSync(path.join(unknownWorkspace, '.context-anchor')), false);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('one-click install preserves memories while cleaning previous install files when requested', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');

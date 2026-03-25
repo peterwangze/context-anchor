@@ -9,7 +9,10 @@ const {
   readText,
   sessionCheckpointFile
 } = require('../../scripts/lib/context-anchor');
-const { resolveOwnership } = require('../../scripts/lib/host-config');
+const {
+  getWorkspaceRegistrationStatus,
+  resolveOwnership
+} = require('../../scripts/lib/host-config');
 const { runHeartbeat } = require('../../scripts/heartbeat');
 const { runSessionClose } = require('../../scripts/session-close');
 
@@ -61,9 +64,38 @@ function normalizePayload(payload = {}) {
   };
 }
 
+function buildConfigureGuidance(eventName, payload) {
+  const status = getWorkspaceRegistrationStatus(undefined, payload.workspace, {
+    userId: payload.user_id,
+    projectId: payload.project_id
+  });
+  const configureScript = path.resolve(__dirname, '..', '..', 'scripts', 'configure-host.js');
+
+  if (status.configured) {
+    return null;
+  }
+
+  return {
+    status: 'needs_configuration',
+    event: eventName,
+    actions: ['configure_workspace'],
+    workspace: status.workspace,
+    suggested_user_id: status.suggestedUserId,
+    suggested_project_id: status.suggestedProjectId,
+    configure_command: `node "${configureScript}" --add-workspace "${status.workspace}|${status.suggestedUserId}|${status.suggestedProjectId}"`,
+    interactive_command: `node "${configureScript}"`,
+    message:
+      `Workspace ${status.workspace} is not registered yet. Configure its owner before using context-anchor in this workspace.`
+  };
+}
+
 function handleStartup(payload) {
   const normalizedPayload = normalizePayload(payload);
   requirePayloadFields(normalizedPayload, 'gateway:startup', ['workspace']);
+  const guidance = buildConfigureGuidance('gateway:startup', normalizedPayload);
+  if (guidance) {
+    return guidance;
+  }
   const paths = createPaths(normalizedPayload.workspace);
   const recentSessions = getRecentSessions(paths);
 
@@ -110,6 +142,10 @@ function handleStartup(payload) {
 function handleStop(payload) {
   const normalizedPayload = normalizePayload(payload);
   requirePayloadFields(normalizedPayload, 'command:stop', ['workspace', 'session_key']);
+  const guidance = buildConfigureGuidance('command:stop', normalizedPayload);
+  if (guidance) {
+    return guidance;
+  }
   return {
     status: 'handled',
     event: 'command:stop',
@@ -126,6 +162,10 @@ function handleStop(payload) {
 function handleSessionEnd(payload) {
   const normalizedPayload = normalizePayload(payload);
   requirePayloadFields(normalizedPayload, 'session:end', ['workspace', 'session_key']);
+  const guidance = buildConfigureGuidance('session:end', normalizedPayload);
+  if (guidance) {
+    return guidance;
+  }
   return {
     status: 'handled',
     event: 'session:end',
@@ -142,6 +182,10 @@ function handleSessionEnd(payload) {
 function handleHeartbeat(payload) {
   const normalizedPayload = normalizePayload(payload);
   requirePayloadFields(normalizedPayload, 'heartbeat', ['workspace', 'session_key']);
+  const guidance = buildConfigureGuidance('heartbeat', normalizedPayload);
+  if (guidance) {
+    return guidance;
+  }
   return {
     status: 'handled',
     event: 'heartbeat',

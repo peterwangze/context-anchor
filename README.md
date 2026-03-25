@@ -117,6 +117,11 @@ npm run install:host
 - macOS：生成 launcher 和 `launchd plist`，并在本机尝试加载
 - Linux：生成 launcher、`systemd --user service/timer`，并在本机尝试启用
 
+注意：
+
+- 已登记的 workspace 会按登记关系处理 session
+- 未登记的 workspace 不会自动接管；hook 会返回明确的配置引导，要求先把 workspace 加入宿主配置
+
 这里的安装目录名始终是 `context-anchor`，不受你本地源码目录名影响。
 
 ## 一键配置
