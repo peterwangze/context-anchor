@@ -315,53 +315,63 @@ test('experience-validate rejects unsupported validation statuses', () => {
   }
 });
 
-test('gateway startup hook emits a resume message for the latest active session', () => {
+test('gateway startup hook emits a resume message for the latest active session', async () => {
   const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
 
   try {
-    withOpenClawHome(workspace, () => {
-    runSessionStart(workspace, 'resume-session', 'demo');
-    const sessionFile = path.join(
-      workspace,
-      '.context-anchor',
-      'sessions',
-      'resume-session',
-      'state.json'
-    );
-    const state = readJson(sessionFile, {});
-    state.active_task = 'finish repair';
-    state.commitments = [
-      {
-        id: 'c2',
-        what: 'ship fix',
-        when: '2026-03-22T00:00:00Z',
-        status: 'pending'
-      }
-    ];
-    writeJson(sessionFile, state);
-    runCheckpointCreate(workspace, 'resume-session', 'manual');
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: workspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
 
-    const result = handleHookEvent('gateway:startup', {
-      workspace
-    });
+      runSessionStart(workspace, 'resume-session', 'demo');
+      const sessionFile = path.join(
+        workspace,
+        '.context-anchor',
+        'sessions',
+        'resume-session',
+        'state.json'
+      );
+      const state = readJson(sessionFile, {});
+      state.active_task = 'finish repair';
+      state.commitments = [
+        {
+          id: 'c2',
+          what: 'ship fix',
+          when: '2026-03-22T00:00:00Z',
+          status: 'pending'
+        }
+      ];
+      writeJson(sessionFile, state);
+      runCheckpointCreate(workspace, 'resume-session', 'manual');
 
-    assert.equal(result.status, 'resume_available');
-    assert.match(result.resume_message, /finish repair/);
-    assert.match(result.resume_message, /ship fix/);
+      const result = handleHookEvent('gateway:startup', {
+        workspace
+      });
+
+      assert.equal(result.status, 'resume_available');
+      assert.match(result.resume_message, /finish repair/);
+      assert.match(result.resume_message, /ship fix/);
     });
   } finally {
     cleanupWorkspace(workspace);
   }
 });
 
-test('install-host-assets deploys a self-contained skill snapshot and registers extraDirs', () => {
+test('install-host-assets deploys a self-contained skill snapshot and managed hook wrapper', () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');
 
   try {
     withOpenClawHome(workspace, () => {
     const result = runInstallHostAssets(openClawHome);
-    const config = readJson(path.join(openClawHome, 'config.json'), {});
     const installedSkillDir = path.join(openClawHome, 'skills', 'context-anchor');
     const hookWrapper = fs.readFileSync(
       path.join(openClawHome, 'hooks', 'context-anchor-hook', 'handler.js'),
@@ -371,7 +381,6 @@ test('install-host-assets deploys a self-contained skill snapshot and registers 
     const normalizedWrapper = hookWrapper.replaceAll('\\\\', '\\');
 
     assert.equal(result.status, 'installed');
-    assert.ok(config.extraDirs.includes(path.join(openClawHome, 'skills')));
     assert.equal(result.installed_skill_dir, installedSkillDir);
     assert.equal(path.basename(result.installed_skill_dir), 'context-anchor');
     assert.ok(fs.existsSync(path.join(installedSkillDir, 'README.md')));
@@ -387,6 +396,7 @@ test('install-host-assets deploys a self-contained skill snapshot and registers 
     );
     assert.ok(normalizedWrapper.includes(installedSkillDir));
     assert.equal(typeof hookModule.default, 'function');
+    assert.equal(typeof hookModule.handleManagedHookEvent, 'function');
     const hookResult = hookModule.default('heartbeat', {
       workspace,
       session_key: 'installed-wrapper-session',
@@ -425,18 +435,21 @@ test('installed hook wrapper exposes a function as the ESM default export', asyn
 test('configure-host writes recommended hooks and workspace monitor entries and keeps a backup', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');
-  const configFile = path.join(openClawHome, 'config.json');
+  const configFile = path.join(openClawHome, 'openclaw.json');
 
   try {
     await withOpenClawHome(workspace, async () => {
       runInstallHostAssets(openClawHome);
       writeJson(configFile, {
-        extraDirs: [],
         hooks: {
-          heartbeat: 'custom-heartbeat'
+          internal: {
+            enabled: false
+          }
         },
-        automation: {
-          existing: 'keep-me'
+        skills: {
+          load: {
+            extraDirs: ['D:\\existing-skills']
+          }
         }
       });
 
@@ -453,14 +466,10 @@ test('configure-host writes recommended hooks and workspace monitor entries and 
       assert.equal(result.config.status, 'applied');
       assert.ok(result.config.backup_file);
       assert.ok(fs.existsSync(result.config.backup_file));
-      assert.ok(config.extraDirs.includes(path.join(openClawHome, 'skills')));
-      assert.match(config.hooks['gateway:startup'], /context-anchor-hook/);
-      assert.match(config.hooks.heartbeat, /context-anchor-hook/);
-      assert.equal(config.automation.existing, 'keep-me');
-      assert.match(
-        config.automation['context-anchor-workspace-monitor'],
-        /automation[\\/]+context-anchor[\\/]+workspace-monitor\.js/
-      );
+      assert.equal(config.hooks.internal.enabled, true);
+      assert.deepEqual(config.skills.load.extraDirs, ['D:\\existing-skills']);
+      assert.equal(result.config.internal_hooks_enabled, true);
+      assert.equal(result.config.registered_extra_skill_dir, null);
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -852,33 +861,36 @@ test('one-click install can apply recommended config without reinstall prompts',
         addUsers: [],
         addWorkspaces: []
       });
-      const config = readJson(path.join(openClawHome, 'config.json'), {});
+      const config = readJson(path.join(openClawHome, 'openclaw.json'), {});
 
       assert.equal(result.status, 'installed');
       assert.equal(result.configuration.config.status, 'applied');
-      assert.match(config.hooks['gateway:startup'], /context-anchor-hook/);
-      assert.match(
-        config.automation['context-anchor-workspace-monitor'],
-        /automation[\\/]+context-anchor[\\/]+workspace-monitor\.js/
-      );
+      assert.equal(config.hooks.internal.enabled, true);
     });
   } finally {
     cleanupWorkspace(workspace);
   }
 });
 
-test('install-host-assets refuses to overwrite an invalid config.json', () => {
+test('configure-host refuses to overwrite an invalid openclaw.json', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');
-  const configFile = path.join(openClawHome, 'config.json');
+  const configFile = path.join(openClawHome, 'openclaw.json');
 
   try {
-    withOpenClawHome(workspace, () => {
+    await withOpenClawHome(workspace, async () => {
       fs.mkdirSync(openClawHome, { recursive: true });
       fs.writeFileSync(configFile, '{"broken": ', 'utf8');
 
-      assert.throws(
-        () => runInstallHostAssets(openClawHome),
+      await assert.rejects(
+        () => runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+          applyConfig: true,
+          enableScheduler: false,
+          defaultUserId: 'default-user',
+          defaultWorkspace: null,
+          addUsers: [],
+          addWorkspaces: []
+        }),
         /is not valid JSON/
       );
       assert.equal(fs.readFileSync(configFile, 'utf8'), '{"broken": ');
@@ -927,11 +939,22 @@ test('doctor reports installed absolute paths and wrapper returns a helpful payl
   }
 });
 
-test('workspace monitor runs maintenance for recent sessions without extending their last_active time', () => {
+test('workspace monitor runs maintenance for recent sessions without extending their last_active time', async () => {
   const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
 
   try {
-    withOpenClawHome(workspace, () => {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: workspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
       runSessionStart(workspace, 'monitor-session', 'demo');
       runMemorySave(
         workspace,
@@ -1276,11 +1299,22 @@ test('migrate-global-to-user imports legacy global state into user scope', () =>
   }
 });
 
-test('command stop hook runs unified session close lifecycle', () => {
+test('command stop hook runs unified session close lifecycle', async () => {
   const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
 
   try {
-    withOpenClawHome(workspace, () => {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: workspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
       runSessionStart(workspace, 'hook-close', 'demo');
       runMemorySave(
         workspace,

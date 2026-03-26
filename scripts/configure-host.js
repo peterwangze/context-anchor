@@ -21,7 +21,6 @@ const {
 } = require('./lib/host-config');
 
 const DEFAULT_INTERVAL_MINUTES = 5;
-const HOOK_EVENTS = ['gateway:startup', 'command:stop', 'session:end', 'heartbeat'];
 const SUPPORTED_SCHEDULER_PLATFORMS = ['windows', 'macos', 'linux'];
 
 function parseArgs(argv) {
@@ -217,7 +216,9 @@ function shellQuote(value) {
 
 function buildHostPaths(openClawHome, skillsRoot) {
   const installedSkillDir = path.join(skillsRoot, 'context-anchor');
-  const configFile = path.join(openClawHome, 'config.json');
+  const configFile = path.join(openClawHome, 'openclaw.json');
+  const legacyConfigFile = path.join(openClawHome, 'config.json');
+  const defaultManagedSkillsRoot = path.join(openClawHome, 'skills');
   const hookHandler = path.join(openClawHome, 'hooks', 'context-anchor-hook', 'handler.js');
   const monitorScript = path.join(openClawHome, 'automation', 'context-anchor', 'context-pressure-monitor.js');
   const workspaceMonitorScript = path.join(
@@ -230,8 +231,10 @@ function buildHostPaths(openClawHome, skillsRoot) {
   return {
     openclaw_home: openClawHome,
     skills_root: skillsRoot,
+    default_managed_skills_root: defaultManagedSkillsRoot,
     installed_skill_dir: installedSkillDir,
     config_file: configFile,
+    legacy_config_file: legacyConfigFile,
     hook_handler: hookHandler,
     monitor_script: monitorScript,
     workspace_monitor_script: workspaceMonitorScript,
@@ -240,21 +243,12 @@ function buildHostPaths(openClawHome, skillsRoot) {
 }
 
 function buildRecommendedConfig(paths) {
-  const nodeExecutable = quoteArg(process.execPath);
-  const hookScript = quoteArg(paths.hook_handler);
-  const workspaceMonitorScript = quoteArg(paths.workspace_monitor_script);
+  const needsExtraSkillsDir = path.resolve(paths.skills_root) !== path.resolve(paths.default_managed_skills_root);
 
   return {
-    extra_dir: paths.skills_root,
-    hooks: {
-      'gateway:startup': `${nodeExecutable} ${hookScript} gateway:startup <payload-file-or-json>`,
-      'command:stop': `${nodeExecutable} ${hookScript} command:stop <payload-file-or-json>`,
-      'session:end': `${nodeExecutable} ${hookScript} session:end <payload-file-or-json>`,
-      heartbeat: `${nodeExecutable} ${hookScript} heartbeat <payload-file-or-json>`
-    },
-    automation: {
-      'context-anchor-workspace-monitor': `${nodeExecutable} ${workspaceMonitorScript} <workspace>`
-    }
+    hooks_internal_enabled: true,
+    default_managed_skills_root: paths.default_managed_skills_root,
+    extra_skill_dir: needsExtraSkillsDir ? paths.skills_root : null
   };
 }
 
@@ -272,26 +266,34 @@ function backupConfigFile(configFile) {
 function applyRecommendedConfig(paths) {
   const config = readJsonStrict(paths.config_file, {});
   const recommended = buildRecommendedConfig(paths);
-  const next = {
-    ...config,
-    extraDirs: Array.isArray(config.extraDirs)
-      ? [...new Set([...config.extraDirs, recommended.extra_dir])]
-      : [recommended.extra_dir],
-    hooks: {
-      ...(config.hooks || {}),
-      ...recommended.hooks
-    },
-    automation: {
-      ...(config.automation || {}),
-      ...recommended.automation
+  const next = { ...config };
+  const nextHooks = next.hooks && typeof next.hooks === 'object' && !Array.isArray(next.hooks) ? { ...next.hooks } : {};
+  const nextInternal =
+    nextHooks.internal && typeof nextHooks.internal === 'object' && !Array.isArray(nextHooks.internal)
+      ? { ...nextHooks.internal }
+      : {};
+
+  nextInternal.enabled = true;
+  nextHooks.internal = nextInternal;
+  next.hooks = nextHooks;
+
+  let registeredExtraDir = false;
+  if (recommended.extra_skill_dir) {
+    const nextSkills = next.skills && typeof next.skills === 'object' && !Array.isArray(next.skills) ? { ...next.skills } : {};
+    const nextLoad =
+      nextSkills.load && typeof nextSkills.load === 'object' && !Array.isArray(nextSkills.load)
+        ? { ...nextSkills.load }
+        : {};
+    const extraDirs = Array.isArray(nextLoad.extraDirs) ? [...nextLoad.extraDirs] : [];
+    if (!extraDirs.includes(recommended.extra_skill_dir)) {
+      extraDirs.push(recommended.extra_skill_dir);
     }
-  };
-  const overwrittenHooks = HOOK_EVENTS.filter((eventName) => {
-    return config.hooks?.[eventName] && config.hooks[eventName] !== recommended.hooks[eventName];
-  });
-  const overwrittenAutomation = Object.keys(recommended.automation).filter((key) => {
-    return config.automation?.[key] && config.automation[key] !== recommended.automation[key];
-  });
+    nextLoad.extraDirs = extraDirs;
+    nextSkills.load = nextLoad;
+    next.skills = nextSkills;
+    registeredExtraDir = true;
+  }
+
   const changed = JSON.stringify(config) !== JSON.stringify(next);
   const backupFile = changed ? backupConfigFile(paths.config_file) : null;
 
@@ -303,8 +305,9 @@ function applyRecommendedConfig(paths) {
     status: changed ? 'applied' : 'unchanged',
     config_file: paths.config_file,
     backup_file: backupFile,
-    overwritten_hooks: overwrittenHooks,
-    overwritten_automation: overwrittenAutomation
+    internal_hooks_enabled: true,
+    registered_extra_skill_dir: registeredExtraDir ? recommended.extra_skill_dir : null,
+    default_managed_skills_root: recommended.default_managed_skills_root
   };
 }
 
@@ -847,10 +850,10 @@ async function runConfigureHost(openClawHomeArg, skillsRootArg, options = {}) {
 
   let applyConfig = options.applyConfig;
   if (typeof applyConfig !== 'boolean') {
-    applyConfig = assumeYes
+        applyConfig = assumeYes
       ? true
       : await askYesNo(
-          `Write the recommended context-anchor hooks and automation entries into ${paths.config_file} now?`,
+          `Update ${paths.config_file} now to enable OpenClaw internal hooks${path.resolve(paths.skills_root) !== path.resolve(paths.default_managed_skills_root) ? ' and register the custom context-anchor skills directory' : ''}?`,
           true,
           ask
         );

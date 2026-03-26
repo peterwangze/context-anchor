@@ -56,8 +56,10 @@ function runDoctor(options = {}) {
   const skillsRoot = path.resolve(
     options.skillsRoot || process.env.CONTEXT_ANCHOR_SKILLS_ROOT || path.join(openClawHome, 'skills')
   );
+  const defaultManagedSkillsRoot = path.join(openClawHome, 'skills');
   const installedSkillDir = path.join(skillsRoot, 'context-anchor');
-  const configFile = path.join(openClawHome, 'config.json');
+  const configFile = path.join(openClawHome, 'openclaw.json');
+  const legacyConfigFile = path.join(openClawHome, 'config.json');
   const hookHandler = path.join(openClawHome, 'hooks', 'context-anchor-hook', 'handler.js');
   const monitorScript = path.join(openClawHome, 'automation', 'context-anchor', 'context-pressure-monitor.js');
   const workspaceMonitorScript = path.join(
@@ -70,51 +72,53 @@ function runDoctor(options = {}) {
   const hostConfigFile = getHostConfigFile(openClawHome);
   const config = readJson(configFile, null);
   const hostConfig = readHostConfig(openClawHome);
-  const extraDirs = Array.isArray(config?.extraDirs) ? config.extraDirs : [];
+  const extraDirs = Array.isArray(config?.skills?.load?.extraDirs) ? config.skills.load.extraDirs : [];
   const hooks = config?.hooks || {};
-  const automation = config?.automation || {};
   const workspace = options.workspace ? path.resolve(options.workspace) : null;
+  const skillsRootRegistrationRequired = path.resolve(skillsRoot) !== path.resolve(defaultManagedSkillsRoot);
 
   const installation = {
     config_exists: fs.existsSync(configFile),
+    legacy_config_present: fs.existsSync(legacyConfigFile),
     skill_snapshot_exists: fs.existsSync(path.join(installedSkillDir, 'SKILL.md')),
     hook_wrapper_exists: fs.existsSync(hookHandler),
     monitor_wrapper_exists: fs.existsSync(monitorScript),
     workspace_monitor_wrapper_exists: fs.existsSync(workspaceMonitorScript),
-    extra_dir_registered: extraDirs.includes(skillsRoot)
+    extra_skill_dir_registered: skillsRootRegistrationRequired ? extraDirs.includes(skillsRoot) : true
   };
-  installation.ready = Object.values(installation).every(Boolean);
+  installation.managed_skills_root = defaultManagedSkillsRoot;
+  installation.ready =
+    installation.skill_snapshot_exists &&
+    installation.hook_wrapper_exists &&
+    installation.monitor_wrapper_exists &&
+    installation.workspace_monitor_wrapper_exists &&
+    installation.extra_skill_dir_registered;
   installation.missing = Object.entries(installation)
-    .filter(([key, value]) => key !== 'ready' && key !== 'missing' && value !== true)
+    .filter(
+      ([key, value]) =>
+        !['ready', 'missing', 'legacy_config_present', 'managed_skills_root'].includes(key) && value !== true
+    )
     .map(([key]) => key);
   const configuration = {
-    hooks_registered:
-      typeof hooks['gateway:startup'] === 'string' &&
-      hooks['gateway:startup'].includes(hookHandler) &&
-      typeof hooks['command:stop'] === 'string' &&
-      hooks['command:stop'].includes(hookHandler) &&
-      typeof hooks['session:end'] === 'string' &&
-      hooks['session:end'].includes(hookHandler) &&
-      typeof hooks.heartbeat === 'string' &&
-      hooks.heartbeat.includes(hookHandler),
-    workspace_monitor_registered:
-      typeof automation['context-anchor-workspace-monitor'] === 'string' &&
-      automation['context-anchor-workspace-monitor'].includes(workspaceMonitorScript)
+    internal_hooks_enabled: hooks?.internal?.enabled === true,
+    extra_skill_dir_registered: installation.extra_skill_dir_registered
   };
-  configuration.ready = configuration.hooks_registered && configuration.workspace_monitor_registered;
+  configuration.ready = configuration.internal_hooks_enabled && configuration.extra_skill_dir_registered;
   configuration.missing = Object.entries(configuration)
     .filter(([key, value]) => key !== 'ready' && key !== 'missing' && value !== true)
     .map(([key]) => key);
 
   return {
-    status: installation.ready ? 'ok' : 'warning',
+    status: installation.ready && configuration.ready ? 'ok' : 'warning',
     platform: process.platform,
     platform_label: platformLabel(process.platform),
     paths: {
       openclaw_home: openClawHome,
       skills_root: skillsRoot,
+      default_managed_skills_root: defaultManagedSkillsRoot,
       installed_skill_dir: installedSkillDir,
       config_file: configFile,
+      legacy_config_file: legacyConfigFile,
       hook_handler: hookHandler,
       monitor_script: monitorScript,
       workspace_monitor_script: workspaceMonitorScript,
@@ -138,10 +142,11 @@ function runDoctor(options = {}) {
     },
     notes: [
       'Prefer absolute paths and always wrap paths in double quotes when running commands manually.',
-      'Do not rely on "~" expansion inside config files; use the actual path shown in this report.',
+      'OpenClaw reads managed hook and skill settings from openclaw.json; the legacy config.json file is not used for this integration.',
+      'If you install context-anchor into the default managed skills directory (~/.openclaw/skills), skills.load.extraDirs is not required.',
       'If shell quoting is difficult, write payload JSON to a file and pass the file path to the hook handler.',
       'The one-click installer will ask whether to preserve existing memories before it cleans previous installation files.',
-      'If you skipped automatic config writing during install, rerun configure-host to register the recommended hooks and workspace monitor entry.'
+      'If internal hooks are disabled, context-anchor-hook will not run even if the managed hook files are installed.'
     ]
   };
 }

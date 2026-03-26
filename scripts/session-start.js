@@ -75,8 +75,24 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
     touch: true,
     userId: ownership.userId
   });
+  const openClawSessionId =
+    typeof options.openClawSessionId === 'string' && options.openClawSessionId.trim()
+      ? options.openClawSessionId.trim()
+      : null;
+  const previousOpenClawSessionId = sessionState.metadata?.openclaw_session_id || null;
+  if (options.reopenClosed !== false && sessionState.closed_at) {
+    sessionState.closed_at = null;
+  }
+  if (openClawSessionId && previousOpenClawSessionId && previousOpenClawSessionId !== openClawSessionId) {
+    sessionState.started_at = new Date().toISOString();
+    sessionState.closed_at = null;
+  }
   sessionState.user_id = resolveUserId(sessionState.user_id || ownership.userId || DEFAULTS.userId);
   sessionState.project_id = projectId;
+  sessionState.metadata = {
+    ...(sessionState.metadata || {}),
+    ...(openClawSessionId ? { openclaw_session_id: openClawSessionId } : {})
+  };
   writeSessionState(paths, sessionState.session_key, sessionState);
   const projectState = loadProjectState(paths, sessionState.project_id);
   const loadedDecisions = loadProjectDecisions(paths, sessionState.project_id);

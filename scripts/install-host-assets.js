@@ -7,9 +7,7 @@ const {
   ensureDir,
   getOpenClawHome,
   getRepoRoot,
-  readJson,
   readText,
-  writeJson,
   writeText
 } = require('./lib/context-anchor');
 
@@ -36,18 +34,6 @@ function copySkillSnapshot(repoRoot, installedSkillDir) {
   });
 }
 
-function readJsonStrict(file, defaultValue) {
-  if (!fs.existsSync(file)) {
-    return defaultValue;
-  }
-
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (error) {
-    throw new Error(`Config file ${file} is not valid JSON. Fix or remove it before running install-host-assets.`);
-  }
-}
-
 function runInstallHostAssets(openClawHomeArg, skillsRootArg) {
   const openClawHome = getOpenClawHome(openClawHomeArg);
   const repoRoot = getRepoRoot();
@@ -56,20 +42,11 @@ function runInstallHostAssets(openClawHomeArg, skillsRootArg) {
   );
   const skillName = 'context-anchor';
   const installedSkillDir = path.join(skillsRoot, skillName);
-  const configFile = path.join(openClawHome, 'config.json');
   const hooksTargetDir = path.join(openClawHome, 'hooks', 'context-anchor-hook');
   const automationTargetDir = path.join(openClawHome, 'automation', 'context-anchor');
-  const config = readJsonStrict(configFile, { extraDirs: [] });
-  const extraDirs = Array.isArray(config.extraDirs) ? config.extraDirs : [];
   const workspaceMonitorScript = path.join(automationTargetDir, 'workspace-monitor.js');
 
   ensureDir(openClawHome);
-  ensureDir(path.dirname(configFile));
-  if (!extraDirs.includes(skillsRoot)) {
-    extraDirs.push(skillsRoot);
-  }
-  config.extraDirs = extraDirs;
-  writeJson(configFile, config);
 
   removeDirIfExists(installedSkillDir);
   removeDirIfExists(hooksTargetDir);
@@ -82,6 +59,7 @@ function runInstallHostAssets(openClawHomeArg, skillsRootArg) {
 const {
   default: defaultHookHandler,
   handleHookEvent,
+  handleManagedHookEvent,
   parsePayload,
   resolveHookInvocation
 } = require(${JSON.stringify(
@@ -109,6 +87,7 @@ module.exports = defaultExport;
 module.exports.default = defaultExport;
 module.exports.defaultHookHandler = defaultExport;
 module.exports.handleHookEvent = handleHookEvent;
+module.exports.handleManagedHookEvent = handleManagedHookEvent;
 module.exports.parsePayload = parsePayload;
 module.exports.resolveHookInvocation = resolveHookInvocation;
 `;
@@ -141,7 +120,6 @@ console.log(JSON.stringify(result, null, 2));
     openclaw_home: openClawHome,
     skills_root: skillsRoot,
     installed_skill_dir: installedSkillDir,
-    config_file: configFile,
     hooks_dir: hooksTargetDir,
     automation_dir: automationTargetDir,
     hook_handler: path.join(hooksTargetDir, 'handler.js'),

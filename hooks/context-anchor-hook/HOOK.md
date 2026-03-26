@@ -1,47 +1,29 @@
-# context-anchor-hook
+---
+name: context-anchor-hook
+description: "Inject context-anchor session memory into agent bootstrap and close sessions on OpenClaw command lifecycle events"
+homepage: https://docs.openclaw.ai/automation/hooks
+metadata:
+  {
+    "openclaw":
+      {
+        "emoji": "🔗",
+        "events": ["agent:bootstrap", "command:new", "command:reset", "command:stop"],
+        "requires": { "bins": ["node"], "config": ["workspace.dir"] },
+      },
+  }
+---
 
-用于把 `context-anchor` 的会话记忆、恢复和结束同步接到宿主事件。
+# Context Anchor Hook
 
-## 支持事件
+Connects `context-anchor` to OpenClaw's real managed-hook lifecycle:
 
-- `gateway:startup`
-- `command:stop`
-- `session:end`
-- `heartbeat`
+- `agent:bootstrap`: injects persisted session context into the current run
+- `command:new`: closes the current context-anchor session before OpenClaw resets
+- `command:reset`: closes the current context-anchor session before OpenClaw resets
+- `command:stop`: closes the current context-anchor session when `/stop` is issued
 
-## 调用方式
+## Notes
 
-```bash
-node "handler.js" <event-name> <payload-file-or-json>
-```
-
-对零基础用户，推荐优先传 JSON 文件路径，不要直接在命令行内联 JSON。
-
-事件要求：
-
-- `gateway:startup`：payload 至少包含 `workspace`
-- `command:stop`：payload 至少包含 `workspace` 和 `session_key`
-- `session:end`：payload 至少包含 `workspace` 和 `session_key`
-- `heartbeat`：payload 至少包含 `workspace` 和 `session_key`，通常还应包含 `usage_percent`
-
-payload 示例：
-
-```json
-{
-  "workspace": "D:/workspace/project",
-  "session_key": "feishu-direct-user",
-  "project_id": "default",
-  "usage_percent": 82
-}
-```
-
-如果 payload 解析失败，CLI 会返回明确的 `status: "error"` 和错误信息。
-
-## 返回
-
-标准 JSON：
-
-- `status`
-- `event`
-- `actions`
-- `resume_message` 或 `message`
+- Background heartbeat / maintenance is handled by the external workspace monitor, not by a managed hook event.
+- If a workspace is not registered in `context-anchor-host-config.json`, the hook injects setup guidance instead of auto-assigning ownership.
+- Manual CLI debugging is still supported through `handler.js`, but OpenClaw itself loads this hook via the default export and managed event objects.

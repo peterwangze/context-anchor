@@ -91,12 +91,12 @@ node scripts/install-one-click.js
 npm run install:host
 ```
 
-这是推荐入口，适合零基础用户。你只需要按提示回答 `Y/N`，不需要自己理解 hook 命令、`config.json` 结构或定时任务参数。
+这是推荐入口，适合零基础用户。你只需要按提示回答 `Y/N`，不需要自己理解 OpenClaw managed hook、`openclaw.json` 结构或定时任务参数。
 
 安装器会按顺序询问：
 
 - 是否保留旧记忆并重装
-- 是否把推荐的 `hooks` 和 `automation` 写入当前 `<openclaw-home>/config.json`
+- 是否把推荐的 OpenClaw 配置写入当前 `<openclaw-home>/openclaw.json`
 - 默认用户名是什么
 - 默认 workspace 是什么
 - 是否继续添加新的用户或 workspace
@@ -106,10 +106,11 @@ npm run install:host
 默认结果：
 
 - 把当前 skill 的自包含快照安装到固定目录 `<installed-skill-dir>`
-- 更新 `<openclaw-home>/config.json.extraDirs`
+- 把当前 skill 的自包含快照安装到 `<openclaw-home>/skills/context-anchor/`
 - 写入 hook wrapper 到 `<openclaw-home>/hooks/context-anchor-hook/`
 - 写入 monitor wrapper 到 `<openclaw-home>/automation/context-anchor/`
-- 如果你同意修改配置，再自动补上推荐的 `hooks` 和 `automation.context-anchor-workspace-monitor`
+- 如果你同意修改配置，再自动确保 `<openclaw-home>/openclaw.json.hooks.internal.enabled = true`
+- 如果你使用自定义 `skills-root`，再自动补上 `openclaw.json.skills.load.extraDirs`
 - 写入 `<openclaw-home>/context-anchor-host-config.json`，登记默认用户、默认 workspace、附加用户、附加 workspace
 - 后续 session 会按 `workspace -> user/project` 默认归属自动落到登记表里
 - 如果你同意启用后台巡检，再为指定 workspace 生成对应平台的调度配置
@@ -208,7 +209,7 @@ node scripts/install-one-click.js --yes --drop-memory --apply-config
 
 至少检查这几个路径：
 
-- `<openclaw-home>/config.json`
+- `<openclaw-home>/openclaw.json`
 - `<installed-skill-dir>/README.md`
 - `<installed-skill-dir>/SKILL.md`
 - `<installed-skill-dir>/scripts/heartbeat.js`
@@ -249,47 +250,59 @@ node scripts/doctor.js --openclaw-home "D:/openclaw-home" --skills-root "D:/open
 
 ## 高级手动接入
 
-如果你明确不想让安装器改配置，仍然可以手工接入。推荐最小配置如下：
+如果你明确不想让安装器改配置，仍然可以手工接入。最小原则是：
+
+- skill 安装到默认托管目录 `<openclaw-home>/skills/context-anchor/` 时，不需要额外配置 `skills.load.extraDirs`
+- 只有你把 skill 安装到自定义目录时，才需要在 `<openclaw-home>/openclaw.json.skills.load.extraDirs` 追加该目录
+- managed hook 文件放在 `<openclaw-home>/hooks/context-anchor-hook/` 后，OpenClaw 会自动发现；真正需要保证的是 `openclaw.json.hooks.internal.enabled = true`
+
+推荐最小配置如下：
 
 ```json
 {
-  "extraDirs": [
-    "<skills-root>"
-  ],
   "hooks": {
-    "gateway:startup": "\"<node-exec>\" \"<openclaw-home>/hooks/context-anchor-hook/handler.js\" gateway:startup <payload-file-or-json>",
-    "command:stop": "\"<node-exec>\" \"<openclaw-home>/hooks/context-anchor-hook/handler.js\" command:stop <payload-file-or-json>",
-    "session:end": "\"<node-exec>\" \"<openclaw-home>/hooks/context-anchor-hook/handler.js\" session:end <payload-file-or-json>",
-    "heartbeat": "\"<node-exec>\" \"<openclaw-home>/hooks/context-anchor-hook/handler.js\" heartbeat <payload-file-or-json>"
-  },
-  "automation": {
-    "context-anchor-workspace-monitor": "\"<node-exec>\" \"<openclaw-home>/automation/context-anchor/workspace-monitor.js\" <workspace>"
+    "internal": {
+      "enabled": true
+    }
   }
 }
 ```
 
-高级手动入口保留如下：
+如果使用自定义 `skills-root`，再额外补：
+
+```json
+{
+  "skills": {
+    "load": {
+      "extraDirs": ["<skills-root>"]
+    }
+  }
+}
+```
+
+手动调试入口保留如下：
 
 - hook wrapper：`node "<openclaw-home>/hooks/context-anchor-hook/handler.js" <event-name> <payload-file-or-json>`
 - workspace 巡检：`node "<openclaw-home>/automation/context-anchor/workspace-monitor.js" "<workspace>"`
 - 压力快照 monitor：`node "<openclaw-home>/automation/context-anchor/context-pressure-monitor.js" "<workspace>" "<snapshot-file>"`
 
-如果你是第一次接这类 hook 或 JSON payload，推荐继续使用安装器自动写配置，不要手抄这些命令。
+如果你是第一次接这类 OpenClaw managed hook，推荐继续使用安装器自动写配置，不要手抄这些命令。
 
 ## 最小验证流程
 
 安装完成后，建议按下面顺序做一次人工验证。
 
-### 1. 验证 skill 已安装
+### 1. 验证 skill / hook 已安装
 
 检查：
 
 - `<installed-skill-dir>/` 是否存在
-- `<openclaw-home>/config.json` 的 `extraDirs` 是否包含 `<skills-root>`
 - `node scripts/doctor.js` 输出中的 `installation.ready` 是否为 `true`
+- `openclaw hooks info context-anchor-hook` 是否显示 `Events: agent:bootstrap, command:new, command:reset, command:stop`
+- `openclaw skills list` 是否能看到 `context-anchor`
 - 如果你选择了自动写配置，再确认 `configuration.ready` 是否为 `true`
 
-### 2. 验证 startup 恢复
+### 2. 验证 startup / 恢复预览
 
 先准备一个测试工作区，并写一个最小 payload 文件：
 
@@ -307,8 +320,9 @@ node "<openclaw-home>/hooks/context-anchor-hook/handler.js" gateway:startup "./c
 
 预期：
 
-- 如果最近没有活跃 session，返回 `idle`
+- 如果 workspace 已登记但没有最近 session，返回 `idle`
 - 如果有最近活跃 session，返回 `resume_available` 和 `resume_message`
+- 如果 workspace 未登记，返回 `needs_configuration`
 
 ### 3. 验证 heartbeat
 
@@ -600,7 +614,8 @@ node "<installed-skill-dir>/scripts/skill-create.js" "<workspace>" <experience-i
 
 检查：
 
-- `<openclaw-home>/config.json.extraDirs`
+- 默认托管目录安装时，不需要额外检查 `extraDirs`
+- 如果你使用了自定义 `skills-root`，再检查 `<openclaw-home>/openclaw.json.skills.load.extraDirs`
 - `<installed-skill-dir>/SKILL.md`
 - `node scripts/doctor.js` 的 `installation` 字段
 

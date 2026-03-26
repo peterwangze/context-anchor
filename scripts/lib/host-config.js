@@ -12,6 +12,24 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function normalizePathForComparison(targetPath) {
+  const resolved = path.resolve(targetPath);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+function samePath(left, right) {
+  return normalizePathForComparison(left) === normalizePathForComparison(right);
+}
+
+function isPathWithin(rootPath, candidatePath) {
+  const relative = path.relative(path.resolve(rootPath), path.resolve(candidatePath));
+  if (!relative) {
+    return true;
+  }
+
+  return !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
 function sanitizeKey(value, fallback = DEFAULT_PROJECT_ID) {
   const cleaned = String(value || '')
     .trim()
@@ -115,6 +133,9 @@ function normalizeSessions(sessions = []) {
     const previous = seen.get(identity);
     seen.set(identity, {
       workspace,
+      owner_workspace: entry.owner_workspace
+        ? path.resolve(entry.owner_workspace)
+        : previous?.owner_workspace || null,
       session_key: sessionKey,
       user_id: normalizeUserId(entry.user_id || previous?.user_id || DEFAULT_USER_ID),
       project_id: normalizeProjectId(entry.project_id || previous?.project_id, workspace),
@@ -169,12 +190,34 @@ function findUser(config, userId) {
 }
 
 function findWorkspace(config, workspaceArg) {
+  return findWorkspaceEntry(config, workspaceArg);
+}
+
+function findWorkspaceExact(config, workspaceArg) {
   if (!workspaceArg) {
     return null;
   }
 
   const workspace = path.resolve(workspaceArg);
-  return config.workspaces.find((entry) => entry.workspace === workspace) || null;
+  return config.workspaces.find((entry) => samePath(entry.workspace, workspace)) || null;
+}
+
+function findWorkspaceEntry(config, workspaceArg, options = {}) {
+  if (!workspaceArg) {
+    return null;
+  }
+
+  const workspace = path.resolve(workspaceArg);
+  const exactMatch = findWorkspaceExact(config, workspace);
+  if (exactMatch || options.match === 'exact') {
+    return exactMatch;
+  }
+
+  const matches = config.workspaces
+    .filter((entry) => isPathWithin(entry.workspace, workspace))
+    .sort((left, right) => right.workspace.length - left.workspace.length);
+
+  return matches[0] || null;
 }
 
 function getWorkspaceRegistrationStatus(openClawHomeArg, workspaceArg, options = {}) {
@@ -191,7 +234,7 @@ function getWorkspaceRegistrationStatus(openClawHomeArg, workspaceArg, options =
 
   const config = readHostConfig(openClawHomeArg);
   const workspace = path.resolve(workspaceArg);
-  const workspaceEntry = findWorkspace(config, workspace);
+  const workspaceEntry = findWorkspaceEntry(config, workspace);
   const suggestedUserId = normalizeUserId(
     options.userId ||
       workspaceEntry?.user_id ||
@@ -246,7 +289,7 @@ function upsertUser(config, userId) {
 
 function upsertWorkspace(config, workspaceArg, options = {}) {
   const workspace = path.resolve(workspaceArg);
-  const existing = findWorkspace(config, workspace);
+  const existing = findWorkspaceExact(config, workspace);
   const userId =
     options.preserveExisting && existing
       ? existing.user_id
@@ -301,7 +344,7 @@ function resolveOwnership(openClawHomeArg, options = {}) {
         ? path.resolve(config.defaults.workspace)
         : null;
   const session = workspace && options.sessionKey ? findSession(config, workspace, options.sessionKey) : null;
-  const workspaceEntry = workspace ? findWorkspace(config, workspace) : null;
+  const workspaceEntry = workspace ? findWorkspaceEntry(config, workspace) : null;
   const userId = normalizeUserId(
     options.userId ||
       session?.user_id ||
@@ -329,23 +372,29 @@ function resolveOwnership(openClawHomeArg, options = {}) {
 function recordSessionOwnership(openClawHomeArg, workspaceArg, sessionState, options = {}) {
   const config = readHostConfig(openClawHomeArg);
   upsertUser(config, sessionState.user_id);
-  const workspaceEntry = upsertWorkspace(config, workspaceArg, {
-    userId: sessionState.user_id,
-    projectId: sessionState.project_id,
-    preserveExisting: true
-  });
+  const workspace = path.resolve(workspaceArg);
+  const exactWorkspaceEntry = findWorkspaceExact(config, workspace);
+  const ownerWorkspaceEntry = exactWorkspaceEntry || findWorkspaceEntry(config, workspace);
+  const persistedWorkspaceEntry = exactWorkspaceEntry
+    ? upsertWorkspace(config, workspace, {
+        userId: sessionState.user_id,
+        projectId: sessionState.project_id,
+        preserveExisting: true
+      })
+    : null;
   const sessionKey = sanitizeKey(sessionState.session_key, 'default');
-  const existing = findSession(config, workspaceEntry.workspace, sessionKey);
+  const existing = findSession(config, workspace, sessionKey);
   const status = options.status || existing?.status || 'active';
   const closedAt =
     status === 'closed'
       ? options.closedAt || sessionState.closed_at || nowIso()
       : existing?.closed_at || null;
   const next = {
-    workspace: workspaceEntry.workspace,
+    workspace,
+    owner_workspace: persistedWorkspaceEntry?.workspace || ownerWorkspaceEntry?.workspace || null,
     session_key: sessionKey,
     user_id: normalizeUserId(sessionState.user_id),
-    project_id: normalizeProjectId(sessionState.project_id, workspaceEntry.workspace),
+    project_id: normalizeProjectId(sessionState.project_id, workspace),
     status,
     started_at: existing?.started_at || sessionState.started_at || nowIso(),
     last_active: sessionState.last_active || existing?.last_active || nowIso(),
@@ -355,7 +404,7 @@ function recordSessionOwnership(openClawHomeArg, workspaceArg, sessionState, opt
 
   if (existing) {
     config.sessions = config.sessions.map((entry) =>
-      entry.workspace === workspaceEntry.workspace && entry.session_key === sessionKey ? next : entry
+      samePath(entry.workspace, workspace) && entry.session_key === sessionKey ? next : entry
     );
   } else {
     config.sessions = [...config.sessions, next];
@@ -365,7 +414,7 @@ function recordSessionOwnership(openClawHomeArg, workspaceArg, sessionState, opt
   return {
     file,
     session: next,
-    workspace: workspaceEntry
+    workspace: persistedWorkspaceEntry || ownerWorkspaceEntry || null
   };
 }
 
@@ -387,6 +436,7 @@ module.exports = {
   findSession,
   findUser,
   findWorkspace,
+  findWorkspaceExact,
   getWorkspaceRegistrationStatus,
   getHostConfigFile,
   getOpenClawHome,
