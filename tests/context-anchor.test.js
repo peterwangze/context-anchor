@@ -980,7 +980,8 @@ test('workspace monitor runs maintenance for recent sessions without extending t
       );
       const state = readJson(stateFile, {});
       const index = readJson(indexFile, { sessions: [] });
-      state.last_active = '2026-03-20T00:00:00.000Z';
+      const preservedLastActive = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      state.last_active = preservedLastActive;
       index.sessions[0].last_active = state.last_active;
       writeJson(stateFile, state);
       writeJson(indexFile, index);
@@ -993,8 +994,8 @@ test('workspace monitor runs maintenance for recent sessions without extending t
 
       assert.equal(result.status, 'processed');
       assert.equal(result.handled_sessions, 1);
-      assert.equal(nextState.last_active, '2026-03-20T00:00:00.000Z');
-      assert.equal(nextIndex.sessions[0].last_active, '2026-03-20T00:00:00.000Z');
+      assert.equal(nextState.last_active, preservedLastActive);
+      assert.equal(nextIndex.sessions[0].last_active, preservedLastActive);
     });
   } finally {
     cleanupWorkspace(workspace);
