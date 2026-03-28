@@ -130,6 +130,10 @@ function quoteArg(value) {
   return `"${String(value).replace(/"/g, '\\"')}"`;
 }
 
+function quoteVbs(value) {
+  return `"${String(value).replace(/"/g, '""')}"`;
+}
+
 function readJsonStrict(file, defaultValue) {
   if (!fs.existsSync(file)) {
     return defaultValue;
@@ -344,15 +348,19 @@ function createSchedulerLauncher(paths, workspace, targetPlatform) {
   const baseName = `${path.basename(workspacePath).toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'workspace'}-${launcherId}`;
   const launchersDir = path.join(path.dirname(paths.workspace_monitor_script), 'launchers');
   const isWindowsTarget = targetPlatform === 'windows';
-  const launcherPath = path.join(launchersDir, `${baseName}${isWindowsTarget ? '.cmd' : '.sh'}`);
+  const launcherPath = path.join(launchersDir, `${baseName}${isWindowsTarget ? '.vbs' : '.sh'}`);
+  const legacyWindowsLauncherPath = path.join(launchersDir, `${baseName}.cmd`);
 
   ensureDir(launchersDir);
   if (isWindowsTarget) {
+    if (fs.existsSync(legacyWindowsLauncherPath)) {
+      fs.rmSync(legacyWindowsLauncherPath, { force: true });
+    }
     writeText(
       launcherPath,
-      `@echo off\r\n${quoteArg(process.execPath)} ${quoteArg(paths.workspace_monitor_script)} ${quoteArg(
-        workspacePath
-      )}\r\n`
+      `Set shell = CreateObject("WScript.Shell")\r\n` +
+        `shell.CurrentDirectory = ${quoteVbs(workspacePath)}\r\n` +
+        `shell.Run ${[process.execPath, paths.workspace_monitor_script, workspacePath].map(quoteVbs).join(' & " " & ')}, 0, False\r\n`
     );
   } else {
     writeText(
@@ -373,7 +381,7 @@ function createSchedulerLauncher(paths, workspace, targetPlatform) {
 
 function createWindowsSchedulerSetup(launcher, intervalMinutes) {
   const taskName = `OpenClaw Context Anchor ${launcher.launcher_id}`;
-  const taskCommand = `cmd.exe /d /c ""${launcher.launcher_path}""`;
+  const taskCommand = `wscript.exe //B //NoLogo "${launcher.launcher_path}"`;
 
   return {
     mode: schedulerModeLabel('windows'),

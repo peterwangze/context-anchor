@@ -29,6 +29,8 @@ const { runDoctor } = require('../scripts/doctor');
 const { discoverOpenClawSessions } = require('../scripts/lib/openclaw-session-discovery');
 const {
   buildOpenClawSessionStatusReport,
+  buildSchedulerDescriptor,
+  detectSchedulerStatus,
   renderOpenClawSessionDiagnosisReport,
   renderOpenClawSessionStatusReport
 } = require('../scripts/lib/openclaw-session-status');
@@ -595,12 +597,34 @@ test('configure-host can register a Windows scheduler when the selected platform
       });
 
       assert.ok(fs.existsSync(result.scheduler.launcher_path));
+      assert.equal(path.extname(result.scheduler.launcher_path), '.vbs');
       assert.equal(path.resolve(result.scheduler.workspace), path.resolve(monitoredWorkspace));
       assert.equal(result.scheduler.status, 'registered');
       assert.equal(result.scheduler.target_platform, 'windows');
       assert.equal(result.scheduler.interval_minutes, 7);
+      assert.match(result.scheduler.task_command, /wscript\.exe/i);
       assert.equal(calls.length, 2);
     });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('legacy Windows scheduler launchers are reported as visible-console tasks', () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const monitoredWorkspace = path.join(workspace, 'project-legacy');
+  const descriptor = buildSchedulerDescriptor(openClawHome, monitoredWorkspace, 'win32');
+
+  try {
+    fs.mkdirSync(path.dirname(descriptor.windows.legacy_launcher_path), { recursive: true });
+    fs.writeFileSync(descriptor.windows.legacy_launcher_path, '@echo off\r\n', 'utf8');
+
+    const legacy = detectSchedulerStatus(openClawHome, monitoredWorkspace, 'win32');
+
+    assert.equal(legacy.status, 'legacy');
+    assert.equal(legacy.runtime, 'visible_console');
+    assert.equal(legacy.configured, true);
   } finally {
     cleanupWorkspace(workspace);
   }

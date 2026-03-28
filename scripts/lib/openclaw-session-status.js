@@ -93,6 +93,10 @@ function collectSessionIssues(classification = {}) {
     issues.push('monitor_not_configured');
   }
 
+  if (classification.monitor === 'legacy') {
+    issues.push('monitor_legacy_window');
+  }
+
   return issues;
 }
 
@@ -106,6 +110,8 @@ function describeIssue(issue) {
       return 'hook is not configured or not enabled';
     case 'monitor_not_configured':
       return 'background monitor is not configured';
+    case 'monitor_legacy_window':
+      return 'background monitor uses a visible Windows launcher';
     default:
       return issue;
   }
@@ -146,7 +152,8 @@ function buildSchedulerDescriptor(openClawHome, workspace, currentPlatform = pro
   const launchersDir = path.join(automationRoot, 'launchers');
   const schedulerRoot = path.join(automationRoot, 'schedulers');
   const windows = {
-    launcher_path: path.join(launchersDir, `${baseName}.cmd`),
+    launcher_path: path.join(launchersDir, `${baseName}.vbs`),
+    legacy_launcher_path: path.join(launchersDir, `${baseName}.cmd`),
     task_name: `OpenClaw Context Anchor ${baseName}`
   };
   const macos = {
@@ -220,11 +227,22 @@ function detectSchedulerStatus(openClawHome, workspace, currentPlatform = proces
   const schedulerRootExists = fs.existsSync(descriptor.scheduler_root);
 
   if (currentPlatform === 'win32') {
-    if (!fs.existsSync(descriptor.windows.launcher_path)) {
+    const launcherExists = fs.existsSync(descriptor.windows.launcher_path);
+    const legacyLauncherExists = fs.existsSync(descriptor.windows.legacy_launcher_path);
+    if (!launcherExists && !legacyLauncherExists) {
       return {
         status: 'off',
         runtime: 'missing',
         configured: false,
+        descriptor
+      };
+    }
+
+    if (!launcherExists && legacyLauncherExists) {
+      return {
+        status: 'legacy',
+        runtime: 'visible_console',
+        configured: true,
         descriptor
       };
     }
@@ -256,6 +274,15 @@ function detectSchedulerStatus(openClawHome, workspace, currentPlatform = proces
       return {
         status: 'off',
         runtime: 'disabled',
+        configured: true,
+        descriptor
+      };
+    }
+
+    if (legacyLauncherExists && normalized !== 'running') {
+      return {
+        status: 'legacy',
+        runtime: normalized || 'visible_console',
         configured: true,
         descriptor
       };
