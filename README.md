@@ -209,6 +209,14 @@ node scripts/sessions-status.js
 
 默认会按 workspace 分组显示 session id、context-anchor 关联状态、hook 状态和后台任务状态；`--json` 可输出机器可读结果。
 
+诊断异常 session：
+
+```bash
+node scripts/sessions-diagnose.js
+```
+
+如果状态查询提示存在异常，先跑诊断命令，再按修复命令处理。`configure:sessions` 也支持 `--workspace` / `--session-key` 定位到单个 workspace 或 session。
+
 如果你明确知道要自动保留旧记忆并直接重装：
 
 ```bash

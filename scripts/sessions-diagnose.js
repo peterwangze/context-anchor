@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
-const { buildOpenClawSessionStatusReport, renderOpenClawSessionStatusReport } = require('./lib/openclaw-session-status');
+const {
+  buildOpenClawSessionStatusReport,
+  renderOpenClawSessionDiagnosisReport
+} = require('./lib/openclaw-session-status');
 
 function parseArgs(argv) {
   const options = {
@@ -46,18 +49,18 @@ function parseArgs(argv) {
   return options;
 }
 
-function runSessionsStatus(openclawHomeArg, skillsRootArg, options = {}) {
+function runSessionsDiagnose(openclawHomeArg, skillsRootArg, options = {}) {
   return buildOpenClawSessionStatusReport(openclawHomeArg, skillsRootArg, options);
 }
 
 function main() {
   try {
     const options = parseArgs(process.argv.slice(2));
-    const report = runSessionsStatus(options.openclawHome, options.skillsRoot, options);
+    const report = runSessionsDiagnose(options.openclawHome, options.skillsRoot, options);
     if (options.json) {
       console.log(JSON.stringify(report, null, 2));
     } else {
-      console.log(renderOpenClawSessionStatusReport(report));
+      console.log(renderOpenClawSessionDiagnosisReport(report));
     }
   } catch (error) {
     console.log(
@@ -81,5 +84,5 @@ if (require.main === module) {
 module.exports = {
   main,
   parseArgs,
-  runSessionsStatus
+  runSessionsDiagnose
 };

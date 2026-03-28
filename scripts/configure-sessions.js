@@ -15,7 +15,9 @@ function parseArgs(argv) {
   const options = {
     openclawHome: null,
     skillsRoot: null,
-    assumeYes: false
+    assumeYes: false,
+    workspace: null,
+    sessionKey: null
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -29,6 +31,18 @@ function parseArgs(argv) {
 
     if (arg === '--skills-root') {
       options.skillsRoot = argv[index + 1] || null;
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--workspace') {
+      options.workspace = argv[index + 1] || null;
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--session-key') {
+      options.sessionKey = argv[index + 1] || null;
       index += 1;
       continue;
     }
@@ -223,17 +237,31 @@ async function runConfigureSessions(openClawHomeArg, skillsRootArg, options = {}
   }
 
   const discoveredSessions = discoverOpenClawSessions(openClawHome);
+  const filteredSessions = discoveredSessions.filter((session) => {
+    if (options.workspace) {
+      if (!session.workspace || path.resolve(session.workspace) !== path.resolve(options.workspace)) {
+        return false;
+      }
+    }
+
+    if (options.sessionKey && sanitizeKey(session.session_key) !== sanitizeKey(options.sessionKey)) {
+      return false;
+    }
+
+    return true;
+  });
   const workspaceEnsured = new Map();
   const results = [];
 
-  for (const session of discoveredSessions) {
+  for (const session of filteredSessions) {
     const classification = classifySession(session, openClawHome);
     const defaultAction = classification.ready ? 'skip' : 'configure';
     const prompt = classification.ready
       ? `Session ${session.session_key} in ${formatWorkspaceLabel(session.workspace)} is already configured. Action [skip/reconfigure] (default: skip): `
       : `Session ${session.session_key} in ${formatWorkspaceLabel(session.workspace)} is ${classification.partial ? 'partially configured' : 'not configured'}. Action [skip/configure] (default: configure): `;
-    const actionAnswer = await askText(prompt, defaultAction, ask);
-    const action = normalizeActionAnswer(actionAnswer, defaultAction, classification.ready);
+    const action = assumeYes && !ask
+      ? defaultAction
+      : normalizeActionAnswer(await askText(prompt, defaultAction, ask), defaultAction, classification.ready);
 
     if (action === 'skip') {
       results.push({
@@ -249,6 +277,18 @@ async function runConfigureSessions(openClawHomeArg, skillsRootArg, options = {}
 
     let workspace = session.workspace;
     if (!workspace) {
+      if (assumeYes && !ask) {
+        results.push({
+          session_key: session.session_key,
+          workspace: null,
+          agent: session.agent,
+          action: 'skipped',
+          reason: 'workspace_not_provided',
+          status: 'unresolved'
+        });
+        continue;
+      }
+
       workspace = await askText(
         `Workspace path for session ${session.session_key} (leave blank to skip): `,
         '',
@@ -312,6 +352,7 @@ async function runConfigureSessions(openClawHomeArg, skillsRootArg, options = {}
     openclaw_home: openClawHome,
     skills_root: skillsRoot,
     discovered_sessions: discoveredSessions.length,
+    selected_sessions: filteredSessions.length,
     configured_sessions: results.filter((entry) => entry.action === 'configured' || entry.action === 'reconfigured').length,
     skipped_sessions: results.filter((entry) => entry.action === 'skipped').length,
     results,

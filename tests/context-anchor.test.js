@@ -29,6 +29,7 @@ const { runDoctor } = require('../scripts/doctor');
 const { discoverOpenClawSessions } = require('../scripts/lib/openclaw-session-discovery');
 const {
   buildOpenClawSessionStatusReport,
+  renderOpenClawSessionDiagnosisReport,
   renderOpenClawSessionStatusReport
 } = require('../scripts/lib/openclaw-session-status');
 const { runSkillDiagnose } = require('../scripts/skill-diagnose');
@@ -1037,6 +1038,53 @@ test('configure-sessions prompts per session and preserves configured sessions w
   }
 });
 
+test('configure-sessions can target a single workspace without touching others', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const targetWorkspace = path.join(workspace, 'target-workspace');
+  const otherWorkspace = path.join(workspace, 'other-workspace');
+  const agentSessionsDir = path.join(openClawHome, 'agents', 'main', 'sessions');
+  const targetTranscript = path.join(agentSessionsDir, 'target.jsonl');
+  const otherTranscript = path.join(agentSessionsDir, 'other.jsonl');
+  const sessionsIndex = path.join(agentSessionsDir, 'sessions.json');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      fs.mkdirSync(agentSessionsDir, { recursive: true });
+      writeSessionTranscript(targetTranscript, targetWorkspace, 'target-session-id');
+      writeSessionTranscript(otherTranscript, otherWorkspace, 'other-session-id');
+      writeJson(sessionsIndex, {
+        'agent:main:target': {
+          sessionId: 'target-session-id',
+          sessionFile: targetTranscript,
+          updatedAt: 1774705709043,
+          chatType: 'direct'
+        },
+        'agent:main:other': {
+          sessionId: 'other-session-id',
+          sessionFile: otherTranscript,
+          updatedAt: 1774705708043,
+          chatType: 'direct'
+        }
+      });
+
+      const result = await runConfigureSessions(openClawHome, path.join(openClawHome, 'skills'), {
+        assumeYes: true,
+        workspace: targetWorkspace,
+        schedulerRegistrar: () => {}
+      });
+
+      assert.equal(result.selected_sessions, 1);
+      assert.equal(result.results.length, 1);
+      assert.equal(result.results[0].workspace, path.resolve(targetWorkspace));
+      assert.ok(fs.existsSync(path.join(targetWorkspace, '.context-anchor', 'sessions', 'agent-main-target', 'state.json')));
+      assert.equal(fs.existsSync(path.join(otherWorkspace, '.context-anchor', 'sessions', 'agent-main-other', 'state.json')), false);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('session status overview groups workspaces and shows skill, hook, and monitor states', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');
@@ -1102,6 +1150,7 @@ test('session status overview groups workspaces and shows skill, hook, and monit
         schedulerProbe: () => 'running'
       });
       const rendered = renderOpenClawSessionStatusReport(report);
+      const diagnosisRendered = renderOpenClawSessionDiagnosisReport(report);
       const configuredGroup = report.groups.find((entry) => entry.workspace && entry.workspace.endsWith('configured-workspace'));
       const unregisteredGroup = report.groups.find((entry) => entry.workspace && entry.workspace.endsWith('unregistered-workspace'));
       const unresolvedGroup = report.groups.find((entry) => entry.workspace === null);
@@ -1124,7 +1173,14 @@ test('session status overview groups workspaces and shows skill, hook, and monit
       assert.equal(unregisteredGroup.monitor_status, 'off');
       assert.equal(unregisteredGroup.sessions[0].classification.skill, 'missing');
       assert.equal(unresolvedGroup.sessions[0].classification.skill, 'unknown');
+      assert.match(report.commands.diagnostic_command, /diagnose:sessions/);
+      assert.match(report.commands.repair_command, /configure:sessions/);
+      assert.match(configuredGroup.diagnostic_command, /--workspace/);
+      assert.match(configuredGroup.repair_command, /--workspace/);
       assert.match(rendered, /Context-Anchor Session Overview/);
+      assert.match(rendered, /Diagnostic command:/);
+      assert.match(rendered, /Repair command:/);
+      assert.match(rendered, /Warning: 3 session\(s\) need attention/);
       assert.match(rendered, /Workspace: .*configured-workspace/);
       assert.match(rendered, /Hook: ON/);
       assert.match(rendered, /Monitor: RUNNING/);
@@ -1133,6 +1189,10 @@ test('session status overview groups workspaces and shows skill, hook, and monit
       assert.match(rendered, /MISSING/);
       assert.match(rendered, /UNKNOWN/);
       assert.match(rendered, /ready-session-id/);
+      assert.match(diagnosisRendered, /Context-Anchor Session Diagnosis/);
+      assert.match(diagnosisRendered, /Issues:/);
+      assert.match(diagnosisRendered, /Diagnose:/);
+      assert.match(diagnosisRendered, /Repair:/);
     });
   } finally {
     cleanupWorkspace(workspace);
