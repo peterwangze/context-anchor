@@ -26,6 +26,7 @@ const { runMemorySave } = require('../scripts/memory-save');
 const { runHeartbeat } = require('../scripts/heartbeat');
 const { runHeatEvaluation } = require('../scripts/heat-eval');
 const { runDoctor } = require('../scripts/doctor');
+const { discoverOpenClawSessions } = require('../scripts/lib/openclaw-session-discovery');
 const { runSkillDiagnose } = require('../scripts/skill-diagnose');
 const { runScopePromote } = require('../scripts/scope-promote');
 const { runSkillReconcile } = require('../scripts/skill-reconcile');
@@ -33,6 +34,7 @@ const { runStatusReport } = require('../scripts/status-report');
 const { runSkillSupersede } = require('../scripts/skill-supersede');
 const { runSessionClose } = require('../scripts/session-close');
 const { runSessionStart } = require('../scripts/session-start');
+const { runConfigureSessions } = require('../scripts/configure-sessions');
 const { runSkillStatusUpdate } = require('../scripts/skill-status-update');
 const { runSkillCreate } = require('../scripts/skill-create');
 const { runSkillificationScore } = require('../scripts/skillification-score');
@@ -69,6 +71,21 @@ function withOpenClawHome(workspace, fn) {
     restore();
     throw error;
   }
+}
+
+function writeSessionTranscript(sessionFile, workspace, sessionId) {
+  fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
+  fs.writeFileSync(
+    sessionFile,
+    `${JSON.stringify({
+      type: 'session',
+      version: 3,
+      id: sessionId,
+      timestamp: '2026-03-27T20:08:14.164Z',
+      cwd: workspace
+    })}\n`,
+    'utf8'
+  );
 }
 
 test('session-start preserves existing session state', () => {
@@ -866,6 +883,135 @@ test('one-click install can apply recommended config without reinstall prompts',
       assert.equal(result.status, 'installed');
       assert.equal(result.configuration.config.status, 'applied');
       assert.equal(config.hooks.internal.enabled, true);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('discoverOpenClawSessions resolves real workspaces and leaves unresolved sessions explicit', () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const agentSessionsDir = path.join(openClawHome, 'agents', 'main', 'sessions');
+  const indexedSessionFile = path.join(agentSessionsDir, 'session-a.jsonl');
+  const sessionsIndex = path.join(agentSessionsDir, 'sessions.json');
+  const resolvedWorkspace = path.join(workspace, 'workspace-a');
+
+  try {
+    fs.mkdirSync(agentSessionsDir, { recursive: true });
+    writeSessionTranscript(indexedSessionFile, resolvedWorkspace, 'session-a');
+    writeJson(sessionsIndex, {
+      'agent:main:main': {
+        sessionId: 'session-a',
+        sessionFile: indexedSessionFile,
+        updatedAt: 1774705355999,
+        chatType: 'direct'
+      },
+      'agent:main:group:missing': {
+        sessionId: 'missing-session',
+        updatedAt: 1774705356000
+      }
+    });
+
+    const sessions = discoverOpenClawSessions(openClawHome);
+    const resolved = sessions.find((entry) => entry.session_key === 'agent:main:main');
+    const unresolved = sessions.find((entry) => entry.session_key === 'agent:main:group:missing');
+
+    assert.equal(sessions.length, 2);
+    assert.equal(resolved.workspace, path.resolve(resolvedWorkspace));
+    assert.equal(resolved.workspace_source, 'cwd');
+    assert.equal(unresolved.workspace, null);
+    assert.equal(unresolved.transcript_exists, false);
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('configure-sessions prompts per session and preserves configured sessions while onboarding new ones', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const configuredWorkspace = path.join(workspace, 'configured-workspace');
+  const newWorkspace = path.join(workspace, 'new-workspace');
+  const agentSessionsDir = path.join(openClawHome, 'agents', 'main', 'sessions');
+  const configuredSessionFile = path.join(agentSessionsDir, 'configured.jsonl');
+  const newSessionFile = path.join(agentSessionsDir, 'new.jsonl');
+  const sessionsIndex = path.join(agentSessionsDir, 'sessions.json');
+  const schedulerCalls = [];
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        assumeYes: true,
+        applyConfig: true,
+        enableScheduler: true,
+        defaultUserId: 'peter',
+        schedulerWorkspace: configuredWorkspace,
+        schedulerUserId: 'peter',
+        schedulerProjectId: 'configured-workspace',
+        schedulerRegistrar: () => {}
+      });
+      runSessionStart(configuredWorkspace, 'agent:main:main', 'configured-workspace', {
+        userId: 'peter',
+        openClawSessionId: 'openclaw-session-a'
+      });
+
+      fs.mkdirSync(agentSessionsDir, { recursive: true });
+      writeSessionTranscript(configuredSessionFile, configuredWorkspace, 'openclaw-session-a');
+      writeSessionTranscript(newSessionFile, newWorkspace, 'openclaw-session-b');
+      writeJson(sessionsIndex, {
+        'agent:main:main': {
+          sessionId: 'openclaw-session-a',
+          sessionFile: configuredSessionFile,
+          updatedAt: 1774705704043,
+          chatType: 'direct'
+        },
+        'agent:main:new': {
+          sessionId: 'openclaw-session-b',
+          sessionFile: newSessionFile,
+          updatedAt: 1774705705000,
+          chatType: 'direct'
+        }
+      });
+
+      const result = await runConfigureSessions(openClawHome, path.join(openClawHome, 'skills'), {
+        ask: async (prompt, defaultValue) => {
+          if (prompt.includes('agent:main:main')) {
+            return 'skip';
+          }
+
+          if (prompt.includes('agent:main:new')) {
+            return 'configure';
+          }
+
+          return defaultValue;
+        },
+        schedulerRegistrar: (...args) => {
+          schedulerCalls.push(args);
+        }
+      });
+
+      const configuredState = readJson(
+        path.join(configuredWorkspace, '.context-anchor', 'sessions', 'agent-main-main', 'state.json'),
+        {}
+      );
+      const newState = readJson(
+        path.join(newWorkspace, '.context-anchor', 'sessions', 'agent-main-new', 'state.json'),
+        {}
+      );
+      const hostConfig = readJson(path.join(openClawHome, 'context-anchor-host-config.json'), {});
+
+      assert.equal(result.discovered_sessions, 2);
+      assert.equal(result.skipped_sessions, 1);
+      assert.equal(result.configured_sessions, 1);
+      assert.equal(result.results.find((entry) => entry.session_key === 'agent:main:main').action, 'skipped');
+      assert.equal(result.results.find((entry) => entry.session_key === 'agent:main:new').action, 'configured');
+      assert.equal(configuredState.session_key, 'agent-main-main');
+      assert.equal(newState.session_key, 'agent-main-new');
+      assert.equal(newState.project_id, path.basename(newWorkspace));
+      assert.ok(hostConfig.workspaces.some((entry) => entry.workspace === path.resolve(newWorkspace)));
+      assert.ok(hostConfig.sessions.some((entry) => entry.session_key === 'agent-main-new'));
+      assert.ok(schedulerCalls.length > 0);
     });
   } finally {
     cleanupWorkspace(workspace);

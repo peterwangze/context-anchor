@@ -193,6 +193,14 @@ node scripts/configure-host.js --yes --default-user "alice" --add-user "bob" --a
 node scripts/install-one-click.js --openclaw-home "<openclaw-home>" --skills-root "<skills-root>"
 ```
 
+批量检查并接管存量 OpenClaw session：
+
+```bash
+node scripts/configure-sessions.js
+```
+
+它会扫描 `~/.openclaw/agents/*/sessions/sessions.json`，按 session 逐个询问是否跳过、配置或重新配置；`--yes` 可自动批量接管全部可解析的 session。
+
 如果你明确知道要自动保留旧记忆并直接重装：
 
 ```bash
