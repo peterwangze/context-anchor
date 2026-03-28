@@ -149,73 +149,65 @@ node scripts/configure-host.js
 - 如果启用巡检，选择目标平台
 - 如果启用巡检，要监控哪个 workspace
 
-## 常用无交互命令
+## 安装、配置与易用性命令
 
-仅安装并自动写入推荐配置：
+先看这一块，最常用的命令都在这里。
+
+### 安装
 
 ```bash
 node scripts/install-one-click.js --yes --apply-config --default-user "alice" --default-workspace "D:/workspace/main"
 ```
 
-安装并同时为某个 workspace 启用后台巡检：
-
 ```bash
 node scripts/install-one-click.js --yes --apply-config --enable-scheduler --target-platform windows --workspace "D:/workspace/project" --interval-minutes 5
 ```
 
-安装后单独重跑配置：
+### 配置
 
 ```bash
 node scripts/configure-host.js --apply-config --default-user "alice" --default-workspace "D:/workspace/main"
 ```
 
-仅补启一个后台巡检任务：
-
 ```bash
 node scripts/configure-host.js --enable-scheduler --target-platform macos --workspace "/Users/me/workspace/project"
 ```
-
-Linux 示例：
 
 ```bash
 node scripts/configure-host.js --enable-scheduler --target-platform linux --workspace "/home/me/workspace/project"
 ```
 
-如果你要直接补登记一个新用户和一个新 workspace：
-
 ```bash
 node scripts/configure-host.js --yes --default-user "alice" --add-user "bob" --add-workspace "D:/workspace/client-b|bob|client-b"
 ```
+
+### 易用性命令
+
+```bash
+node scripts/configure-sessions.js
+```
+
+```bash
+node scripts/sessions-status.js
+```
+
+```bash
+node scripts/sessions-diagnose.js
+```
+
+`configure-sessions.js` 会扫描 `~/.openclaw/agents/*/sessions/sessions.json`，按 session 逐个询问是否跳过、配置或重新配置；`--yes` 可自动批量接管全部可解析的 session。
+
+`sessions-status.js` 会按 workspace 分组显示 session id、context-anchor 关联状态、hook 状态和后台任务状态，`--json` 可输出机器可读结果。
+
+如果状态查询提示异常，先跑 `sessions-diagnose.js`，再按输出里的诊断命令和修复命令处理。`configure:sessions` 也支持 `--workspace` / `--session-key` 定位到单个 workspace 或 session。
+
+### 更多安装选项
 
 如果你要覆盖默认位置：
 
 ```bash
 node scripts/install-one-click.js --openclaw-home "<openclaw-home>" --skills-root "<skills-root>"
 ```
-
-批量检查并接管存量 OpenClaw session：
-
-```bash
-node scripts/configure-sessions.js
-```
-
-它会扫描 `~/.openclaw/agents/*/sessions/sessions.json`，按 session 逐个询问是否跳过、配置或重新配置；`--yes` 可自动批量接管全部可解析的 session。
-
-查看所有 OpenClaw session 的 context-anchor 状态：
-
-```bash
-node scripts/sessions-status.js
-```
-
-默认会按 workspace 分组显示 session id、context-anchor 关联状态、hook 状态和后台任务状态；`--json` 可输出机器可读结果。
-
-诊断异常 session：
-
-```bash
-node scripts/sessions-diagnose.js
-```
-
-如果状态查询提示存在异常，先跑诊断命令，再按修复命令处理。`configure:sessions` 也支持 `--workspace` / `--session-key` 定位到单个 workspace 或 session。
 
 如果你明确知道要自动保留旧记忆并直接重装：
 
