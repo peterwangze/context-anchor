@@ -201,6 +201,14 @@ node scripts/configure-sessions.js
 
 它会扫描 `~/.openclaw/agents/*/sessions/sessions.json`，按 session 逐个询问是否跳过、配置或重新配置；`--yes` 可自动批量接管全部可解析的 session。
 
+查看所有 OpenClaw session 的 context-anchor 状态：
+
+```bash
+node scripts/sessions-status.js
+```
+
+默认会按 workspace 分组显示 session id、context-anchor 关联状态、hook 状态和后台任务状态；`--json` 可输出机器可读结果。
+
 如果你明确知道要自动保留旧记忆并直接重装：
 
 ```bash

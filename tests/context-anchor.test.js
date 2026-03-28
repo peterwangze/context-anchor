@@ -27,6 +27,10 @@ const { runHeartbeat } = require('../scripts/heartbeat');
 const { runHeatEvaluation } = require('../scripts/heat-eval');
 const { runDoctor } = require('../scripts/doctor');
 const { discoverOpenClawSessions } = require('../scripts/lib/openclaw-session-discovery');
+const {
+  buildOpenClawSessionStatusReport,
+  renderOpenClawSessionStatusReport
+} = require('../scripts/lib/openclaw-session-status');
 const { runSkillDiagnose } = require('../scripts/skill-diagnose');
 const { runScopePromote } = require('../scripts/scope-promote');
 const { runSkillReconcile } = require('../scripts/skill-reconcile');
@@ -71,6 +75,21 @@ function withOpenClawHome(workspace, fn) {
     restore();
     throw error;
   }
+}
+
+function writeSessionTranscript(sessionFile, workspace, sessionId) {
+  fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
+  fs.writeFileSync(
+    sessionFile,
+    `${JSON.stringify({
+      type: 'session',
+      version: 3,
+      id: sessionId,
+      timestamp: '2026-03-27T20:08:14.164Z',
+      cwd: workspace
+    })}\n`,
+    'utf8'
+  );
 }
 
 function writeSessionTranscript(sessionFile, workspace, sessionId) {
@@ -1012,6 +1031,108 @@ test('configure-sessions prompts per session and preserves configured sessions w
       assert.ok(hostConfig.workspaces.some((entry) => entry.workspace === path.resolve(newWorkspace)));
       assert.ok(hostConfig.sessions.some((entry) => entry.session_key === 'agent-main-new'));
       assert.ok(schedulerCalls.length > 0);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('session status overview groups workspaces and shows skill, hook, and monitor states', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const configuredWorkspace = path.join(workspace, 'configured-workspace');
+  const unregisteredWorkspace = path.join(workspace, 'unregistered-workspace');
+  const agentSessionsDir = path.join(openClawHome, 'agents', 'main', 'sessions');
+  const configuredReadyTranscript = path.join(agentSessionsDir, 'configured-ready.jsonl');
+  const configuredPartialTranscript = path.join(agentSessionsDir, 'configured-partial.jsonl');
+  const unregisteredTranscript = path.join(agentSessionsDir, 'unregistered.jsonl');
+  const sessionsIndex = path.join(agentSessionsDir, 'sessions.json');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        assumeYes: true,
+        applyConfig: true,
+        enableScheduler: true,
+        defaultUserId: 'peter',
+        defaultWorkspace: configuredWorkspace,
+        schedulerWorkspace: configuredWorkspace,
+        schedulerUserId: 'peter',
+        schedulerProjectId: 'configured-workspace',
+        schedulerRegistrar: () => {}
+      });
+
+      runSessionStart(configuredWorkspace, 'agent:main:main', 'configured-workspace', {
+        userId: 'peter',
+        openClawSessionId: 'ready-session-id'
+      });
+
+      fs.mkdirSync(agentSessionsDir, { recursive: true });
+      writeSessionTranscript(configuredReadyTranscript, configuredWorkspace, 'ready-session-id');
+      writeSessionTranscript(configuredPartialTranscript, configuredWorkspace, 'partial-session-id');
+      writeSessionTranscript(unregisteredTranscript, unregisteredWorkspace, 'unregistered-session-id');
+      writeJson(sessionsIndex, {
+        'agent:main:main': {
+          sessionId: 'ready-session-id',
+          sessionFile: configuredReadyTranscript,
+          updatedAt: 1774705704043,
+          chatType: 'direct'
+        },
+        'agent:main:resume': {
+          sessionId: 'partial-session-id',
+          sessionFile: configuredPartialTranscript,
+          updatedAt: 1774705705043,
+          chatType: 'direct'
+        },
+        'agent:main:unregistered': {
+          sessionId: 'unregistered-session-id',
+          sessionFile: unregisteredTranscript,
+          updatedAt: 1774705706043,
+          chatType: 'direct'
+        },
+        'agent:main:ghost': {
+          sessionId: 'ghost-session-id',
+          updatedAt: 1774705707043,
+          chatType: 'direct'
+        }
+      });
+
+      const report = buildOpenClawSessionStatusReport(openClawHome, path.join(openClawHome, 'skills'), {
+        schedulerProbe: () => 'running'
+      });
+      const rendered = renderOpenClawSessionStatusReport(report);
+      const configuredGroup = report.groups.find((entry) => entry.workspace && entry.workspace.endsWith('configured-workspace'));
+      const unregisteredGroup = report.groups.find((entry) => entry.workspace && entry.workspace.endsWith('unregistered-workspace'));
+      const unresolvedGroup = report.groups.find((entry) => entry.workspace === null);
+
+      assert.equal(report.summary.total_sessions, 4);
+      assert.equal(report.summary.ready_sessions, 1);
+      assert.equal(report.summary.attention_sessions, 3);
+      assert.equal(report.summary.unresolved_sessions, 1);
+      assert.equal(configuredGroup.hook_status, 'on');
+      assert.equal(configuredGroup.monitor_status, 'running');
+      assert.equal(
+        configuredGroup.sessions.find((entry) => entry.session_key === 'agent:main:main').classification.skill,
+        'ready'
+      );
+      assert.equal(
+        configuredGroup.sessions.find((entry) => entry.session_key === 'agent:main:resume').classification.skill,
+        'partial'
+      );
+      assert.equal(unregisteredGroup.hook_status, 'off');
+      assert.equal(unregisteredGroup.monitor_status, 'off');
+      assert.equal(unregisteredGroup.sessions[0].classification.skill, 'missing');
+      assert.equal(unresolvedGroup.sessions[0].classification.skill, 'unknown');
+      assert.match(rendered, /Context-Anchor Session Overview/);
+      assert.match(rendered, /Workspace: .*configured-workspace/);
+      assert.match(rendered, /Hook: ON/);
+      assert.match(rendered, /Monitor: RUNNING/);
+      assert.match(rendered, /READY/);
+      assert.match(rendered, /PARTIAL/);
+      assert.match(rendered, /MISSING/);
+      assert.match(rendered, /UNKNOWN/);
+      assert.match(rendered, /ready-session-id/);
     });
   } finally {
     cleanupWorkspace(workspace);
