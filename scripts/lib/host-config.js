@@ -78,9 +78,18 @@ function defaultHostConfig() {
       user_id: DEFAULT_USER_ID,
       workspace: null
     },
+    onboarding: {
+      auto_register_workspaces: true
+    },
     users: [],
     workspaces: [],
     sessions: []
+  };
+}
+
+function normalizeOnboarding(onboarding = {}) {
+  return {
+    auto_register_workspaces: onboarding?.auto_register_workspaces !== false
   };
 }
 
@@ -158,6 +167,7 @@ function normalizeHostConfig(raw = {}) {
   config.version = HOST_CONFIG_VERSION;
   config.defaults.user_id = normalizeUserId(defaults.user_id || DEFAULT_USER_ID);
   config.defaults.workspace = defaults.workspace ? path.resolve(defaults.workspace) : null;
+  config.onboarding = normalizeOnboarding(raw.onboarding);
   config.users = normalizeUsers(raw.users);
   config.workspaces = normalizeWorkspaces(raw.workspaces);
   config.sessions = normalizeSessions(raw.sessions);
@@ -335,6 +345,16 @@ function setHostDefaults(config, options = {}) {
   return next;
 }
 
+function setOnboardingPolicy(config, options = {}) {
+  const next = normalizeHostConfig(config);
+
+  if (typeof options.autoRegisterWorkspaces === 'boolean') {
+    next.onboarding.auto_register_workspaces = options.autoRegisterWorkspaces;
+  }
+
+  return next;
+}
+
 function resolveOwnership(openClawHomeArg, options = {}) {
   const config = readHostConfig(openClawHomeArg);
   const workspace =
@@ -369,19 +389,96 @@ function resolveOwnership(openClawHomeArg, options = {}) {
   };
 }
 
+function ensureWorkspaceRegistration(openClawHomeArg, workspaceArg, options = {}) {
+  const config = readHostConfig(openClawHomeArg);
+
+  if (!workspaceArg) {
+    return {
+      status: 'skipped',
+      reason: 'workspace_required',
+      config,
+      workspace: null,
+      workspaceEntry: null
+    };
+  }
+
+  const workspace = path.resolve(workspaceArg);
+  const exactWorkspaceEntry = findWorkspaceExact(config, workspace);
+  if (exactWorkspaceEntry) {
+    return {
+      status: 'reused',
+      reason: 'workspace_already_registered',
+      config,
+      workspace,
+      workspaceEntry: exactWorkspaceEntry,
+      user_id: exactWorkspaceEntry.user_id,
+      project_id: exactWorkspaceEntry.project_id
+    };
+  }
+
+  const inheritedWorkspaceEntry = findWorkspaceEntry(config, workspace);
+  if (inheritedWorkspaceEntry) {
+    return {
+      status: 'reused',
+      reason: 'workspace_inherits_registered_parent',
+      config,
+      workspace,
+      workspaceEntry: inheritedWorkspaceEntry,
+      user_id: inheritedWorkspaceEntry.user_id,
+      project_id: inheritedWorkspaceEntry.project_id
+    };
+  }
+
+  if (config.onboarding.auto_register_workspaces === false) {
+    return {
+      status: 'blocked',
+      reason: 'auto_register_workspaces_disabled',
+      config,
+      workspace,
+      workspaceEntry: null,
+      user_id: normalizeUserId(options.userId || config.defaults.user_id || DEFAULT_USER_ID),
+      project_id: normalizeProjectId(options.projectId, workspace)
+    };
+  }
+
+  const nextConfig = normalizeHostConfig(config);
+  const workspaceEntry = upsertWorkspace(nextConfig, workspace, {
+    userId: options.userId || nextConfig.defaults.user_id || DEFAULT_USER_ID,
+    projectId: options.projectId
+  });
+  const file = writeHostConfig(openClawHomeArg, nextConfig);
+
+  return {
+    status: 'auto_registered',
+    reason: options.reason || 'automatic_onboarding',
+    file,
+    config: nextConfig,
+    workspace,
+    workspaceEntry,
+    user_id: workspaceEntry.user_id,
+    project_id: workspaceEntry.project_id
+  };
+}
+
 function recordSessionOwnership(openClawHomeArg, workspaceArg, sessionState, options = {}) {
   const config = readHostConfig(openClawHomeArg);
   upsertUser(config, sessionState.user_id);
   const workspace = path.resolve(workspaceArg);
   const exactWorkspaceEntry = findWorkspaceExact(config, workspace);
   const ownerWorkspaceEntry = exactWorkspaceEntry || findWorkspaceEntry(config, workspace);
-  const persistedWorkspaceEntry = exactWorkspaceEntry
+  let persistedWorkspaceEntry = exactWorkspaceEntry
     ? upsertWorkspace(config, workspace, {
         userId: sessionState.user_id,
         projectId: sessionState.project_id,
         preserveExisting: true
       })
     : null;
+  if (!persistedWorkspaceEntry && !ownerWorkspaceEntry && config.onboarding.auto_register_workspaces !== false) {
+    persistedWorkspaceEntry = upsertWorkspace(config, workspace, {
+      userId: sessionState.user_id,
+      projectId: sessionState.project_id
+    });
+  }
   const sessionKey = sanitizeKey(sessionState.session_key, 'default');
   const existing = findSession(config, workspace, sessionKey);
   const status = options.status || existing?.status || 'active';
@@ -422,6 +519,7 @@ function summarizeHostConfig(config) {
   const normalized = normalizeHostConfig(config);
   return {
     defaults: normalized.defaults,
+    onboarding: normalized.onboarding,
     users: normalized.users.length,
     workspaces: normalized.workspaces.length,
     sessions: normalized.sessions.length,
@@ -437,6 +535,7 @@ module.exports = {
   findUser,
   findWorkspace,
   findWorkspaceExact,
+  ensureWorkspaceRegistration,
   getWorkspaceRegistrationStatus,
   getHostConfigFile,
   getOpenClawHome,
@@ -446,6 +545,7 @@ module.exports = {
   recordSessionOwnership,
   resolveOwnership,
   setHostDefaults,
+  setOnboardingPolicy,
   summarizeHostConfig,
   upsertUser,
   upsertWorkspace,

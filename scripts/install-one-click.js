@@ -20,6 +20,7 @@ function parseArgs(argv) {
     intervalMinutes: null,
     defaultUserId: undefined,
     defaultWorkspace: undefined,
+    autoRegisterWorkspaces: undefined,
     addUsers: undefined,
     addWorkspaces: undefined
   };
@@ -89,6 +90,16 @@ function parseArgs(argv) {
     if (arg === '--default-workspace') {
       options.defaultWorkspace = argv[index + 1] || null;
       index += 1;
+      continue;
+    }
+
+    if (arg === '--auto-register-workspaces') {
+      options.autoRegisterWorkspaces = true;
+      continue;
+    }
+
+    if (arg === '--no-auto-register-workspaces') {
+      options.autoRegisterWorkspaces = false;
       continue;
     }
 
@@ -266,6 +277,7 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
     intervalMinutes: options.intervalMinutes,
     defaultUserId: options.defaultUserId,
     defaultWorkspace: options.defaultWorkspace,
+    autoRegisterWorkspaces: options.autoRegisterWorkspaces,
     addUsers: options.addUsers,
     addWorkspaces: options.addWorkspaces,
     ask,

@@ -441,7 +441,10 @@ test('install-host-assets deploys a self-contained skill snapshot and managed ho
       session_key: 'installed-wrapper-session',
       usage_percent: 66
     });
-    assert.equal(hookResult.status, 'needs_configuration');
+    const hostConfig = readJson(getHostConfigFile(openClawHome), {});
+    assert.equal(hookResult.status, 'handled');
+    assert.equal(hookResult.result.status, 'heartbeat_ok');
+    assert.ok(hostConfig.workspaces.some((entry) => path.resolve(entry.workspace) === path.resolve(workspace)));
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -464,7 +467,8 @@ test('installed hook wrapper exposes a function as the ESM default export', asyn
         session_key: 'esm-wrapper-session',
         usage_percent: 60
       });
-      assert.equal(result.status, 'needs_configuration');
+      assert.equal(result.status, 'handled');
+      assert.equal(result.result.status, 'heartbeat_ok');
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -509,6 +513,7 @@ test('configure-host writes recommended hooks and workspace monitor entries and 
       assert.deepEqual(config.skills.load.extraDirs, ['D:\\existing-skills']);
       assert.equal(result.config.internal_hooks_enabled, true);
       assert.equal(result.config.registered_extra_skill_dir, null);
+      assert.equal(result.ownership.onboarding.auto_register_workspaces, true);
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -794,7 +799,7 @@ test('hook runtime applies workspace ownership defaults and records session owne
   }
 });
 
-test('unregistered workspace returns configuration guidance instead of auto-assigning ownership', async () => {
+test('unregistered workspace auto-registers by default and continues hook handling', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');
   const unknownWorkspace = path.join(workspace, 'unknown-project');
@@ -819,9 +824,57 @@ test('unregistered workspace returns configuration guidance instead of auto-assi
         session_key: 'unknown-session',
         usage_percent: 70
       });
+      const hostConfig = readJson(getHostConfigFile(openClawHome), {});
+
+      assert.equal(startup.status, 'idle');
+      assert.equal(heartbeat.status, 'handled');
+      assert.equal(heartbeat.result.status, 'heartbeat_ok');
+      assert.ok(
+        hostConfig.workspaces.some(
+          (entry) =>
+            path.resolve(entry.workspace) === path.resolve(unknownWorkspace) &&
+            entry.user_id === 'alice' &&
+            entry.project_id === 'unknown-project'
+        )
+      );
+      assert.ok(fs.existsSync(path.join(unknownWorkspace, '.context-anchor', 'sessions', 'unknown-session', 'state.json')));
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('manual onboarding mode returns configuration guidance instead of auto-registering ownership', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const unknownWorkspace = path.join(workspace, 'unknown-project');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'alice',
+        defaultWorkspace: path.join(workspace, 'configured-project'),
+        autoRegisterWorkspaces: false,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      const startup = handleHookEvent('gateway:startup', {
+        workspace: unknownWorkspace
+      });
+      const heartbeat = handleHookEvent('heartbeat', {
+        workspace: unknownWorkspace,
+        session_key: 'unknown-session',
+        usage_percent: 70
+      });
+      const hostConfig = readJson(getHostConfigFile(openClawHome), {});
 
       assert.equal(startup.status, 'needs_configuration');
       assert.equal(heartbeat.status, 'needs_configuration');
+      assert.equal(hostConfig.onboarding.auto_register_workspaces, false);
       assert.match(startup.configure_command, /configure-host\.js/);
       assert.match(heartbeat.message, /not registered yet/);
       assert.equal(fs.existsSync(path.join(unknownWorkspace, '.context-anchor')), false);
@@ -1055,7 +1108,8 @@ test('configure-sessions prompts per session and preserves configured sessions w
       assert.equal(newState.project_id, path.basename(newWorkspace));
       assert.ok(hostConfig.workspaces.some((entry) => entry.workspace === path.resolve(newWorkspace)));
       assert.ok(hostConfig.sessions.some((entry) => entry.session_key === 'agent-main-new'));
-      assert.ok(schedulerCalls.length > 0);
+      assert.equal(result.results.find((entry) => entry.session_key === 'agent:main:new').workspace_setup.status, 'auto_registered');
+      assert.equal(schedulerCalls.length, 0);
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -1347,6 +1401,42 @@ test('workspace monitor runs maintenance for recent sessions without extending t
       assert.equal(result.handled_sessions, 1);
       assert.equal(nextState.last_active, preservedLastActive);
       assert.equal(nextIndex.sessions[0].last_active, preservedLastActive);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('workspace monitor auto-registers a first-seen workspace before processing', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const monitoredWorkspace = path.join(workspace, 'fresh-workspace');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'alice',
+        defaultWorkspace: path.join(workspace, 'configured-project'),
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      const result = runWorkspaceMonitor(monitoredWorkspace);
+      const hostConfig = readJson(getHostConfigFile(openClawHome), {});
+
+      assert.equal(result.status, 'idle');
+      assert.equal(result.onboarding.status, 'auto_registered');
+      assert.ok(
+        hostConfig.workspaces.some(
+          (entry) =>
+            path.resolve(entry.workspace) === path.resolve(monitoredWorkspace) &&
+            entry.user_id === 'alice' &&
+            entry.project_id === 'fresh-workspace'
+        )
+      );
     });
   } finally {
     cleanupWorkspace(workspace);

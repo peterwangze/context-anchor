@@ -101,7 +101,8 @@ function runDoctor(options = {}) {
     .map(([key]) => key);
   const configuration = {
     internal_hooks_enabled: hooks?.internal?.enabled === true,
-    extra_skill_dir_registered: installation.extra_skill_dir_registered
+    extra_skill_dir_registered: installation.extra_skill_dir_registered,
+    auto_workspace_registration_enabled: hostConfig.onboarding.auto_register_workspaces !== false
   };
   configuration.ready = configuration.internal_hooks_enabled && configuration.extra_skill_dir_registered;
   configuration.missing = Object.entries(configuration)
@@ -146,7 +147,8 @@ function runDoctor(options = {}) {
       'If you install context-anchor into the default managed skills directory (~/.openclaw/skills), skills.load.extraDirs is not required.',
       'If shell quoting is difficult, write payload JSON to a file and pass the file path to the hook handler.',
       'The one-click installer will ask whether to preserve existing memories before it cleans previous installation files.',
-      'If internal hooks are disabled, context-anchor-hook will not run even if the managed hook files are installed.'
+      'If internal hooks are disabled, context-anchor-hook will not run even if the managed hook files are installed.',
+      'By default, context-anchor automatically registers first-seen workspaces with the default user and workspace basename project id; disable this in configure-host if you want manual approval instead.'
     ]
   };
 }

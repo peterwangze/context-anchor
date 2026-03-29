@@ -11,6 +11,7 @@ const {
   sessionCheckpointFile
 } = require('../../scripts/lib/context-anchor');
 const {
+  ensureWorkspaceRegistration,
   getWorkspaceRegistrationStatus,
   resolveOwnership
 } = require('../../scripts/lib/host-config');
@@ -109,6 +110,15 @@ function normalizePayload(payload = {}) {
 }
 
 function buildConfigureGuidance(eventName, payload) {
+  const ensured = ensureWorkspaceRegistration(undefined, payload.workspace, {
+    userId: payload.user_id,
+    projectId: payload.project_id,
+    reason: `hook:${eventName}`
+  });
+  if (ensured.status !== 'blocked') {
+    return null;
+  }
+
   const status = getWorkspaceRegistrationStatus(undefined, payload.workspace, {
     userId: payload.user_id,
     projectId: payload.project_id
@@ -123,6 +133,7 @@ function buildConfigureGuidance(eventName, payload) {
     status: 'needs_configuration',
     event: eventName,
     actions: ['configure_workspace'],
+    onboarding: ensured,
     workspace: status.workspace,
     suggested_user_id: status.suggestedUserId,
     suggested_project_id: status.suggestedProjectId,

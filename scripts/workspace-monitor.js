@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 const { createPaths, getRecentSessions } = require('./lib/context-anchor');
-const { getWorkspaceRegistrationStatus, resolveOwnership } = require('./lib/host-config');
+const { ensureWorkspaceRegistration, getWorkspaceRegistrationStatus, resolveOwnership } = require('./lib/host-config');
 const { runSessionMaintenance } = require('./session-maintenance');
 
 function sortRecentSessions(entries = []) {
@@ -15,6 +15,11 @@ function runWorkspaceMonitor(workspaceArg, options = {}) {
     workspace: workspaceArg
   });
   const paths = createPaths(ownership.workspace || workspaceArg);
+  const ensured = ensureWorkspaceRegistration(paths.openClawHome, paths.workspace, {
+    userId: ownership.userId,
+    projectId: ownership.projectId,
+    reason: 'workspace_monitor'
+  });
   const registration = getWorkspaceRegistrationStatus(paths.openClawHome, paths.workspace);
 
   if (!registration.configured) {
@@ -22,6 +27,7 @@ function runWorkspaceMonitor(workspaceArg, options = {}) {
       status: 'needs_configuration',
       workspace: paths.workspace,
       actions: ['configure_workspace'],
+      onboarding: ensured,
       message: `Workspace ${paths.workspace} is not registered yet. Configure it before enabling workspace monitoring.`
     };
   }
@@ -32,6 +38,7 @@ function runWorkspaceMonitor(workspaceArg, options = {}) {
     return {
       status: 'idle',
       workspace: paths.workspace,
+      onboarding: ensured,
       recent_sessions: 0,
       handled_sessions: 0,
       results: []
@@ -45,6 +52,7 @@ function runWorkspaceMonitor(workspaceArg, options = {}) {
   return {
     status: 'processed',
     workspace: paths.workspace,
+    onboarding: ensured,
     recent_sessions: recentSessions.length,
     handled_sessions: results.filter((entry) => entry.status === 'maintenance_ok').length,
     results

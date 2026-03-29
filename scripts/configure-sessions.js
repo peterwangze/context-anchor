@@ -7,7 +7,13 @@ const { runConfigureHost } = require('./configure-host');
 const { runDoctor } = require('./doctor');
 const { runInstallHostAssets } = require('./install-host-assets');
 const { runSessionStart } = require('./session-start');
-const { readHostConfig, findSession, getWorkspaceRegistrationStatus, resolveOwnership } = require('./lib/host-config');
+const {
+  ensureWorkspaceRegistration,
+  readHostConfig,
+  findSession,
+  getWorkspaceRegistrationStatus,
+  resolveOwnership
+} = require('./lib/host-config');
 const { discoverOpenClawSessions } = require('./lib/openclaw-session-discovery');
 const { getOpenClawHome, sanitizeKey } = require('./lib/context-anchor');
 
@@ -180,6 +186,18 @@ async function configureWorkspaceForSession({
   if (!needsWorkspaceSetup) {
     workspaceEnsured.set(workspaceKey, { status: 'reused' });
     return workspaceEnsured.get(workspaceKey);
+  }
+
+  if (session.action !== 'reconfigure') {
+    const ensured = ensureWorkspaceRegistration(openClawHome, session.workspace, {
+      userId: ownership.userId,
+      projectId: ownership.projectId,
+      reason: 'configure_sessions'
+    });
+    if (ensured.status !== 'blocked') {
+      workspaceEnsured.set(workspaceKey, ensured);
+      return ensured;
+    }
   }
 
   const configResult = await runConfigureHost(openClawHome, skillsRoot, {

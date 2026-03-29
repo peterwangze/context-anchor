@@ -25,5 +25,6 @@ Connects `context-anchor` to OpenClaw's real managed-hook lifecycle:
 ## Notes
 
 - Background heartbeat / maintenance is handled by the external workspace monitor, not by a managed hook event.
-- If a workspace is not registered in `context-anchor-host-config.json`, the hook injects setup guidance instead of auto-assigning ownership.
+- By default, if a workspace is not registered in `context-anchor-host-config.json`, the hook auto-registers it with the default user and workspace-basename project id.
+- If auto registration is disabled in host config, the hook injects setup guidance instead of auto-assigning ownership.
 - Manual CLI debugging is still supported through `handler.js`, but OpenClaw itself loads this hook via the default export and managed event objects.

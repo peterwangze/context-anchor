@@ -14,6 +14,7 @@ const {
   normalizeUserId,
   readHostConfig,
   setHostDefaults,
+  setOnboardingPolicy,
   summarizeHostConfig,
   upsertUser,
   upsertWorkspace,
@@ -35,6 +36,7 @@ function parseArgs(argv) {
     intervalMinutes: null,
     defaultUserId: undefined,
     defaultWorkspace: undefined,
+    autoRegisterWorkspaces: undefined,
     addUsers: undefined,
     addWorkspaces: undefined
   };
@@ -106,6 +108,16 @@ function parseArgs(argv) {
     if (arg === '--default-workspace') {
       options.defaultWorkspace = argv[index + 1] || null;
       index += 1;
+      continue;
+    }
+
+    if (arg === '--auto-register-workspaces') {
+      options.autoRegisterWorkspaces = true;
+      continue;
+    }
+
+    if (arg === '--no-auto-register-workspaces') {
+      options.autoRegisterWorkspaces = false;
       continue;
     }
 
@@ -714,6 +726,12 @@ async function configureOwnership(paths, options = {}) {
   const existingDefaultUserId = config.defaults.user_id || DEFAULT_USER_ID;
   const existingDefaultWorkspace = config.defaults.workspace || '';
 
+  if (typeof options.autoRegisterWorkspaces === 'boolean') {
+    config = setOnboardingPolicy(config, {
+      autoRegisterWorkspaces: options.autoRegisterWorkspaces
+    });
+  }
+
   let defaultUserId = options.defaultUserId;
   if (defaultUserId === undefined && !assumeYes) {
     defaultUserId = await askText(
@@ -836,6 +854,7 @@ async function configureOwnership(paths, options = {}) {
     status: 'configured',
     host_config_file: file,
     defaults: config.defaults,
+    onboarding: config.onboarding,
     added_users: addedUsers,
     added_workspaces: addedWorkspaces,
     summary: summarizeHostConfig(config)

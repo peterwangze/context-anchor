@@ -112,6 +112,7 @@ npm run install:host
 - 如果你同意修改配置，再自动确保 `<openclaw-home>/openclaw.json.hooks.internal.enabled = true`
 - 如果你使用自定义 `skills-root`，再自动补上 `openclaw.json.skills.load.extraDirs`
 - 写入 `<openclaw-home>/context-anchor-host-config.json`，登记默认用户、默认 workspace、附加用户、附加 workspace
+- 默认开启首次 workspace 自动接管：新 workspace 会按 `default user + workspace basename` 自动登记
 - 后续 session 会按 `workspace -> user/project` 默认归属自动落到登记表里
 - 如果你同意启用后台巡检，再为指定 workspace 生成对应平台的调度配置
 - Windows：生成 launcher 并注册 Task Scheduler
@@ -121,7 +122,8 @@ npm run install:host
 注意：
 
 - 已登记的 workspace 会按登记关系处理 session
-- 未登记的 workspace 不会自动接管；hook 会返回明确的配置引导，要求先把 workspace 加入宿主配置
+- 默认情况下，未登记的 workspace 会在首次 hook / heartbeat / session onboarding 时自动登记
+- 如果你更希望手动审批，可以传 `--no-auto-register-workspaces`，这时 hook 才会返回明确的配置引导
 
 这里的安装目录名始终是 `context-anchor`，不受你本地源码目录名影响。
 
@@ -181,6 +183,10 @@ node scripts/configure-host.js --enable-scheduler --target-platform linux --work
 node scripts/configure-host.js --yes --default-user "alice" --add-user "bob" --add-workspace "D:/workspace/client-b|bob|client-b"
 ```
 
+```bash
+node scripts/configure-host.js --default-user "alice" --no-auto-register-workspaces
+```
+
 ### 易用性命令
 
 ```bash
@@ -195,7 +201,7 @@ node scripts/sessions-status.js
 node scripts/sessions-diagnose.js
 ```
 
-`configure-sessions.js` 会扫描 `~/.openclaw/agents/*/sessions/sessions.json`，按 session 逐个询问是否跳过、配置或重新配置；`--yes` 可自动批量接管全部可解析的 session。
+`configure-sessions.js` 会扫描 `~/.openclaw/agents/*/sessions/sessions.json`，按 session 逐个询问是否跳过、配置或重新配置；`--yes` 可自动批量接管全部可解析的 session。默认自动接管模式下，它会优先做轻量级 workspace 自动登记，只在你明确要求重新配置时才重跑整套 host 配置。
 
 `sessions-status.js` 会按 workspace 分组显示 session id、context-anchor 关联状态、hook 状态和后台任务状态，`--json` 可输出机器可读结果。
 
@@ -338,7 +344,8 @@ node "<openclaw-home>/hooks/context-anchor-hook/handler.js" gateway:startup "./c
 
 - 如果 workspace 已登记但没有最近 session，返回 `idle`
 - 如果有最近活跃 session，返回 `resume_available` 和 `resume_message`
-- 如果 workspace 未登记，返回 `needs_configuration`
+- 默认自动登记开启时，未登记 workspace 会先被自动登记，然后继续返回 `idle` 或 `resume_available`
+- 如果你关闭了自动登记，workspace 未登记时才会返回 `needs_configuration`
 
 ### 3. 验证 heartbeat
 
