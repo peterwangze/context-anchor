@@ -178,6 +178,12 @@ function writeBootstrapCache(targetFile, content) {
 function buildBootstrapCacheContent(summary) {
   const pendingCommitments = summary.recovery.pending_commitments || [];
   const effectiveSkills = Array.isArray(summary.effective_skills) ? summary.effective_skills.slice(0, 6) : [];
+  const recommendedExperiences = Array.isArray(summary.recommended_reuse?.experiences)
+    ? summary.recommended_reuse.experiences.slice(0, 4)
+    : [];
+  const recommendedSkills = Array.isArray(summary.recommended_reuse?.skills)
+    ? summary.recommended_reuse.skills.slice(0, 4)
+    : [];
   const lines = [
     '# Context Anchor Session Memory',
     '',
@@ -185,6 +191,7 @@ function buildBootstrapCacheContent(summary) {
     `- Project: ${summary.session.project}`,
     `- User: ${summary.session.user}`,
     summary.session.restored ? '- Restored persistent session context is available.' : '- This is a fresh session context.',
+    summary.session.continued_from ? `- Continued from: ${summary.session.continued_from}` : null,
     summary.recovery.active_task ? `- Active task: ${summary.recovery.active_task}` : null,
     pendingCommitments.length > 0 ? `- Pending commitments: ${pendingCommitments.length}` : null,
     '',
@@ -230,6 +237,16 @@ function buildBootstrapCacheContent(summary) {
     lines.push('', '## Related Sessions');
     summary.related_sessions.slice(0, 3).forEach((entry) => {
       lines.push(`- ${entry.session_key} (${entry.project_id})`);
+    });
+  }
+
+  if (recommendedExperiences.length > 0 || recommendedSkills.length > 0) {
+    lines.push('', '## Suggested Reuse');
+    recommendedExperiences.forEach((entry) => {
+      lines.push(`- [experience][${entry.scope}] ${entry.summary}${entry.reasons?.length ? ` (${entry.reasons.join(', ')})` : ''}`);
+    });
+    recommendedSkills.forEach((entry) => {
+      lines.push(`- [skill][${entry.scope}] ${entry.name}${entry.reasons?.length ? ` (${entry.reasons.join(', ')})` : ''}`);
     });
   }
 

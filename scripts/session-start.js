@@ -8,18 +8,21 @@ const {
   createPaths,
   ensureAnchorDirs,
   getRecentSessions,
+  loadCompactPacket,
   loadProjectDecisions,
   loadProjectExperiences,
   loadProjectSkills,
   loadProjectState,
   loadSessionSkills,
   loadSessionState,
+  loadSessionSummary,
   loadUserExperiences,
   loadUserMemories,
   loadUserSkills,
   loadUserState,
   mergeAccessMetadata,
   normalizeSkillRecord,
+  readJson,
   readText,
   recordHeatEntry,
   recordUserHeatEntry,
@@ -53,6 +56,221 @@ function detectLegacyMemory(workspace) {
   }
 
   return results;
+}
+
+function collectPendingCommitments(sessionState = {}, summary = {}, compactPacket = {}) {
+  const fromState = Array.isArray(sessionState.commitments)
+    ? sessionState.commitments.filter((entry) => entry.status === 'pending')
+    : [];
+  if (fromState.length > 0) {
+    return fromState;
+  }
+
+  if (Array.isArray(summary.pending_commitments) && summary.pending_commitments.length > 0) {
+    return summary.pending_commitments;
+  }
+
+  if (Array.isArray(compactPacket.pending_commitments) && compactPacket.pending_commitments.length > 0) {
+    return compactPacket.pending_commitments;
+  }
+
+  return [];
+}
+
+function loadContinuationSource(paths, currentSessionKey, projectId) {
+  const index = readJson(paths.sessionIndexFile, { sessions: [] });
+  const candidates = Array.isArray(index.sessions) ? index.sessions : [];
+  const previous = candidates
+    .filter((entry) => entry.session_key !== currentSessionKey && entry.project_id === projectId)
+    .sort((left, right) => new Date(right.last_active || 0).getTime() - new Date(left.last_active || 0).getTime())[0];
+
+  if (!previous) {
+    return null;
+  }
+
+  const state = loadSessionState(paths, previous.session_key, previous.project_id, {
+    createIfMissing: false,
+    touch: false
+  });
+  const summary = loadSessionSummary(paths, previous.session_key);
+  const compactPacket = loadCompactPacket(paths, previous.session_key);
+  const checkpoint = readText(sessionCheckpointFile(paths, previous.session_key), '');
+  const activeTask =
+    state?.active_task ||
+    summary?.active_task ||
+    compactPacket?.active_task ||
+    null;
+  const pendingCommitments = collectPendingCommitments(state || {}, summary || {}, compactPacket || {});
+
+  if (!activeTask && pendingCommitments.length === 0 && !checkpoint && !summary?.created_at && !compactPacket?.created_at) {
+    return null;
+  }
+
+  return {
+    session_key: previous.session_key,
+    project_id: previous.project_id,
+    user_id: previous.user_id || state?.user_id || null,
+    last_active: previous.last_active || state?.last_active || null,
+    active_task: activeTask,
+    pending_commitments: pendingCommitments,
+    checkpoint_excerpt: checkpoint ? checkpoint.split('\n').slice(0, 10).join('\n') : null,
+    summary,
+    compact_packet: compactPacket
+  };
+}
+
+function cloneCommitment(entry = {}, sourceSessionKey) {
+  return {
+    ...entry,
+    source_session: entry.source_session || sourceSessionKey || null,
+    inherited_from_session: sourceSessionKey || null
+  };
+}
+
+function restoreSessionContinuity(sessionState, continuationSource) {
+  if (!continuationSource) {
+    return {
+      restored: false,
+      inherited_active_task: false,
+      inherited_commitments: 0
+    };
+  }
+
+  let inheritedActiveTask = false;
+  let inheritedCommitments = 0;
+  const currentPendingCommitments = Array.isArray(sessionState.commitments)
+    ? sessionState.commitments.filter((entry) => entry.status === 'pending')
+    : [];
+
+  if (!sessionState.active_task && continuationSource.active_task) {
+    sessionState.active_task = continuationSource.active_task;
+    inheritedActiveTask = true;
+  }
+
+  if (currentPendingCommitments.length === 0 && continuationSource.pending_commitments.length > 0) {
+    sessionState.commitments = continuationSource.pending_commitments.map((entry) =>
+      cloneCommitment(entry, continuationSource.session_key)
+    );
+    inheritedCommitments = sessionState.commitments.length;
+  }
+
+  if (inheritedActiveTask || inheritedCommitments > 0) {
+    sessionState.metadata = {
+      ...(sessionState.metadata || {}),
+      continued_from_session: continuationSource.session_key,
+      continuity_restored_at: new Date().toISOString()
+    };
+  }
+
+  return {
+    restored: inheritedActiveTask || inheritedCommitments > 0,
+    inherited_active_task: inheritedActiveTask,
+    inherited_commitments: inheritedCommitments
+  };
+}
+
+function tokenizeReuseText(...parts) {
+  const tokens = parts
+    .flat()
+    .filter(Boolean)
+    .flatMap((value) => String(value).toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}_-]{1,}/gu) || []);
+
+  return [...new Set(tokens)];
+}
+
+function countTokenOverlap(contextTokens, candidateText) {
+  if (!Array.isArray(contextTokens) || contextTokens.length === 0 || !candidateText) {
+    return 0;
+  }
+
+  const candidateTokens = new Set(tokenizeReuseText(candidateText));
+  return contextTokens.filter((token) => candidateTokens.has(token)).length;
+}
+
+function buildReuseReason(overlap, options = {}) {
+  const reasons = [];
+
+  if (overlap > 0) {
+    reasons.push('matched_current_context');
+  }
+  if (options.validated) {
+    reasons.push('validated');
+  }
+  if (options.active) {
+    reasons.push('active_skill');
+  }
+  if (Number(options.heat || 0) >= 80) {
+    reasons.push('high_heat');
+  }
+
+  return reasons.length > 0 ? reasons : ['high_value_fallback'];
+}
+
+function recommendExperienceReuse(contextTokens, experiences = [], scope) {
+  return experiences
+    .filter((entry) => !entry.archived)
+    .map((entry) => {
+      const overlap = countTokenOverlap(
+        contextTokens,
+        [entry.summary, entry.details, entry.solution, entry.type].filter(Boolean).join(' ')
+      );
+      const heat = Number(entry.heat || 0);
+      const validated = entry.validation?.status === 'validated';
+      const score =
+        overlap * 20 +
+        heat / 2 +
+        (validated ? 20 : 0) +
+        Math.min(10, Number(entry.access_count || 0));
+
+      return {
+        scope,
+        id: entry.id,
+        type: entry.type,
+        summary: entry.summary,
+        heat,
+        validation_status: entry.validation?.status || 'pending',
+        score,
+        reasons: buildReuseReason(overlap, {
+          validated,
+          heat
+        })
+      };
+    })
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 3);
+}
+
+function recommendSkillReuse(contextTokens, skills = [], scope) {
+  return skills
+    .filter((entry) => !entry.archived && entry.status !== 'inactive' && entry.status !== 'archived')
+    .map((entry) => {
+      const overlap = countTokenOverlap(
+        contextTokens,
+        [entry.name, entry.summary, entry.notes].filter(Boolean).join(' ')
+      );
+      const priority = Number(entry.load_policy?.priority || 0);
+      const active = entry.status === 'active' || scope === 'session';
+      const score =
+        overlap * 20 +
+        priority / 2 +
+        Math.min(10, Number(entry.usage_count || 0)) +
+        (active ? 20 : 0);
+
+      return {
+        scope,
+        id: entry.id,
+        name: entry.name,
+        summary: entry.summary || null,
+        status: entry.status || 'active',
+        score,
+        reasons: buildReuseReason(overlap, {
+          active,
+          heat: priority
+        })
+      };
+    })
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 3);
 }
 
 function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}) {
@@ -89,6 +307,8 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
   }
   sessionState.user_id = resolveUserId(sessionState.user_id || ownership.userId || DEFAULTS.userId);
   sessionState.project_id = projectId;
+  const continuationSource = loadContinuationSource(paths, sessionKey, projectId);
+  const continuityRestoration = restoreSessionContinuity(sessionState, continuationSource);
   sessionState.metadata = {
     ...(sessionState.metadata || {}),
     ...(openClawSessionId ? { openclaw_session_id: openClawSessionId } : {})
@@ -214,6 +434,28 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
   const pendingCommitments = (sessionState.commitments || []).filter(
     (entry) => entry.status === 'pending'
   );
+  const reuseContextTokens = tokenizeReuseText(
+    sessionState.active_task,
+    pendingCommitments.map((entry) => entry.what),
+    continuationSource?.summary?.active_task,
+    continuationSource?.summary?.reason,
+    continuationSource?.summary?.skill_draft?.name
+  );
+  const recommendedReuse = {
+    experiences: [
+      ...recommendExperienceReuse(reuseContextTokens, experiences, 'project'),
+      ...recommendExperienceReuse(reuseContextTokens, userExperiences, 'user')
+    ]
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 5),
+    skills: [
+      ...recommendSkillReuse(reuseContextTokens, groupedNormalizeSkills(sessionSkills, 'session'), 'session'),
+      ...recommendSkillReuse(reuseContextTokens, groupedNormalizeSkills(projectSkills, 'project'), 'project'),
+      ...recommendSkillReuse(reuseContextTokens, groupedNormalizeSkills(userSkills, 'user'), 'user')
+    ]
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 5)
+  };
 
   const summary = {
     status: 'initialized',
@@ -221,7 +463,12 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
       key: sessionState.session_key,
       project: sessionState.project_id,
       user: sessionState.user_id,
-      restored: hadCheckpoint || pendingCommitments.length > 0 || Boolean(sessionState.active_task)
+      restored:
+        hadCheckpoint ||
+        pendingCommitments.length > 0 ||
+        Boolean(sessionState.active_task) ||
+        continuityRestoration.restored,
+      continued_from: sessionState.metadata?.continued_from_session || null
     },
     project: {
       id: sessionState.project_id,
@@ -242,18 +489,34 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
       active_task: sessionState.active_task,
       pending_commitments: pendingCommitments,
       checkpoint_available: hadCheckpoint,
-      checkpoint_excerpt: checkpoint ? checkpoint.split('\n').slice(0, 10).join('\n') : null
+      checkpoint_excerpt: checkpoint ? checkpoint.split('\n').slice(0, 10).join('\n') : null,
+      continuity: continuationSource ? {
+        source_session_key: continuationSource.session_key,
+        source_last_active: continuationSource.last_active,
+        inherited_active_task: continuityRestoration.inherited_active_task,
+        inherited_commitments: continuityRestoration.inherited_commitments,
+        source_summary_available: Boolean(continuationSource.summary?.created_at),
+        source_compact_packet_available: Boolean(continuationSource.compact_packet?.created_at)
+      } : null
     },
     boot_packet: {
       active_task: sessionState.active_task,
       pending_commitments: pendingCommitments,
+      continuation: continuationSource ? {
+        source_session_key: continuationSource.session_key,
+        source_last_active: continuationSource.last_active,
+        source_active_task: continuationSource.active_task,
+        source_checkpoint_excerpt: continuationSource.checkpoint_excerpt
+      } : null,
       active_skills: {
         session: sessionSkills.slice(0, 5),
         project: projectSkills.slice(0, 5),
         user: userSkills.slice(0, 5)
-      }
+      },
+      recommended_reuse: recommendedReuse
     },
     memories_to_inject: [],
+    recommended_reuse: recommendedReuse,
     related_sessions: relatedSessions,
     compatibility: {
       legacy_memory_files: detectLegacyMemory(paths.workspace)
@@ -332,6 +595,38 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
   summary.skills_to_activate = groupedEffectiveSkills;
   summary.effective_skills = resolvedSkills.effective;
   summary.shadowed_skills = resolvedSkills.shadowed;
+  if (summary.recommended_reuse.skills.length === 0) {
+    summary.recommended_reuse.skills = resolvedSkills.effective.slice(0, 5).map((skill) => ({
+      scope: skill.scope,
+      id: skill.id,
+      name: skill.name,
+      summary: skill.summary || null,
+      status: skill.status || 'active',
+      score: Number(skill.load_policy?.priority || 0),
+      reasons: ['active_skill_fallback']
+    }));
+    summary.boot_packet.recommended_reuse.skills = summary.recommended_reuse.skills;
+  }
+  if (
+    summary.recommended_reuse.skills.length === 0 &&
+    continuationSource?.compact_packet?.active_skills
+  ) {
+    const previousActiveSkills = Object.entries(continuationSource.compact_packet.active_skills)
+      .flatMap(([scope, entries]) =>
+        (Array.isArray(entries) ? entries : []).map((entry) => ({
+          scope,
+          id: entry.id,
+          name: entry.name,
+          summary: entry.summary || null,
+          status: entry.status || 'active',
+          score: 0,
+          reasons: ['previous_session_active_skill']
+        }))
+      )
+      .slice(0, 5);
+    summary.recommended_reuse.skills = previousActiveSkills;
+    summary.boot_packet.recommended_reuse.skills = summary.recommended_reuse.skills;
+  }
   summary.boot_packet.active_skills = groupedEffectiveSkills;
   summary.boot_packet.skill_governance = {
     shadowed: resolvedSkills.shadowed,
@@ -354,3 +649,7 @@ if (require.main === module) {
 module.exports = {
   runSessionStart
 };
+
+function groupedNormalizeSkills(skills = [], scope) {
+  return skills.map((skill) => normalizeSkillRecord(skill, scope));
+}

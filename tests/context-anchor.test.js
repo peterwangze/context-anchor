@@ -44,6 +44,7 @@ const { runSessionStart } = require('../scripts/session-start');
 const { runConfigureSessions } = require('../scripts/configure-sessions');
 const { runSkillStatusUpdate } = require('../scripts/skill-status-update');
 const { runSkillCreate } = require('../scripts/skill-create');
+const { runSkillDraftCreate } = require('../scripts/skill-draft-create');
 const { runSkillificationScore } = require('../scripts/skillification-score');
 const { runWorkspaceMonitor } = require('../scripts/workspace-monitor');
 
@@ -1665,6 +1666,78 @@ test('session-start loads user scope memories and skills', () => {
   }
 });
 
+test('session-start continues from the latest related session and recommends reusable assets', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'previous-session', 'demo');
+      const sessionFile = path.join(
+        workspace,
+        '.context-anchor',
+        'sessions',
+        'previous-session',
+        'state.json'
+      );
+      const previousState = readJson(sessionFile, {});
+      previousState.active_task = 'stabilize checkout pipeline';
+      previousState.commitments = [
+        {
+          id: 'commitment-1',
+          what: 'stabilize checkout pipeline',
+          status: 'pending'
+        }
+      ];
+      writeJson(sessionFile, previousState);
+
+      runMemorySave(
+        workspace,
+        'previous-session',
+        'project',
+        'best_practice',
+        'Stabilize checkout pipeline with retries',
+        JSON.stringify({
+          heat: 95,
+          access_count: 6,
+          access_sessions: ['older-session'],
+          validation_status: 'validated'
+        })
+      );
+
+      const projectSkillDir = path.join(workspace, '.context-anchor', 'projects', 'demo', 'skills');
+      fs.mkdirSync(projectSkillDir, { recursive: true });
+      writeJson(path.join(projectSkillDir, 'index.json'), {
+        skills: [
+          {
+            id: 'project-skill-checkout',
+            name: 'checkout-pipeline-playbook',
+            scope: 'project',
+            status: 'active',
+            summary: 'Use retries to stabilize checkout pipeline',
+            load_policy: { priority: 90, budget_weight: 1, auto_load: true }
+          }
+        ]
+      });
+
+      runSessionClose(workspace, 'previous-session', {
+        reason: 'command-reset',
+        usagePercent: 82
+      });
+
+      const result = runSessionStart(workspace, 'continued-session', 'demo');
+
+      assert.equal(result.session.continued_from, 'previous-session');
+      assert.equal(result.recovery.active_task, 'stabilize checkout pipeline');
+      assert.equal(result.recovery.pending_commitments.length, 1);
+      assert.equal(result.recovery.continuity.source_session_key, 'previous-session');
+      assert.ok(result.recommended_reuse.experiences.some((entry) => entry.summary.includes('checkout pipeline')));
+      assert.ok(result.recommended_reuse.skills.some((entry) => entry.scope === 'project'));
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('session-close writes summary, compact packet, and session skill draft', () => {
   const workspace = makeWorkspace();
 
@@ -1696,6 +1769,62 @@ test('session-close writes summary, compact packet, and session skill draft', ()
         'session-close'
       );
       assert.equal(compactPacket.session_key, 'session-close');
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('skill-draft-create prefers the highest-value session experience as source', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'draft-ranking', 'demo');
+      runMemorySave(
+        workspace,
+        'draft-ranking',
+        'session',
+        'fact',
+        'Minor note',
+        JSON.stringify({ heat: 20 })
+      );
+
+      const experiencesFile = path.join(
+        workspace,
+        '.context-anchor',
+        'sessions',
+        'draft-ranking',
+        'experiences.json'
+      );
+      writeJson(experiencesFile, {
+        experiences: [
+          {
+            id: 'exp-high-value',
+            type: 'best_practice',
+            summary: 'Use rollback-safe checkout retries',
+            heat: 95,
+            validation: {
+              status: 'validated',
+              count: 1,
+              auto_validated: false,
+              last_reviewed_at: '2026-03-01T00:00:00Z',
+              notes: []
+            },
+            archived: false
+          }
+        ]
+      });
+
+      const result = runSkillDraftCreate(workspace, 'draft-ranking');
+      const skills = readJson(
+        path.join(workspace, '.context-anchor', 'sessions', 'draft-ranking', 'skills', 'index.json'),
+        { skills: [] }
+      ).skills;
+
+      assert.equal(result.status, 'created');
+      assert.equal(skills[0].source_id, 'exp-high-value');
+      assert.equal(skills[0].source_kind, 'experience');
     });
   } finally {
     cleanupWorkspace(workspace);

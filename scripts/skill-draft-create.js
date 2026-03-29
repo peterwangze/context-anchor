@@ -17,6 +17,37 @@ const {
   writeText
 } = require('./lib/context-anchor');
 
+function scoreDraftSource(source = {}, kind = 'memory') {
+  const heat = Number(source.heat || 0);
+  const validated = source.validation?.status === 'validated' ? 20 : 0;
+  const experienceBonus = kind === 'experience' ? 15 : 0;
+  const typeBonus =
+    source.type === 'best_practice' || source.type === 'tool-pattern'
+      ? 10
+      : source.type === 'lesson' || source.type === 'gotcha'
+        ? 6
+        : 0;
+
+  return heat + validated + experienceBonus + typeBonus;
+}
+
+function pickDraftSource(experiences = [], memories = []) {
+  const candidates = [
+    ...experiences.map((entry) => ({
+      ...entry,
+      __kind: 'experience',
+      __score: scoreDraftSource(entry, 'experience')
+    })),
+    ...memories.map((entry) => ({
+      ...entry,
+      __kind: 'memory',
+      __score: scoreDraftSource(entry, 'memory')
+    }))
+  ].sort((left, right) => right.__score - left.__score);
+
+  return candidates[0] || null;
+}
+
 function runSkillDraftCreate(workspaceArg, sessionKeyArg) {
   const paths = createPaths(workspaceArg);
   const sessionKey = sanitizeKey(sessionKeyArg || DEFAULTS.sessionKey);
@@ -26,7 +57,7 @@ function runSkillDraftCreate(workspaceArg, sessionKeyArg) {
   });
   const experiences = loadSessionExperiences(paths, sessionKey).filter((entry) => !entry.archived);
   const memories = loadSessionMemory(paths, sessionKey).filter((entry) => !entry.archived);
-  const source = experiences[0] || memories[0];
+  const source = pickDraftSource(experiences, memories);
 
   if (!source) {
     return {
@@ -50,6 +81,7 @@ function runSkillDraftCreate(workspaceArg, sessionKeyArg) {
     summary: source.summary || source.content || null,
     source_type: source.type || 'memory',
     source_id: source.id,
+    source_kind: source.__kind || 'memory',
     path: skillPath,
     source_session: sessionKey,
     source_project: sessionState.project_id,
