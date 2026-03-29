@@ -154,6 +154,18 @@ function runInstallCommand(args) {
   });
 }
 
+function runNodeScript(scriptPath, args = [], env = {}) {
+  return execFileSync(process.execPath, [scriptPath, ...args], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    timeout: 120000,
+    env: {
+      ...process.env,
+      ...env
+    }
+  });
+}
+
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
@@ -364,6 +376,205 @@ test(
     } finally {
       cleanupTestDir(profileHome, os.homedir(), '.openclaw-context-anchor-real-extra-');
       cleanupTestDir(customSkillsRoot, os.tmpdir(), 'context-anchor-real-custom-skills-');
+    }
+  }
+);
+
+test(
+  'real installed host hook wrapper returns resume guidance on gateway startup',
+  { timeout: 240000 },
+  (t) => {
+    if (!resolveOpenClawCommand()) {
+      t.skip('OpenClaw CLI is not installed on PATH.');
+      return;
+    }
+
+    const profileName = createTestProfileName('context-anchor-installed-startup');
+    const profileHome = getProfileHome(profileName);
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'context-anchor-installed-startup-'));
+    const payloadFile = path.join(workspaceDir, 'gateway-startup-payload.json');
+
+    try {
+      const install = JSON.parse(
+        runInstallCommand([
+          '--openclaw-home',
+          profileHome,
+          '--yes',
+          '--keep-memory',
+          '--apply-config'
+        ])
+      );
+
+      withOpenClawHome(profileHome, () => {
+        runSessionStart(workspaceDir, 'installed-resume', 'demo', {
+          openClawSessionId: 'openclaw-installed-resume'
+        });
+
+        const stateFile = path.join(
+          workspaceDir,
+          '.context-anchor',
+          'sessions',
+          'installed-resume',
+          'state.json'
+        );
+        const checkpointFile = path.join(
+          workspaceDir,
+          '.context-anchor',
+          'sessions',
+          'installed-resume',
+          'checkpoint.md'
+        );
+        const state = readJson(stateFile);
+
+        state.active_task = 'finish repair';
+        state.commitments = [
+          {
+            id: 'resume-commitment',
+            what: 'ship fix',
+            status: 'pending'
+          }
+        ];
+        fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+        fs.writeFileSync(checkpointFile, '# Checkpoint\n\n- verify rollback path\n', 'utf8');
+      });
+
+      fs.writeFileSync(payloadFile, JSON.stringify({ workspace: workspaceDir }, null, 2));
+
+      const result = JSON.parse(
+        runNodeScript(install.install.hook_handler, ['gateway:startup', payloadFile], {
+          OPENCLAW_HOME: profileHome
+        })
+      );
+
+      assert.equal(result.status, 'resume_available');
+      assert.equal(result.session_key, 'installed-resume');
+      assert.match(result.resume_message, /finish repair/);
+      assert.match(result.resume_message, /ship fix/);
+      assert.match(result.resume_message, /verify rollback path/);
+    } finally {
+      cleanupTestDir(profileHome, os.homedir(), '.openclaw-context-anchor-installed-startup-');
+      cleanupTestDir(workspaceDir, os.tmpdir(), 'context-anchor-installed-startup-');
+    }
+  }
+);
+
+test(
+  'real installed workspace monitor wrapper processes recent sessions',
+  { timeout: 240000 },
+  (t) => {
+    if (!resolveOpenClawCommand()) {
+      t.skip('OpenClaw CLI is not installed on PATH.');
+      return;
+    }
+
+    const profileName = createTestProfileName('context-anchor-installed-monitor');
+    const profileHome = getProfileHome(profileName);
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'context-anchor-installed-monitor-'));
+
+    try {
+      const install = JSON.parse(
+        runInstallCommand([
+          '--openclaw-home',
+          profileHome,
+          '--yes',
+          '--keep-memory',
+          '--apply-config'
+        ])
+      );
+
+      withOpenClawHome(profileHome, () => {
+        runSessionStart(workspaceDir, 'monitor-session', 'demo', {
+          openClawSessionId: 'openclaw-installed-monitor'
+        });
+      });
+
+      const result = JSON.parse(
+        runNodeScript(install.install.workspace_monitor_script, [workspaceDir], {
+          OPENCLAW_HOME: profileHome
+        })
+      );
+
+      assert.equal(result.status, 'processed');
+      assert.equal(result.handled_sessions, 1);
+      assert.equal(result.results[0].status, 'maintenance_ok');
+      assert.equal(result.results[0].session_key, 'monitor-session');
+    } finally {
+      cleanupTestDir(profileHome, os.homedir(), '.openclaw-context-anchor-installed-monitor-');
+      cleanupTestDir(workspaceDir, os.tmpdir(), 'context-anchor-installed-monitor-');
+    }
+  }
+);
+
+test(
+  'real installed context pressure monitor wrapper creates checkpoint artifacts',
+  { timeout: 240000 },
+  (t) => {
+    if (!resolveOpenClawCommand()) {
+      t.skip('OpenClaw CLI is not installed on PATH.');
+      return;
+    }
+
+    const profileName = createTestProfileName('context-anchor-installed-pressure');
+    const profileHome = getProfileHome(profileName);
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'context-anchor-installed-pressure-'));
+    const snapshotFile = path.join(workspaceDir, 'pressure-snapshot.json');
+
+    try {
+      const install = JSON.parse(
+        runInstallCommand([
+          '--openclaw-home',
+          profileHome,
+          '--yes',
+          '--keep-memory',
+          '--apply-config'
+        ])
+      );
+
+      withOpenClawHome(profileHome, () => {
+        runSessionStart(workspaceDir, 'pressure-session', 'demo', {
+          openClawSessionId: 'openclaw-installed-pressure'
+        });
+      });
+
+      fs.writeFileSync(
+        snapshotFile,
+        JSON.stringify(
+          {
+            sessions: [
+              {
+                session_key: 'pressure-session',
+                usage_percent: 91
+              }
+            ]
+          },
+          null,
+          2
+        )
+      );
+
+      const result = JSON.parse(
+        runNodeScript(install.install.monitor_script, [workspaceDir, snapshotFile], {
+          OPENCLAW_HOME: profileHome
+        })
+      );
+
+      assert.equal(result.status, 'processed');
+      assert.equal(result.handled_sessions, 1);
+      assert.ok(result.results[0].actions.includes('checkpoint_created'));
+      assert.ok(result.results[0].actions.includes('compact_packet_created'));
+      assert.ok(
+        fs.existsSync(
+          path.join(workspaceDir, '.context-anchor', 'sessions', 'pressure-session', 'checkpoint.md')
+        )
+      );
+      assert.ok(
+        fs.existsSync(
+          path.join(workspaceDir, '.context-anchor', 'sessions', 'pressure-session', 'compact-packet.json')
+        )
+      );
+    } finally {
+      cleanupTestDir(profileHome, os.homedir(), '.openclaw-context-anchor-installed-pressure-');
+      cleanupTestDir(workspaceDir, os.tmpdir(), 'context-anchor-installed-pressure-');
     }
   }
 );
