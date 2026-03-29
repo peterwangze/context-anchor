@@ -15,6 +15,107 @@
 如果你是第一次接入，先看这份 `README`。  
 `SKILL.md` 更偏运行规范和行为定义。
 
+## 你应该先看哪一部分
+
+这份文档同时服务两类人：
+
+- 完全无基础的使用者：你只想把它装上，尽量少配置，让 OpenClaw 越用越顺手
+- 想参与项目的开发者：你想理解项目结构、跑测试、改代码并提交贡献
+
+建议直接按入口阅读：
+
+- 使用者入口：看「给小白用户的 5 分钟上手」
+- 开发者入口：看「给开源贡献者的开发入口」
+- 想查机制细节：继续往下看运行时结构、自动生命周期、诊断和治理章节
+
+## 给小白用户的 5 分钟上手
+
+如果你完全不懂 OpenClaw 的 hook、skills、调度器和配置文件，按下面做就够了。
+
+### 你会得到什么
+
+装好以后，`context-anchor` 会尽量自动完成这些事：
+
+- 记住当前 session 的上下文，不容易因为压缩或重启丢状态
+- 把有价值的经验沉淀到项目级和用户级
+- 在后续 session 里自动复用之前的经验和技能
+- 第一次见到新 workspace 时，默认自动登记归属，尽量不打断你
+- 在合适的时候自动做 checkpoint、总结、经验提炼和技能治理
+
+### 你只需要做这 3 步
+
+1. 在项目根目录运行：
+
+```bash
+node scripts/install-one-click.js
+```
+
+或：
+
+```bash
+npm run install:host
+```
+
+2. 跟着提示回答问题。
+
+推荐你直接接受默认建议，尤其是：
+
+- 允许写入推荐的 OpenClaw 配置
+- 设置一个默认用户名
+- 如果你有常用工作目录，填一个默认 workspace
+
+3. 安装完成后执行一次：
+
+```bash
+node scripts/doctor.js
+```
+
+只要这两个字段是 `true`，就说明基本可用了：
+
+- `installation.ready`
+- `configuration.ready`
+
+### 如果你只想知道“正常情况下会发生什么”
+
+默认情况下：
+
+- 安装器会把需要的 skill、hook 和 automation 文件放到 OpenClaw 目录
+- 新 workspace 第一次进入时会自动登记，不需要你先手工配置
+- 后续 heartbeat / stop / bootstrap 会自动接上记忆、恢复和沉淀链路
+- 如果你没有关闭自动登记，绝大多数情况下不会先看到 `needs_configuration`
+
+### 什么时候你需要人工介入
+
+只有下面几类情况，才建议继续往下读详细文档：
+
+- `doctor` 显示 `installation.ready` 或 `configuration.ready` 不是 `true`
+- 你想把 skill 安装到自定义目录
+- 你明确不想要自动登记 workspace
+- 你想手工调试 hook、heartbeat、checkpoint 或技能治理
+
+## 给开源贡献者的开发入口
+
+如果你想参与这个项目，先建立一个正确心智模型：
+
+- 这不是单纯一份 `SKILL.md`
+- 这是一个“skill + runtime scripts + hook wrapper + host config + tests”的组合项目
+- README 面向使用者，`SKILL.md` 面向运行规范，`tests/` 用来锁定行为
+
+建议开发顺序：
+
+1. 先看这份 `README`，理解对使用者承诺了什么
+2. 再看 `SKILL.md`，理解运行时行为边界
+3. 看 `scripts/lib/context-anchor.js` 和 `scripts/lib/host-config.js`，建立数据模型理解
+4. 看 `hooks/context-anchor-hook/handler.js`、`scripts/session-start.js`、`scripts/session-close.js`、`scripts/heartbeat.js`
+5. 跑 `npm test`，确认本地环境稳定
+
+如果你准备直接贡献代码，后面重点看：
+
+- 「工作区中的运行时数据」
+- 「自动生命周期」
+- 「观测与诊断」
+- 「开发者指南」
+
 ## 适用场景
 
 - 你希望 OpenClaw 在长任务中跨压缩、跨重启保留上下文连续性。
@@ -667,15 +768,55 @@ node "<installed-skill-dir>/scripts/skill-create.js" "<workspace>" <experience-i
 - `access_count` 是否足够
 - `access_sessions.length` 是否足够
 
-## 开发验证
+## 开发者指南
 
-仓内自动化验证：
+这一节给准备参与项目维护或提交 PR 的贡献者。
+
+### 本地开发环境
+
+最低要求：
+
+- Node.js
+- 一个可写的本地工作目录
+- 理解这个项目会在测试期间创建临时 workspace 和临时 `openclaw-home`
+
+安装依赖：
+
+```bash
+npm install
+```
+
+运行自动化验证：
 
 ```bash
 npm test
 ```
 
-当前测试覆盖：
+### 建议先理解的代码入口
+
+如果你要改行为，建议先按这个顺序读代码：
+
+- `scripts/lib/context-anchor.js`：核心数据结构、路径、读写和技能治理基础能力
+- `scripts/lib/host-config.js`：宿主配置、workspace 归属、session 归属和自动接管策略
+- `scripts/session-start.js`：进入 session 时如何恢复记忆和激活技能
+- `scripts/heartbeat.js`：运行中如何推进记忆同步、热度、技能化与压力处理
+- `scripts/session-close.js`：退出时如何做总结、经验沉淀和技能草稿生成
+- `hooks/context-anchor-hook/handler.js`：OpenClaw managed hook 接入点
+- `scripts/install-one-click.js` / `scripts/configure-host.js`：使用者第一次接入会经过的入口
+
+### 改动时要守住的产品目标
+
+从使用者视角，这个项目最重要的不是“功能更多”，而是“越少打断越好”。提交改动时建议自查：
+
+- 会不会让首次接入更复杂
+- 会不会让同一个 session 更容易断裂
+- 会不会让已经沉淀的经验更难复用
+- 会不会把本来自动完成的事情重新变成手工操作
+- 会不会让诊断结果更难理解
+
+### 当前测试覆盖
+
+现有测试重点覆盖这些承诺：
 
 - user/project/session 三层加载
 - session 恢复
@@ -693,10 +834,30 @@ npm test
 - skill 创建
 - startup hook 恢复消息
 - host 自包含安装
+- workspace 自动接管与手动关闭回退
+
+### 提交贡献前的建议检查
+
+在提交前，至少确认：
+
+- `README.md` 中对使用者的描述仍然成立
+- `SKILL.md` 中的行为规范没有被悄悄破坏
+- `npm test` 全通过
+- 如果改了安装、hook、session 生命周期或技能治理，测试里有新增或更新覆盖
+
+### 适合继续扩展的方向
+
+如果你想继续演进项目，优先考虑这些方向：
+
+- 更稳定的 session 连续性
+- 更少打断的自动接管和恢复
+- 更可靠的经验提炼质量
+- 更可解释的技能晋升、降级和复用策略
+- 更容易让使用者看懂的诊断输出
 
 ## 文档分工
 
-- `README.md`：给 OpenClaw 使用者的安装和接入说明
+- `README.md`：给使用者和贡献者的项目入口说明
 - `SKILL.md`：skill 的运行行为规范
 - `hooks/context-anchor-hook/HOOK.md`：hook 协议说明
 - `references/`：状态模型和机制参考
