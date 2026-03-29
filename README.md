@@ -46,6 +46,13 @@
 - 第一次见到新 workspace 时，默认自动登记归属，尽量不打断你
 - 在合适的时候自动做 checkpoint、总结、经验提炼和技能治理
 
+### 哪些场景会自动接上
+
+- `/compact` 前会先落 checkpoint 和记忆同步，完成后刷新 `compact-packet` 和恢复缓存
+- `/stop`、`/new`、`/reset` 会自动收口当前 session，避免旧 session 悬空
+- OpenClaw 或 gateway 重启后，`gateway:startup` 先给恢复提示，进入对话时再由 `agent:bootstrap` 注入记忆
+- 对已经存在的存量 session，执行一次 `upgrade-sessions.js` 后，后续 `/compact`、重启恢复和 bootstrap 都会直接走最新生命周期
+
 ### 前置条件
 
 - 已安装 Node.js
@@ -159,6 +166,8 @@ node scripts/install-one-click.js --yes --keep-memory --apply-config --upgrade-s
 
 这里的安装目录名始终是 `context-anchor`，不受你本地源码目录名影响。
 
+如果你本机上已经有正在使用的 OpenClaw session，推荐直接使用带 `--upgrade-sessions` 的方式重装，这样安装完成后就会顺手把存量 session 刷到最新 runtime 行为。
+
 ### 重新配置与 session 接管
 
 如果你已经安装过，只想重新跑配置，不想重装：
@@ -221,6 +230,8 @@ node scripts/upgrade-sessions.js --session-key "<session-key>"
 
 `upgrade-sessions.js` 会一次性刷新已发现或已登记的存量 session，重新生成 bootstrap cache，并让这些 session 在下一次 hook / bootstrap 时直接使用最新 runtime 行为；默认跳过已关闭 session，传 `--include-closed` 才会连已关闭 session 一起刷新。
 
+对存量用户来说，这个升级不需要你手工重建 session。刷新完成后，后续的 `/compact`、`/stop`、`/new`、`/reset` 和重启后的恢复链路都会按最新行为执行。
+
 ### 安装后你应该看到什么
 
 至少检查这几个路径：
@@ -274,7 +285,7 @@ node scripts/doctor.js --openclaw-home "D:/openclaw-home" --skills-root "D:/open
 
 - `<installed-skill-dir>/` 是否存在
 - `node scripts/doctor.js` 输出中的 `installation.ready` 是否为 `true`
-- `openclaw hooks info context-anchor-hook` 是否显示 `Events: agent:bootstrap, command:new, command:reset, command:stop`
+- `openclaw hooks info context-anchor-hook` 是否显示 `Events: agent:bootstrap, command:new, command:reset, command:stop, session:compact:before, session:compact:after`
 - `openclaw skills list` 是否能看到 `context-anchor`
 - 如果你选择了自动写配置，再确认 `configuration.ready` 是否为 `true`
 
@@ -324,7 +335,36 @@ node "<openclaw-home>/hooks/context-anchor-hook/handler.js" heartbeat "./context
 - 内部结果为 `heartbeat_ok`
 - 工作区下出现 `.context-anchor/`
 
-#### 4. 验证 stop / session end
+#### 4. 验证 compact 生命周期
+
+```json
+{
+  "workspace": "D:/workspace/project",
+  "session_key": "chat-session-001",
+  "project_id": "default"
+}
+```
+
+先执行 compact 前置处理：
+
+```bash
+node "<openclaw-home>/hooks/context-anchor-hook/handler.js" session:compact:before "./context-anchor-payload.json"
+```
+
+再执行 compact 后置处理：
+
+```bash
+node "<openclaw-home>/hooks/context-anchor-hook/handler.js" session:compact:after "./context-anchor-payload.json"
+```
+
+预期：
+
+- 两次调用都返回 `handled`
+- `sessions/<session-key>/checkpoint.md` 被创建或更新
+- `sessions/<session-key>/compact-packet.json` 被创建或更新
+- 下一次 `agent:bootstrap` 会直接使用新的压缩恢复资产
+
+#### 5. 验证 stop / session end
 
 ```json
 {
@@ -372,6 +412,15 @@ node "<openclaw-home>/hooks/context-anchor-hook/handler.js" command:stop "./cont
 - `usage_percent` 是否达到阈值
 - 传入的 `session_key` 是否和当前 session 一致
 - 工作区下是否有 `.context-anchor/sessions/<session-key>/`
+
+#### `/compact` 后没有拿到最新恢复状态
+
+检查：
+
+- `openclaw hooks info context-anchor-hook` 是否已经包含 `session:compact:before` 和 `session:compact:after`
+- `sessions/<session-key>/compact-packet.json` 是否存在且时间戳有更新
+- 如果这个 session 是历史存量 session，是否已经执行过 `node scripts/upgrade-sessions.js`
+- 如果 payload 没带 `workspace`，至少要保证 `session_key` 能在宿主登记里被解析回 workspace
 
 #### 经验没有进入技能化候选
 
@@ -787,6 +836,7 @@ npm test
 - `scripts/lib/host-config.js`：宿主配置、workspace 归属、session 归属和自动接管策略
 - `scripts/session-start.js`：进入 session 时如何恢复记忆和激活技能
 - `scripts/heartbeat.js`：运行中如何推进记忆同步、热度、技能化与压力处理
+- `scripts/session-compact.js`：`/compact` 前后如何刷新 checkpoint、压缩恢复资产和 bootstrap cache
 - `scripts/session-close.js`：退出时如何做总结、经验沉淀和技能草稿生成
 - `hooks/context-anchor-hook/handler.js`：OpenClaw managed hook 接入点
 - `scripts/install-one-click.js` / `scripts/configure-host.js`：使用者第一次接入会经过的入口
@@ -808,7 +858,7 @@ npm test
 - user/project/session 三层加载
 - session 恢复
 - checkpoint 与压力处理
-- compact packet
+- compact packet 与 compact 前后 lifecycle hook
 - session close
 - session skill draft
 - `_global -> user` 迁移
