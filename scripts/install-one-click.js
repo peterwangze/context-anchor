@@ -6,6 +6,7 @@ const readline = require('readline');
 const { getOpenClawHome } = require('./lib/context-anchor');
 const { runConfigureHost } = require('./configure-host');
 const { runInstallHostAssets } = require('./install-host-assets');
+const { runUpgradeSessions } = require('./upgrade-sessions');
 
 function parseArgs(argv) {
   const options = {
@@ -22,7 +23,11 @@ function parseArgs(argv) {
     defaultWorkspace: undefined,
     autoRegisterWorkspaces: undefined,
     addUsers: undefined,
-    addWorkspaces: undefined
+    addWorkspaces: undefined,
+    upgradeSessions: false,
+    upgradeWorkspace: null,
+    upgradeSessionKey: null,
+    includeClosedSessions: false
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -120,6 +125,28 @@ function parseArgs(argv) {
     if (arg === '--workspace') {
       options.schedulerWorkspace = argv[index + 1] || null;
       index += 1;
+      continue;
+    }
+
+    if (arg === '--upgrade-sessions') {
+      options.upgradeSessions = true;
+      continue;
+    }
+
+    if (arg === '--upgrade-workspace') {
+      options.upgradeWorkspace = argv[index + 1] || null;
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--upgrade-session-key') {
+      options.upgradeSessionKey = argv[index + 1] || null;
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--include-closed-sessions') {
+      options.includeClosedSessions = true;
       continue;
     }
 
@@ -284,6 +311,13 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
     askText: options.askText,
     schedulerRegistrar: options.schedulerRegistrar
   });
+  const sessionUpgrade = options.upgradeSessions
+    ? runUpgradeSessions(openClawHome, skillsRoot, {
+        workspace: options.upgradeWorkspace,
+        sessionKey: options.upgradeSessionKey,
+        includeClosed: options.includeClosedSessions
+      })
+    : null;
 
   return {
     status: 'installed',
@@ -291,7 +325,8 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
     previous_memory_detected: state.has_memory_data,
     preserved_memories: preserveMemories,
     install,
-    configuration
+    configuration,
+    session_upgrade: sessionUpgrade
   };
 }
 

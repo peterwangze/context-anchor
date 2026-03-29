@@ -302,9 +302,15 @@ node scripts/sessions-status.js
 node scripts/sessions-diagnose.js
 ```
 
+```bash
+node scripts/upgrade-sessions.js
+```
+
 `configure-sessions.js` 会扫描 `~/.openclaw/agents/*/sessions/sessions.json`，按 session 逐个询问是否跳过、配置或重新配置；`--yes` 可自动批量接管全部可解析的 session。默认自动接管模式下，它会优先做轻量级 workspace 自动登记，只在你明确要求重新配置时才重跑整套 host 配置。
 
 `sessions-status.js` 会按 workspace 分组显示 session id、context-anchor 关联状态、hook 状态和后台任务状态，`--json` 可输出机器可读结果。
+
+`upgrade-sessions.js` 会一次性刷新已发现或已登记的存量 session，重新生成 bootstrap cache，并让这些 session 在下一次 hook / bootstrap 时直接使用最新 runtime 行为；默认跳过已关闭 session，传 `--include-closed` 才会连已关闭 session 一起刷新。
 
 如果状态查询提示异常，先跑 `sessions-diagnose.js`，再按输出里的诊断命令和修复命令处理。`configure:sessions` 也支持 `--workspace` / `--session-key` 定位到单个 workspace 或 session。
 
@@ -326,6 +332,22 @@ node scripts/install-one-click.js --yes --keep-memory --apply-config
 
 ```bash
 node scripts/install-one-click.js --yes --drop-memory --apply-config
+```
+
+如果你想在升级 runtime 后顺手一键刷新存量 session：
+
+```bash
+node scripts/install-one-click.js --yes --keep-memory --apply-config --upgrade-sessions
+```
+
+如果你只想刷新某个 workspace 或某个 session：
+
+```bash
+node scripts/upgrade-sessions.js --workspace "<workspace>"
+```
+
+```bash
+node scripts/upgrade-sessions.js --session-key "<session-key>"
 ```
 
 ## 安装后你应该看到什么

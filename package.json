@@ -7,6 +7,7 @@
     "doctor": "node scripts/doctor.js",
     "configure:host": "node scripts/configure-host.js",
     "configure:sessions": "node scripts/configure-sessions.js",
+    "upgrade:sessions": "node scripts/upgrade-sessions.js",
     "diagnose:sessions": "node scripts/sessions-diagnose.js",
     "status:sessions": "node scripts/sessions-status.js",
     "install:host": "node scripts/install-one-click.js",

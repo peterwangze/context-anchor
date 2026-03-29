@@ -42,6 +42,7 @@ const { runSkillSupersede } = require('../scripts/skill-supersede');
 const { runSessionClose } = require('../scripts/session-close');
 const { runSessionStart } = require('../scripts/session-start');
 const { runConfigureSessions } = require('../scripts/configure-sessions');
+const { runUpgradeSessions } = require('../scripts/upgrade-sessions');
 const { runSkillStatusUpdate } = require('../scripts/skill-status-update');
 const { runSkillCreate } = require('../scripts/skill-create');
 const { runSkillDraftCreate } = require('../scripts/skill-draft-create');
@@ -981,6 +982,157 @@ test('one-click install can apply recommended config without reinstall prompts',
       assert.equal(result.status, 'installed');
       assert.equal(result.configuration.config.status, 'applied');
       assert.equal(config.hooks.internal.enabled, true);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('upgrade-sessions refreshes registered active sessions and skips closed sessions by default', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const activeWorkspace = path.join(workspace, 'active-project');
+  const closedWorkspace = path.join(workspace, 'closed-project');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'peter',
+        defaultWorkspace: activeWorkspace,
+        addUsers: [],
+        addWorkspaces: [
+          {
+            workspace: closedWorkspace,
+            userId: 'peter',
+            projectId: 'closed-project'
+          }
+        ]
+      });
+
+      runSessionStart(activeWorkspace, 'active-session', 'active-project', {
+        userId: 'peter'
+      });
+      runMemorySave(
+        activeWorkspace,
+        'active-session',
+        'session',
+        'best_practice',
+        'Keep active session upgradeable',
+        JSON.stringify({ heat: 92, details: 'active session memory' })
+      );
+      const activeStateFile = path.join(
+        activeWorkspace,
+        '.context-anchor',
+        'sessions',
+        'active-session',
+        'state.json'
+      );
+      const activeState = readJson(activeStateFile, {});
+      activeState.active_task = 'refresh the active session';
+      writeJson(activeStateFile, activeState);
+
+      runSessionStart(closedWorkspace, 'closed-session', 'closed-project', {
+        userId: 'peter'
+      });
+      runSessionClose(closedWorkspace, 'closed-session', {
+        reason: 'manual-close'
+      });
+
+      const result = runUpgradeSessions(openClawHome, path.join(openClawHome, 'skills'));
+      const activeResult = result.results.find((entry) => entry.session_key === 'active-session');
+      const closedResult = result.results.find((entry) => entry.session_key === 'closed-session');
+      const activeBootstrap = path.join(
+        activeWorkspace,
+        '.context-anchor',
+        'sessions',
+        'active-session',
+        'openclaw-bootstrap.md'
+      );
+
+      assert.equal(result.status, 'ok');
+      assert.equal(result.upgraded_sessions, 1);
+      assert.equal(activeResult.action, 'upgraded');
+      assert.equal(closedResult.action, 'skipped');
+      assert.equal(closedResult.reason, 'closed_session');
+      assert.ok(fs.existsSync(activeBootstrap));
+      assert.match(fs.readFileSync(activeBootstrap, 'utf8'), /refresh the active session/);
+      assert.equal(
+        fs.existsSync(
+          path.join(closedWorkspace, '.context-anchor', 'sessions', 'closed-session', 'openclaw-bootstrap.md')
+        ),
+        false
+      );
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('one-click install can upgrade existing sessions after refreshing runtime assets', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const sessionWorkspace = path.join(workspace, 'workspace-a');
+  const agentSessionsDir = path.join(openClawHome, 'agents', 'main', 'sessions');
+  const transcriptFile = path.join(agentSessionsDir, 'openclaw-session-a.jsonl');
+  const sessionsIndex = path.join(agentSessionsDir, 'sessions.json');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      runSessionStart(sessionWorkspace, 'agent:main:main', 'workspace-a', {
+        userId: 'default-user',
+        openClawSessionId: 'openclaw-session-a'
+      });
+      const sessionStateFile = path.join(
+        sessionWorkspace,
+        '.context-anchor',
+        'sessions',
+        'agent-main-main',
+        'state.json'
+      );
+      const sessionState = readJson(sessionStateFile, {});
+      sessionState.active_task = 'refresh runtime for stored session';
+      writeJson(sessionStateFile, sessionState);
+
+      fs.mkdirSync(agentSessionsDir, { recursive: true });
+      writeSessionTranscript(transcriptFile, sessionWorkspace, 'openclaw-session-a');
+      writeJson(sessionsIndex, {
+        'agent:main:main': {
+          sessionId: 'openclaw-session-a',
+          sessionFile: transcriptFile,
+          updatedAt: 1774705704043,
+          chatType: 'direct'
+        }
+      });
+
+      const result = await runOneClickInstall(openClawHome, undefined, {
+        assumeYes: true,
+        preserveMemories: true,
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: sessionWorkspace,
+        addUsers: [],
+        addWorkspaces: [],
+        upgradeSessions: true
+      });
+      const bootstrapFile = path.join(
+        sessionWorkspace,
+        '.context-anchor',
+        'sessions',
+        'agent-main-main',
+        'openclaw-bootstrap.md'
+      );
+
+      assert.equal(result.status, 'installed');
+      assert.equal(result.session_upgrade.status, 'ok');
+      assert.equal(result.session_upgrade.upgraded_sessions, 1);
+      assert.ok(fs.existsSync(bootstrapFile));
+      assert.match(fs.readFileSync(bootstrapFile, 'utf8'), /refresh runtime for stored session/);
+      assert.ok(fs.existsSync(path.join(openClawHome, 'skills', 'context-anchor', 'SKILL.md')));
     });
   } finally {
     cleanupWorkspace(workspace);
