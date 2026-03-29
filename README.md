@@ -15,22 +15,26 @@
 如果你是第一次接入，先看这份 `README`。  
 `SKILL.md` 更偏运行规范和行为定义。
 
-## 你应该先看哪一部分
+## 文档导航
 
-这份文档同时服务两类人：
+这份文档按两类角色组织：
 
-- 完全无基础的使用者：你只想把它装上，尽量少配置，让 OpenClaw 越用越顺手
-- 想参与项目的开发者：你想理解项目结构、跑测试、改代码并提交贡献
+- 使用者：只关心安装、配置、检查、诊断和更新，希望尽量少打断地把 `context-anchor` 用起来
+- 贡献者：要做高级配置、手工接入、机制理解或代码贡献
 
-建议直接按入口阅读：
+建议按入口阅读：
 
-- 使用者入口：看「给小白用户的 5 分钟上手」
-- 开发者入口：看「给开源贡献者的开发入口」
-- 想查机制细节：继续往下看运行时结构、自动生命周期、诊断和治理章节
+- 使用者：从「使用者」开始，先看 5 分钟上手和易用性命令
+- 贡献者：从「贡献者」开始，重点看高级配置、运行时结构和开发者指南
+- 想查运行规范：继续看 `SKILL.md`
 
-## 给小白用户的 5 分钟上手
+## 使用者
 
-如果你完全不懂 OpenClaw 的 hook、skills、调度器和配置文件，按下面做就够了。
+### 适用场景
+
+- 你希望 OpenClaw 在长任务中跨压缩、跨重启保留上下文连续性
+- 你希望把会话中的经验沉淀到项目级记忆，而不是只留在当前窗口
+- 你希望宿主通过 hook 或定时调用，把 checkpoint、heartbeat、恢复提示接起来
 
 ### 你会得到什么
 
@@ -42,7 +46,35 @@
 - 第一次见到新 workspace 时，默认自动登记归属，尽量不打断你
 - 在合适的时候自动做 checkpoint、总结、经验提炼和技能治理
 
-### 你只需要做这 3 步
+### 前置条件
+
+- 已安装 Node.js
+- 已有 OpenClaw 运行环境
+- 允许在本地 OpenClaw 目录写入配置、hook 和 automation 文件
+
+### 路径说明
+
+本文后面会反复使用几个占位符：
+
+- `<openclaw-home>`：OpenClaw 数据目录
+- `<skills-root>`：OpenClaw 扫描 skill 的目录
+- `<installed-skill-dir>`：安装后的 `context-anchor` 快照目录，也就是 `<skills-root>/context-anchor`
+
+默认情况下：
+
+- Windows：`C:/Users/<你自己的用户名>/.openclaw`
+- macOS：`/Users/<你自己的用户名>/.openclaw`
+- Linux：`/home/<你自己的用户名>/.openclaw`
+
+建议：
+
+- 手工执行命令时总是给路径加双引号
+- 配置文件里不要写 `~/.openclaw`，要写真实绝对路径
+- 安装后先运行一次 `doctor`，直接复制它输出的真实路径
+
+### 5 分钟上手
+
+如果你完全不懂 OpenClaw 的 hook、skills、调度器和配置文件，按下面做就够了。
 
 1. 在项目根目录运行：
 
@@ -75,8 +107,6 @@ node scripts/doctor.js
 - `installation.ready`
 - `configuration.ready`
 
-### 如果你只想知道“正常情况下会发生什么”
-
 默认情况下：
 
 - 安装器会把需要的 skill、hook 和 automation 文件放到 OpenClaw 目录
@@ -84,115 +114,24 @@ node scripts/doctor.js
 - 后续 heartbeat / stop / bootstrap 会自动接上记忆、恢复和沉淀链路
 - 如果你没有关闭自动登记，绝大多数情况下不会先看到 `needs_configuration`
 
-### 什么时候你需要人工介入
-
-只有下面几类情况，才建议继续往下读详细文档：
+只有下面几类情况，才建议继续往下读更详细的内容：
 
 - `doctor` 显示 `installation.ready` 或 `configuration.ready` 不是 `true`
 - 你想把 skill 安装到自定义目录
 - 你明确不想要自动登记 workspace
 - 你想手工调试 hook、heartbeat、checkpoint 或技能治理
 
-## 给开源贡献者的开发入口
+### 安装与重装
 
-如果你想参与这个项目，先建立一个正确心智模型：
-
-- 这不是单纯一份 `SKILL.md`
-- 这是一个“skill + runtime scripts + hook wrapper + host config + tests”的组合项目
-- README 面向使用者，`SKILL.md` 面向运行规范，`tests/` 用来锁定行为
-
-建议开发顺序：
-
-1. 先看这份 `README`，理解对使用者承诺了什么
-2. 再看 `SKILL.md`，理解运行时行为边界
-3. 看 `scripts/lib/context-anchor.js` 和 `scripts/lib/host-config.js`，建立数据模型理解
-4. 看 `hooks/context-anchor-hook/handler.js`、`scripts/session-start.js`、`scripts/session-close.js`、`scripts/heartbeat.js`
-5. 跑 `npm test`，确认本地环境稳定
-
-如果你准备直接贡献代码，后面重点看：
-
-- 「工作区中的运行时数据」
-- 「自动生命周期」
-- 「观测与诊断」
-- 「开发者指南」
-
-## 适用场景
-
-- 你希望 OpenClaw 在长任务中跨压缩、跨重启保留上下文连续性。
-- 你希望把会话中的经验沉淀到项目级记忆，而不是只留在当前窗口。
-- 你希望宿主通过 hook 或定时调用，把 checkpoint、heartbeat、恢复提示接起来。
-
-## 交付形态
-
-这个项目不是只有一个 `SKILL.md`。
-
-实际交付是：
-
-- skill：`SKILL.md`
-- 运行时脚本：`scripts/`
-- hook 处理器：`hooks/context-anchor-hook/`
-- 宿主安装脚本：`scripts/install-host-assets.js`
-
-安装后会在 `<openclaw-home>` 下落一份自包含快照，供 OpenClaw 加载和调用。
-
-## 分层模型
-
-第一阶段已经落地的作用域：
-
-- `session`：当前会话的工作记忆、会话经验、技能草稿
-- `project`：当前 workspace 的长期决策、项目经验、项目技能索引
-- `user`：跨项目偏好、用户级记忆、用户级经验、用户级技能索引
-
-默认：
-
-- `user_id` 默认值是 `default-user`
-- `project_id = workspace basename`，如果显式传入则优先显式值
-
-## 前置条件
-
-- 已安装 Node.js
-- 已有 OpenClaw 运行环境
-- 允许在本地 OpenClaw 目录写入配置、hook 和 automation 文件
-
-可选：
-
-- 如果你要在独立目录生成由经验沉淀出的新 skill，可提前规划 `CONTEXT_ANCHOR_SKILLS_ROOT`
-
-## 路径说明
-
-本文后面会反复使用几个占位符：
-
-- `<openclaw-home>`：OpenClaw 数据目录
-- `<skills-root>`：OpenClaw 扫描 skill 的目录
-- `<installed-skill-dir>`：安装后的 `context-anchor` 快照目录，也就是 `<skills-root>/context-anchor`
-
-默认情况下：
-
-- Windows：`C:/Users/<你自己的用户名>/.openclaw`
-- macOS：`/Users/<你自己的用户名>/.openclaw`
-- Linux：`/home/<你自己的用户名>/.openclaw`
-
-建议：
-
-- 手工执行命令时总是给路径加双引号
-- 配置文件里不要写 `~/.openclaw`，要写真实绝对路径
-- 安装后先运行一次 `doctor`，直接复制它输出的真实路径
-
-## 快速安装
-
-在当前仓根目录执行：
+推荐入口：
 
 ```bash
 node scripts/install-one-click.js
 ```
 
-或：
-
 ```bash
 npm run install:host
 ```
-
-这是推荐入口，适合零基础用户。你只需要按提示回答 `Y/N`，不需要自己理解 OpenClaw managed hook、`openclaw.json` 结构或定时任务参数。
 
 安装器会按顺序询问：
 
@@ -204,31 +143,23 @@ npm run install:host
 - 是否为某个 workspace 启用后台巡检任务
 - 如果启用巡检，选择 `Windows` / `macOS` / `Linux`
 
-默认结果：
+常用重装方式：
 
-- 把当前 skill 的自包含快照安装到固定目录 `<installed-skill-dir>`
-- 把当前 skill 的自包含快照安装到 `<openclaw-home>/skills/context-anchor/`
-- 写入 hook wrapper 到 `<openclaw-home>/hooks/context-anchor-hook/`
-- 写入 monitor wrapper 到 `<openclaw-home>/automation/context-anchor/`
-- 如果你同意修改配置，再自动确保 `<openclaw-home>/openclaw.json.hooks.internal.enabled = true`
-- 如果你使用自定义 `skills-root`，再自动补上 `openclaw.json.skills.load.extraDirs`
-- 写入 `<openclaw-home>/context-anchor-host-config.json`，登记默认用户、默认 workspace、附加用户、附加 workspace
-- 默认开启首次 workspace 自动接管：新 workspace 会按 `default user + workspace basename` 自动登记
-- 后续 session 会按 `workspace -> user/project` 默认归属自动落到登记表里
-- 如果你同意启用后台巡检，再为指定 workspace 生成对应平台的调度配置
-- Windows：生成 launcher 并注册 Task Scheduler
-- macOS：生成 launcher 和 `launchd plist`，并在本机尝试加载
-- Linux：生成 launcher、`systemd --user service/timer`，并在本机尝试启用
+```bash
+node scripts/install-one-click.js --yes --keep-memory --apply-config
+```
 
-注意：
+```bash
+node scripts/install-one-click.js --yes --drop-memory --apply-config
+```
 
-- 已登记的 workspace 会按登记关系处理 session
-- 默认情况下，未登记的 workspace 会在首次 hook / heartbeat / session onboarding 时自动登记
-- 如果你更希望手动审批，可以传 `--no-auto-register-workspaces`，这时 hook 才会返回明确的配置引导
+```bash
+node scripts/install-one-click.js --yes --keep-memory --apply-config --upgrade-sessions
+```
 
 这里的安装目录名始终是 `context-anchor`，不受你本地源码目录名影响。
 
-## 一键配置
+### 重新配置与 session 接管
 
 如果你已经安装过，只想重新跑配置，不想重装：
 
@@ -236,111 +167,47 @@ npm run install:host
 npm run configure:host
 ```
 
-或：
-
 ```bash
 node scripts/configure-host.js
 ```
 
-这个配置向导会继续使用同样的交互方式：
-
-- 是否覆盖写入推荐配置
-- 默认用户名
-- 默认 workspace
-- 是否继续添加新的用户或 workspace
-- 是否启用后台巡检
-- 如果启用巡检，选择目标平台
-- 如果启用巡检，要监控哪个 workspace
-
-## 安装、配置与易用性命令
-
-先看这一块，最常用的命令都在这里。
-
-### 安装
-
-```bash
-node scripts/install-one-click.js --yes --apply-config --default-user "alice" --default-workspace "D:/workspace/main"
-```
-
-```bash
-node scripts/install-one-click.js --yes --apply-config --enable-scheduler --target-platform windows --workspace "D:/workspace/project" --interval-minutes 5
-```
-
-### 配置
-
-```bash
-node scripts/configure-host.js --apply-config --default-user "alice" --default-workspace "D:/workspace/main"
-```
-
-```bash
-node scripts/configure-host.js --enable-scheduler --target-platform macos --workspace "/Users/me/workspace/project"
-```
-
-```bash
-node scripts/configure-host.js --enable-scheduler --target-platform linux --workspace "/home/me/workspace/project"
-```
-
-```bash
-node scripts/configure-host.js --yes --default-user "alice" --add-user "bob" --add-workspace "D:/workspace/client-b|bob|client-b"
-```
-
-```bash
-node scripts/configure-host.js --default-user "alice" --no-auto-register-workspaces
-```
-
-### 易用性命令
+如果你要批量接管 OpenClaw 已存在的 session：
 
 ```bash
 node scripts/configure-sessions.js
 ```
 
+`configure-sessions.js` 会扫描 `~/.openclaw/agents/*/sessions/sessions.json`，按 session 逐个询问是否跳过、配置或重新配置；`--yes` 可自动批量接管全部可解析的 session。默认自动接管模式下，它会优先做轻量级 workspace 自动登记，只在你明确要求重新配置时才重跑整套 host 配置。
+
+### 检查、诊断与更新
+
+检查安装和配置状态：
+
+```bash
+node scripts/doctor.js
+```
+
+```bash
+node scripts/doctor.js --openclaw-home "D:/openclaw-home" --skills-root "D:/openclaw-home/skills"
+```
+
+查看 session 状态：
+
 ```bash
 node scripts/sessions-status.js
 ```
+
+诊断 session 问题：
 
 ```bash
 node scripts/sessions-diagnose.js
 ```
 
+升级存量 session：
+
 ```bash
 node scripts/upgrade-sessions.js
 ```
-
-`configure-sessions.js` 会扫描 `~/.openclaw/agents/*/sessions/sessions.json`，按 session 逐个询问是否跳过、配置或重新配置；`--yes` 可自动批量接管全部可解析的 session。默认自动接管模式下，它会优先做轻量级 workspace 自动登记，只在你明确要求重新配置时才重跑整套 host 配置。
-
-`sessions-status.js` 会按 workspace 分组显示 session id、context-anchor 关联状态、hook 状态和后台任务状态，`--json` 可输出机器可读结果。
-
-`upgrade-sessions.js` 会一次性刷新已发现或已登记的存量 session，重新生成 bootstrap cache，并让这些 session 在下一次 hook / bootstrap 时直接使用最新 runtime 行为；默认跳过已关闭 session，传 `--include-closed` 才会连已关闭 session 一起刷新。
-
-如果状态查询提示异常，先跑 `sessions-diagnose.js`，再按输出里的诊断命令和修复命令处理。`configure:sessions` 也支持 `--workspace` / `--session-key` 定位到单个 workspace 或 session。
-
-### 更多安装选项
-
-如果你要覆盖默认位置：
-
-```bash
-node scripts/install-one-click.js --openclaw-home "<openclaw-home>" --skills-root "<skills-root>"
-```
-
-如果你明确知道要自动保留旧记忆并直接重装：
-
-```bash
-node scripts/install-one-click.js --yes --keep-memory --apply-config
-```
-
-如果你明确知道要清空旧记忆再重装：
-
-```bash
-node scripts/install-one-click.js --yes --drop-memory --apply-config
-```
-
-如果你想在升级 runtime 后顺手一键刷新存量 session：
-
-```bash
-node scripts/install-one-click.js --yes --keep-memory --apply-config --upgrade-sessions
-```
-
-如果你只想刷新某个 workspace 或某个 session：
 
 ```bash
 node scripts/upgrade-sessions.js --workspace "<workspace>"
@@ -350,7 +217,11 @@ node scripts/upgrade-sessions.js --workspace "<workspace>"
 node scripts/upgrade-sessions.js --session-key "<session-key>"
 ```
 
-## 安装后你应该看到什么
+如果状态查询提示异常，先跑 `sessions-diagnose.js`，再按输出里的诊断命令和修复命令处理。`sessions-status.js` 支持 `--json`，`configure-sessions.js` 和 `upgrade-sessions.js` 也支持 `--workspace` / `--session-key` 只处理一个 workspace 或 session。
+
+`upgrade-sessions.js` 会一次性刷新已发现或已登记的存量 session，重新生成 bootstrap cache，并让这些 session 在下一次 hook / bootstrap 时直接使用最新 runtime 行为；默认跳过已关闭 session，传 `--include-closed` 才会连已关闭 session 一起刷新。
+
+### 安装后你应该看到什么
 
 至少检查这几个路径：
 
@@ -364,7 +235,7 @@ node scripts/upgrade-sessions.js --session-key "<session-key>"
 
 如果这些文件不存在，说明安装没有完成。
 
-## 安装后先做什么
+### 安装后先做什么
 
 安装后立刻执行一次自检：
 
@@ -393,7 +264,219 @@ node scripts/doctor.js --openclaw-home "D:/openclaw-home" --skills-root "D:/open
 - 已登记的 workspace 及其默认 owner
 - 每个 session 的 workspace / project / user 归属
 
-## 高级手动接入
+### 最小验证流程
+
+安装完成后，建议按下面顺序做一次人工验证。
+
+#### 1. 验证 skill / hook 已安装
+
+检查：
+
+- `<installed-skill-dir>/` 是否存在
+- `node scripts/doctor.js` 输出中的 `installation.ready` 是否为 `true`
+- `openclaw hooks info context-anchor-hook` 是否显示 `Events: agent:bootstrap, command:new, command:reset, command:stop`
+- `openclaw skills list` 是否能看到 `context-anchor`
+- 如果你选择了自动写配置，再确认 `configuration.ready` 是否为 `true`
+
+#### 2. 验证 startup / 恢复预览
+
+先准备一个测试工作区，并写一个最小 payload 文件：
+
+```json
+{
+  "workspace": "D:/workspace/project"
+}
+```
+
+然后触发：
+
+```bash
+node "<openclaw-home>/hooks/context-anchor-hook/handler.js" gateway:startup "./context-anchor-payload.json"
+```
+
+预期：
+
+- 如果 workspace 已登记但没有最近 session，返回 `idle`
+- 如果有最近活跃 session，返回 `resume_available` 和 `resume_message`
+- 默认自动登记开启时，未登记 workspace 会先被自动登记，然后继续返回 `idle` 或 `resume_available`
+- 如果你关闭了自动登记，workspace 未登记时才会返回 `needs_configuration`
+
+#### 3. 验证 heartbeat
+
+```json
+{
+  "workspace": "D:/workspace/project",
+  "session_key": "chat-session-001",
+  "project_id": "default",
+  "usage_percent": 82
+}
+```
+
+然后执行：
+
+```bash
+node "<openclaw-home>/hooks/context-anchor-hook/handler.js" heartbeat "./context-anchor-payload.json"
+```
+
+预期：
+
+- 返回 `handled`
+- 内部结果为 `heartbeat_ok`
+- 工作区下出现 `.context-anchor/`
+
+#### 4. 验证 stop / session end
+
+```json
+{
+  "workspace": "D:/workspace/project",
+  "session_key": "chat-session-001",
+  "project_id": "default"
+}
+```
+
+然后执行：
+
+```bash
+node "<openclaw-home>/hooks/context-anchor-hook/handler.js" command:stop "./context-anchor-payload.json"
+```
+
+预期：
+
+- `sessions/<session-key>/checkpoint.md` 被创建
+- 热记忆会尝试同步到项目级
+- 如果 payload 缺失 `workspace` 或 `session_key`，CLI 会直接返回明确错误，而不是写到默认目录
+
+### 故障排查
+
+#### OpenClaw 没有发现 skill
+
+检查：
+
+- 默认托管目录安装时，不需要额外检查 `extraDirs`
+- 如果你使用了自定义 `skills-root`，再检查 `<openclaw-home>/openclaw.json.skills.load.extraDirs`
+- `<installed-skill-dir>/SKILL.md`
+- `node scripts/doctor.js` 的 `installation` 字段
+
+#### hook 调用失败
+
+检查：
+
+- `<openclaw-home>/hooks/context-anchor-hook/handler.js` 是否存在
+- payload 是否包含 `workspace`
+- 如果手工传 JSON 字符串失败，先改成 payload 文件方式
+
+#### heartbeat 没有触发 checkpoint
+
+检查：
+
+- `usage_percent` 是否达到阈值
+- 传入的 `session_key` 是否和当前 session 一致
+- 工作区下是否有 `.context-anchor/sessions/<session-key>/`
+
+#### 经验没有进入技能化候选
+
+检查：
+
+- `validation.status` 是否为 `validated`
+- 是否满足最少 7 天
+- `access_count` 是否足够
+- `access_sessions.length` 是否足够
+
+## 贡献者
+
+### 贡献者入口
+
+如果你想参与这个项目，先建立一个正确心智模型：
+
+- 这不是单纯一份 `SKILL.md`
+- 这是一个“skill + runtime scripts + hook wrapper + host config + tests”的组合项目
+- README 面向使用者，`SKILL.md` 面向运行规范，`tests/` 用来锁定行为
+
+建议开发顺序：
+
+1. 先看这份 `README`，理解对使用者承诺了什么
+2. 再看 `SKILL.md`，理解运行时行为边界
+3. 看 `scripts/lib/context-anchor.js` 和 `scripts/lib/host-config.js`，建立数据模型理解
+4. 看 `hooks/context-anchor-hook/handler.js`、`scripts/session-start.js`、`scripts/session-close.js`、`scripts/heartbeat.js`
+5. 跑 `npm test`，确认本地环境稳定
+
+如果你准备直接贡献代码，后面重点看：
+
+- 「高级配置命令」
+- 「工作区中的运行时数据」
+- 「自动生命周期」
+- 「高级观测与诊断」
+- 「开发者指南」
+
+### 交付形态
+
+这个项目不是只有一个 `SKILL.md`。
+
+实际交付是：
+
+- skill：`SKILL.md`
+- 运行时脚本：`scripts/`
+- hook 处理器：`hooks/context-anchor-hook/`
+- 宿主安装脚本：`scripts/install-host-assets.js`
+
+安装后会在 `<openclaw-home>` 下落一份自包含快照，供 OpenClaw 加载和调用。
+
+### 分层模型
+
+第一阶段已经落地的作用域：
+
+- `session`：当前会话的工作记忆、会话经验、技能草稿
+- `project`：当前 workspace 的长期决策、项目经验、项目技能索引
+- `user`：跨项目偏好、用户级记忆、用户级经验、用户级技能索引
+
+默认：
+
+- `user_id` 默认值是 `default-user`
+- `project_id = workspace basename`，如果显式传入则优先显式值
+
+### 高级配置命令
+
+如果你要覆盖默认安装位置：
+
+```bash
+node scripts/install-one-click.js --openclaw-home "<openclaw-home>" --skills-root "<skills-root>"
+```
+
+如果你要一次性写入默认用户、默认 workspace 和推荐配置：
+
+```bash
+node scripts/install-one-click.js --yes --apply-config --default-user "alice" --default-workspace "D:/workspace/main"
+```
+
+如果你要在安装时顺手启用后台巡检：
+
+```bash
+node scripts/install-one-click.js --yes --apply-config --enable-scheduler --target-platform windows --workspace "D:/workspace/project" --interval-minutes 5
+```
+
+如果你已经安装完成，只想精细化调整配置：
+
+```bash
+node scripts/configure-host.js --apply-config --default-user "alice" --default-workspace "D:/workspace/main"
+```
+
+```bash
+node scripts/configure-host.js --enable-scheduler --target-platform macos --workspace "/Users/me/workspace/project"
+```
+
+```bash
+node scripts/configure-host.js --enable-scheduler --target-platform linux --workspace "/home/me/workspace/project"
+```
+
+```bash
+node scripts/configure-host.js --yes --default-user "alice" --add-user "bob" --add-workspace "D:/workspace/client-b|bob|client-b"
+```
+
+```bash
+node scripts/configure-host.js --default-user "alice" --no-auto-register-workspaces
+```
+
+### 高级手动接入
 
 如果你明确不想让安装器改配置，仍然可以手工接入。最小原则是：
 
@@ -433,89 +516,7 @@ node scripts/doctor.js --openclaw-home "D:/openclaw-home" --skills-root "D:/open
 
 如果你是第一次接这类 OpenClaw managed hook，推荐继续使用安装器自动写配置，不要手抄这些命令。
 
-## 最小验证流程
-
-安装完成后，建议按下面顺序做一次人工验证。
-
-### 1. 验证 skill / hook 已安装
-
-检查：
-
-- `<installed-skill-dir>/` 是否存在
-- `node scripts/doctor.js` 输出中的 `installation.ready` 是否为 `true`
-- `openclaw hooks info context-anchor-hook` 是否显示 `Events: agent:bootstrap, command:new, command:reset, command:stop`
-- `openclaw skills list` 是否能看到 `context-anchor`
-- 如果你选择了自动写配置，再确认 `configuration.ready` 是否为 `true`
-
-### 2. 验证 startup / 恢复预览
-
-先准备一个测试工作区，并写一个最小 payload 文件：
-
-```json
-{
-  "workspace": "D:/workspace/project"
-}
-```
-
-然后触发：
-
-```bash
-node "<openclaw-home>/hooks/context-anchor-hook/handler.js" gateway:startup "./context-anchor-payload.json"
-```
-
-预期：
-
-- 如果 workspace 已登记但没有最近 session，返回 `idle`
-- 如果有最近活跃 session，返回 `resume_available` 和 `resume_message`
-- 默认自动登记开启时，未登记 workspace 会先被自动登记，然后继续返回 `idle` 或 `resume_available`
-- 如果你关闭了自动登记，workspace 未登记时才会返回 `needs_configuration`
-
-### 3. 验证 heartbeat
-
-```json
-{
-  "workspace": "D:/workspace/project",
-  "session_key": "chat-session-001",
-  "project_id": "default",
-  "usage_percent": 82
-}
-```
-
-然后执行：
-
-```bash
-node "<openclaw-home>/hooks/context-anchor-hook/handler.js" heartbeat "./context-anchor-payload.json"
-```
-
-预期：
-
-- 返回 `handled`
-- 内部结果为 `heartbeat_ok`
-- 工作区下出现 `.context-anchor/`
-
-### 4. 验证 stop / session end
-
-```json
-{
-  "workspace": "D:/workspace/project",
-  "session_key": "chat-session-001",
-  "project_id": "default"
-}
-```
-
-然后执行：
-
-```bash
-node "<openclaw-home>/hooks/context-anchor-hook/handler.js" command:stop "./context-anchor-payload.json"
-```
-
-预期：
-
-- `sessions/<session-key>/checkpoint.md` 被创建
-- 热记忆会尝试同步到项目级
-- 如果 payload 缺失 `workspace` 或 `session_key`，CLI 会直接返回明确错误，而不是写到默认目录
-
-## 工作区中的运行时数据
+### 工作区中的运行时数据
 
 `context-anchor` 把状态保存在当前任务工作区下：
 
@@ -556,9 +557,9 @@ node "<openclaw-home>/hooks/context-anchor-hook/handler.js" command:stop "./cont
 └── heat-index.json
 ```
 
-## 自动生命周期
+### 自动生命周期
 
-### Session Start
+#### Session Start
 
 `session-start` 现在会自动加载三层资产：
 
@@ -582,7 +583,7 @@ node "<openclaw-home>/hooks/context-anchor-hook/handler.js" command:stop "./cont
 
 也就是同名技能冲突时，`session > project > user`。
 
-### 上下文压力
+#### 上下文压力
 
 达到压力阈值时，会自动：
 
@@ -590,7 +591,7 @@ node "<openclaw-home>/hooks/context-anchor-hook/handler.js" command:stop "./cont
 - 生成 `compact-packet.json`
 - 同步高热记忆到项目级
 
-### Session End / Command Stop
+#### Session End / Command Stop
 
 退出前会统一执行：
 
@@ -603,7 +604,7 @@ node "<openclaw-home>/hooks/context-anchor-hook/handler.js" command:stop "./cont
 - project heat / skillification 刷新
 - 满足条件的 `project/user active skill` 晋升
 
-### 技能治理
+#### 技能治理
 
 当前已经落地的治理规则：
 
@@ -635,9 +636,9 @@ node "<installed-skill-dir>/scripts/skill-reconcile.js" "<workspace>" [project-i
 node "<installed-skill-dir>/scripts/skill-supersede.js" "<workspace>" <scope> <winner-skill-id> <loser-skill-id> [project-id|user-id]
 ```
 
-## 观测与诊断
+### 高级观测与诊断
 
-### 统一状态报告
+#### 统一状态报告
 
 可以直接查看当前 workspace 下 user/project/session 三层的统计和治理状态：
 
@@ -662,7 +663,7 @@ node "<installed-skill-dir>/scripts/status-report.js" "<workspace>" [session-key
 - 当前激活预算影响下的治理结果
 - 可选的 `snapshot_file`
 
-### 单条 skill 诊断
+#### 单条 skill 诊断
 
 可以解释某条 skill 为什么生效、被遮蔽、被 supersede 或被预算裁掉：
 
@@ -683,57 +684,57 @@ node "<installed-skill-dir>/scripts/skill-diagnose.js" "<workspace>" <skill-id|n
   - 手动 inactive / archive
 - `recommendations` 字段会直接给出下一步建议
 
-## 常见操作
+### 常见高级操作
 
-### 手动创建 checkpoint
+#### 手动创建 checkpoint
 
 ```bash
 node "<installed-skill-dir>/scripts/checkpoint-create.js" "<workspace>" "<session-key>" manual
 ```
 
-### 手动跑一次 heartbeat
+#### 手动跑一次 heartbeat
 
 ```bash
 node "<installed-skill-dir>/scripts/heartbeat.js" "<workspace>" "<session-key>" "<project-id>" 80
 ```
 
-### 手动生成 compact packet
+#### 手动生成 compact packet
 
 ```bash
 node "<installed-skill-dir>/scripts/compact-packet-create.js" "<workspace>" "<session-key>" manual 80
 ```
 
-### 手动执行 session close
+#### 手动执行 session close
 
 ```bash
 node "<installed-skill-dir>/scripts/session-close.js" "<workspace>" "<session-key>" session-end 80 "<project-id>"
 ```
 
-### 手动记录一条项目经验
+#### 手动记录一条项目经验
 
 ```bash
 node "<installed-skill-dir>/scripts/memory-save.js" "<workspace>" "<session-key>" project best_practice "use smaller diffs"
 ```
 
-### 手动记录一条用户级记忆/经验
+#### 手动记录一条用户级记忆/经验
 
 ```bash
 node "<installed-skill-dir>/scripts/memory-save.js" "<workspace>" "<session-key>" user best_practice "keep responses concise"
 ```
 
-### 从旧 `_global` 迁移到 user
+#### 从旧 `_global` 迁移到 user
 
 ```bash
 node "<installed-skill-dir>/scripts/migrate-global-to-user.js" "<workspace>" default-user
 ```
 
-### 手动校验经验
+#### 手动校验经验
 
 ```bash
 node "<installed-skill-dir>/scripts/experience-validate.js" "<workspace>" <experience-id> validated "<project-id>" "reviewed manually"
 ```
 
-### 从经验生成 skill
+#### 从经验生成 skill
 
 ```bash
 node "<installed-skill-dir>/scripts/skill-create.js" "<workspace>" <experience-id> <skill-name> "<project-id>"
@@ -745,7 +746,7 @@ node "<installed-skill-dir>/scripts/skill-create.js" "<workspace>" <experience-i
 - 不能包含 `/`、`\` 或 `..`
 - 建议只使用便于跨平台落盘的名称
 
-## 重要边界
+### 重要边界
 
 - Windows / macOS / Linux 都可以通过配置向导生成对应调度配置；如果自动注册失败，脚本会保留生成好的文件供你手工接管
 - `usage_percent` 需要宿主提供，`context-anchor` 不负责计算
@@ -754,47 +755,11 @@ node "<installed-skill-dir>/scripts/skill-create.js" "<workspace>" <experience-i
 - `session skill draft` 已实现
 - `project/user active skill` 已支持自动晋升、自动回收/回流、归档与 evidence 追踪
 
-## 故障排查
-
-### OpenClaw 没有发现 skill
-
-检查：
-
-- 默认托管目录安装时，不需要额外检查 `extraDirs`
-- 如果你使用了自定义 `skills-root`，再检查 `<openclaw-home>/openclaw.json.skills.load.extraDirs`
-- `<installed-skill-dir>/SKILL.md`
-- `node scripts/doctor.js` 的 `installation` 字段
-
-### hook 调用失败
-
-检查：
-
-- `<openclaw-home>/hooks/context-anchor-hook/handler.js` 是否存在
-- payload 是否包含 `workspace`
-- 如果手工传 JSON 字符串失败，先改成 payload 文件方式
-
-### heartbeat 没有触发 checkpoint
-
-检查：
-
-- `usage_percent` 是否达到阈值
-- 传入的 `session_key` 是否和当前 session 一致
-- 工作区下是否有 `.context-anchor/sessions/<session-key>/`
-
-### 经验没有进入技能化候选
-
-检查：
-
-- `validation.status` 是否为 `validated`
-- 是否满足最少 7 天
-- `access_count` 是否足够
-- `access_sessions.length` 是否足够
-
-## 开发者指南
+### 开发者指南
 
 这一节给准备参与项目维护或提交 PR 的贡献者。
 
-### 本地开发环境
+#### 本地开发环境
 
 最低要求：
 
@@ -814,7 +779,7 @@ npm install
 npm test
 ```
 
-### 建议先理解的代码入口
+#### 建议先理解的代码入口
 
 如果你要改行为，建议先按这个顺序读代码：
 
@@ -826,7 +791,7 @@ npm test
 - `hooks/context-anchor-hook/handler.js`：OpenClaw managed hook 接入点
 - `scripts/install-one-click.js` / `scripts/configure-host.js`：使用者第一次接入会经过的入口
 
-### 改动时要守住的产品目标
+#### 改动时要守住的产品目标
 
 从使用者视角，这个项目最重要的不是“功能更多”，而是“越少打断越好”。提交改动时建议自查：
 
@@ -836,7 +801,7 @@ npm test
 - 会不会把本来自动完成的事情重新变成手工操作
 - 会不会让诊断结果更难理解
 
-### 当前测试覆盖
+#### 当前测试覆盖
 
 现有测试重点覆盖这些承诺：
 
@@ -858,7 +823,7 @@ npm test
 - host 自包含安装
 - workspace 自动接管与手动关闭回退
 
-### 提交贡献前的建议检查
+#### 提交贡献前的建议检查
 
 在提交前，至少确认：
 
@@ -867,7 +832,7 @@ npm test
 - `npm test` 全通过
 - 如果改了安装、hook、session 生命周期或技能治理，测试里有新增或更新覆盖
 
-### 适合继续扩展的方向
+#### 适合继续扩展的方向
 
 如果你想继续演进项目，优先考虑这些方向：
 
@@ -877,7 +842,7 @@ npm test
 - 更可解释的技能晋升、降级和复用策略
 - 更容易让使用者看懂的诊断输出
 
-## 文档分工
+### 文档分工
 
 - `README.md`：给使用者和贡献者的项目入口说明
 - `SKILL.md`：skill 的运行行为规范
