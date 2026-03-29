@@ -16,7 +16,7 @@ const { getHostConfigFile } = require('../scripts/lib/host-config');
 const { runCheckpointCreate } = require('../scripts/checkpoint-create');
 const { runConfigureHost } = require('../scripts/configure-host');
 const { runContextPressureHandle } = require('../scripts/context-pressure-handle');
-const { handleHookEvent } = require('../hooks/context-anchor-hook/handler');
+const { handleHookEvent, handleManagedHookEvent } = require('../hooks/context-anchor-hook/handler');
 const { runExperienceValidate } = require('../scripts/experience-validate');
 const { runInstallHostAssets } = require('../scripts/install-host-assets');
 const { runOneClickInstall } = require('../scripts/install-one-click');
@@ -1732,6 +1732,143 @@ test('session-start continues from the latest related session and recommends reu
       assert.equal(result.recovery.continuity.source_session_key, 'previous-session');
       assert.ok(result.recommended_reuse.experiences.some((entry) => entry.summary.includes('checkout pipeline')));
       assert.ok(result.recommended_reuse.skills.some((entry) => entry.scope === 'project'));
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('session-start auto-recovers unfinished continuation assets before restoring context', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'handoff-source', 'demo');
+      runMemorySave(
+        workspace,
+        'handoff-source',
+        'session',
+        'best_practice',
+        'Use retry budget to stabilize checkout pipeline',
+        JSON.stringify({
+          heat: 95,
+          details: 'observed during interrupted run',
+          tags: ['checkout', 'retry']
+        })
+      );
+
+      const sourceStateFile = path.join(
+        workspace,
+        '.context-anchor',
+        'sessions',
+        'handoff-source',
+        'state.json'
+      );
+      const sourceState = readJson(sourceStateFile, {});
+      sourceState.active_task = 'stabilize checkout pipeline';
+      sourceState.commitments = [
+        {
+          id: 'handoff-commitment',
+          what: 'stabilize checkout pipeline',
+          status: 'pending'
+        }
+      ];
+      writeJson(sourceStateFile, sourceState);
+      const preservedLastActive = readJson(sourceStateFile, {}).last_active;
+
+      const result = runSessionStart(workspace, 'handoff-target', 'demo');
+      const compactPacketFile = path.join(
+        workspace,
+        '.context-anchor',
+        'sessions',
+        'handoff-source',
+        'compact-packet.json'
+      );
+      const projectExperiences = readJson(
+        path.join(workspace, '.context-anchor', 'projects', 'demo', 'experiences.json'),
+        { experiences: [] }
+      ).experiences;
+      const recoveredState = readJson(sourceStateFile, {});
+
+      assert.equal(result.session.continued_from, 'handoff-source');
+      assert.equal(result.recovery.active_task, 'stabilize checkout pipeline');
+      assert.equal(result.recovery.continuity.recovered_before_restore, true);
+      assert.equal(result.recovery.continuity.source_compact_packet_available, true);
+      assert.ok(fs.existsSync(compactPacketFile));
+      assert.ok(projectExperiences.some((entry) => entry.summary.includes('checkout pipeline')));
+      assert.equal(recoveredState.closed_at, null);
+      assert.equal(recoveredState.last_active, preservedLastActive);
+      assert.ok(recoveredState.metadata.continuation_recovered_at);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('managed bootstrap injects recovered continuity for an unfinished prior session', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'bootstrap-source', 'demo', {
+        openClawSessionId: 'openclaw-source'
+      });
+      runMemorySave(
+        workspace,
+        'bootstrap-source',
+        'session',
+        'best_practice',
+        'Apply checkout retries before restarting the worker',
+        JSON.stringify({
+          heat: 96,
+          details: 'captured before crash',
+          tags: ['checkout', 'retry']
+        })
+      );
+
+      const sourceStateFile = path.join(
+        workspace,
+        '.context-anchor',
+        'sessions',
+        'bootstrap-source',
+        'state.json'
+      );
+      const sourceState = readJson(sourceStateFile, {});
+      sourceState.active_task = 'repair checkout retries';
+      sourceState.commitments = [
+        {
+          id: 'bootstrap-commitment',
+          what: 'repair checkout retries',
+          status: 'pending'
+        }
+      ];
+      writeJson(sourceStateFile, sourceState);
+
+      const event = {
+        type: 'agent',
+        action: 'bootstrap',
+        sessionKey: 'bootstrap-target',
+        context: {
+          sessionId: 'openclaw-target',
+          sessionKey: 'bootstrap-target',
+          workspaceDir: workspace,
+          bootstrapFiles: []
+        }
+      };
+
+      const result = handleManagedHookEvent(event);
+
+      assert.equal(result.status, 'handled');
+      assert.equal(result.actions[0], 'bootstrap_injected');
+      assert.equal(event.context.bootstrapFiles.length, 1);
+      assert.match(event.context.bootstrapFiles[0].content, /Continued from: bootstrap-source/);
+      assert.match(event.context.bootstrapFiles[0].content, /repair checkout retries/);
+      assert.match(event.context.bootstrapFiles[0].content, /checkout retries/);
+      assert.ok(
+        fs.existsSync(
+          path.join(workspace, '.context-anchor', 'sessions', 'bootstrap-source', 'compact-packet.json')
+        )
+      );
     });
   } finally {
     cleanupWorkspace(workspace);

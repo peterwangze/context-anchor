@@ -2,6 +2,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const { runCompactPacketCreate } = require('./compact-packet-create');
+const { runHeatEvaluation } = require('./heat-eval');
 const { recordSessionOwnership, resolveOwnership } = require('./lib/host-config');
 const {
   DEFAULTS,
@@ -41,6 +43,10 @@ const {
   writeUserExperiences,
   writeUserMemories
 } = require('./lib/context-anchor');
+const { runMemoryFlow } = require('./memory-flow');
+const { runScopePromote } = require('./scope-promote');
+const { runSkillReconcile } = require('./skill-reconcile');
+const { runSkillificationScore } = require('./skillification-score');
 
 function detectLegacyMemory(workspace) {
   const results = [];
@@ -114,8 +120,79 @@ function loadContinuationSource(paths, currentSessionKey, projectId) {
     active_task: activeTask,
     pending_commitments: pendingCommitments,
     checkpoint_excerpt: checkpoint ? checkpoint.split('\n').slice(0, 10).join('\n') : null,
+    continuation_recovered_at: state?.metadata?.continuation_recovered_at || null,
     summary,
     compact_packet: compactPacket
+  };
+}
+
+function continuationSourceNeedsRecovery(source) {
+  if (!source) {
+    return false;
+  }
+
+  if (!source.compact_packet?.created_at) {
+    return true;
+  }
+
+  return !source.summary?.created_at && !source.continuation_recovered_at;
+}
+
+function recoverContinuationSource(paths, currentSessionKey, source, options = {}) {
+  if (!continuationSourceNeedsRecovery(source)) {
+    return {
+      source,
+      recovered: false
+    };
+  }
+
+  const preservedState = loadSessionState(paths, source.session_key, source.project_id, {
+    createIfMissing: false,
+    touch: false
+  });
+  const preservedLastActive = preservedState?.last_active || source.last_active || null;
+  const preservedClosedAt =
+    Object.prototype.hasOwnProperty.call(preservedState || {}, 'closed_at') ? preservedState.closed_at : null;
+
+  runMemoryFlow(paths.workspace, source.session_key, {
+    minimumHeat: DEFAULTS.warmMemoryHeat
+  });
+  runHeatEvaluation(paths.workspace, source.project_id);
+  runSkillificationScore(paths.workspace, source.project_id);
+  runScopePromote(paths.workspace, {
+    sessionKey: source.session_key,
+    projectId: source.project_id,
+    userId: source.user_id || options.userId
+  });
+  runSkillReconcile(paths.workspace, {
+    projectId: source.project_id,
+    userId: source.user_id || options.userId
+  });
+  runCompactPacketCreate(paths.workspace, source.session_key, {
+    reason: 'continuation-recovery',
+    projectId: source.project_id,
+    userId: source.user_id || options.userId
+  });
+
+  const recoveredState = loadSessionState(paths, source.session_key, source.project_id, {
+    createIfMissing: false,
+    touch: false
+  });
+
+  if (recoveredState) {
+    recoveredState.last_active = preservedLastActive;
+    recoveredState.closed_at = preservedClosedAt;
+    recoveredState.metadata = {
+      ...(recoveredState.metadata || {}),
+      continuation_recovered_at: new Date().toISOString()
+    };
+    writeSessionState(paths, source.session_key, recoveredState);
+    touchSessionIndex(paths, recoveredState);
+  }
+
+  return {
+    source: loadContinuationSource(paths, currentSessionKey, source.project_id),
+    recovered: true
   };
 }
 
@@ -307,7 +384,15 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
   }
   sessionState.user_id = resolveUserId(sessionState.user_id || ownership.userId || DEFAULTS.userId);
   sessionState.project_id = projectId;
-  const continuationSource = loadContinuationSource(paths, sessionKey, projectId);
+  const continuationRecovery = recoverContinuationSource(
+    paths,
+    sessionKey,
+    loadContinuationSource(paths, sessionKey, projectId),
+    {
+      userId: sessionState.user_id
+    }
+  );
+  const continuationSource = continuationRecovery.source;
   const continuityRestoration = restoreSessionContinuity(sessionState, continuationSource);
   sessionState.metadata = {
     ...(sessionState.metadata || {}),
@@ -495,6 +580,8 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
         source_last_active: continuationSource.last_active,
         inherited_active_task: continuityRestoration.inherited_active_task,
         inherited_commitments: continuityRestoration.inherited_commitments,
+        recovered_before_restore: continuationRecovery.recovered,
+        recovered_at: continuationSource.continuation_recovered_at || null,
         source_summary_available: Boolean(continuationSource.summary?.created_at),
         source_compact_packet_available: Boolean(continuationSource.compact_packet?.created_at)
       } : null

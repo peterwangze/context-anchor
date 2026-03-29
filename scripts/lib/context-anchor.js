@@ -329,6 +329,9 @@ function loadSessionState(paths, sessionKey, projectId = DEFAULTS.projectId, opt
   }
 
   const state = createSessionState(normalizedKey, projectId, existing || {}, options);
+  if (existing && options.touch === false && existing.last_active) {
+    state.last_active = existing.last_active;
+  }
 
   if (options.touch !== false || !existing) {
     writeJson(file, state);
