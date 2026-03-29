@@ -12,7 +12,7 @@ const {
   readJson,
   writeJson
 } = require('../scripts/lib/context-anchor');
-const { getHostConfigFile } = require('../scripts/lib/host-config');
+const { findSessionByKey, getHostConfigFile, resolveOwnership } = require('../scripts/lib/host-config');
 const { runCheckpointCreate } = require('../scripts/checkpoint-create');
 const { runConfigureHost } = require('../scripts/configure-host');
 const { runContextPressureHandle } = require('../scripts/context-pressure-handle');
@@ -795,6 +795,44 @@ test('hook runtime applies workspace ownership defaults and records session owne
             entry.project_id === 'client-b'
         )
       );
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('host ownership can resolve an active session by session key without an explicit workspace', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const targetWorkspace = path.join(workspace, 'session-owned-workspace');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: path.join(workspace, 'default-workspace'),
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      runSessionStart(targetWorkspace, 'compact-owned-session', 'target-project', {
+        userId: 'alice',
+        openClawSessionId: 'openclaw-compact-owned'
+      });
+
+      const hostConfig = readJson(getHostConfigFile(openClawHome), {});
+      const matched = findSessionByKey(hostConfig, 'compact-owned-session');
+      const resolved = resolveOwnership(openClawHome, {
+        sessionKey: 'compact-owned-session'
+      });
+
+      assert.equal(matched.workspace, path.resolve(targetWorkspace));
+      assert.equal(resolved.workspace, path.resolve(targetWorkspace));
+      assert.equal(resolved.projectId, 'target-project');
+      assert.equal(resolved.userId, 'alice');
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -2021,6 +2059,68 @@ test('managed bootstrap injects recovered continuity for an unfinished prior ses
           path.join(workspace, '.context-anchor', 'sessions', 'bootstrap-source', 'compact-packet.json')
         )
       );
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('managed compact hooks persist checkpoint before compaction and refresh compact assets after compaction', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'compact-hook', 'demo', {
+        openClawSessionId: 'openclaw-compact-hook'
+      });
+
+      const beforeEvent = {
+        type: 'session',
+        action: 'compact:before',
+        sessionKey: 'compact-hook',
+        context: {
+          sessionId: 'openclaw-compact-hook',
+          messageCount: 48,
+          tokenCount: 3200
+        }
+      };
+
+      const beforeResult = handleManagedHookEvent(beforeEvent);
+      assert.equal(beforeResult.status, 'handled');
+      assert.equal(beforeResult.result.phase, 'before');
+      assert.ok(
+        fs.existsSync(path.join(workspace, '.context-anchor', 'sessions', 'compact-hook', 'checkpoint.md'))
+      );
+      assert.ok(
+        fs.existsSync(path.join(workspace, '.context-anchor', 'sessions', 'compact-hook', 'openclaw-bootstrap.md'))
+      );
+
+      const afterEvent = {
+        type: 'session',
+        action: 'compact:after',
+        sessionKey: 'compact-hook',
+        context: {
+          sessionId: 'openclaw-compact-hook',
+          messageCount: 18,
+          tokenCount: 900,
+          compactedCount: 30,
+          firstKeptEntryId: 'entry-1'
+        }
+      };
+
+      const afterResult = handleManagedHookEvent(afterEvent);
+      const sessionState = readJson(
+        path.join(workspace, '.context-anchor', 'sessions', 'compact-hook', 'state.json'),
+        {}
+      );
+
+      assert.equal(afterResult.status, 'handled');
+      assert.equal(afterResult.result.phase, 'after');
+      assert.ok(
+        fs.existsSync(path.join(workspace, '.context-anchor', 'sessions', 'compact-hook', 'compact-packet.json'))
+      );
+      assert.equal(sessionState.metadata.last_compaction_event, 'after');
+      assert.equal(sessionState.metadata.compaction_compacted_count, 30);
     });
   } finally {
     cleanupWorkspace(workspace);

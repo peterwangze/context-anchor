@@ -23,6 +23,7 @@ const {
 } = require('../../scripts/lib/host-config');
 const { runHeartbeat } = require('../../scripts/heartbeat');
 const { runSessionClose } = require('../../scripts/session-close');
+const { runSessionCompact } = require('../../scripts/session-compact');
 const { runSessionStart } = require('../../scripts/session-start');
 
 function parsePayload(rawArg) {
@@ -387,6 +388,36 @@ function handleManagedBootstrap(event) {
   };
 }
 
+function handleManagedCompact(event) {
+  const normalizedPayload = resolveManagedPayload(event);
+  if (!normalizedPayload.workspace) {
+    return {
+      status: 'ignored',
+      event: resolveManagedEventKey(event),
+      actions: [],
+      message: 'Workspace could not be resolved from compact event context.'
+    };
+  }
+
+  const guidance = buildConfigureGuidance(resolveManagedEventKey(event), normalizedPayload);
+  if (guidance) {
+    return guidance;
+  }
+
+  const phase = event.action === 'compact:after' ? 'after' : 'before';
+  return {
+    status: 'handled',
+    event: resolveManagedEventKey(event),
+    actions: [`compact_${phase}`],
+    result: runSessionCompact(normalizedPayload.workspace, normalizedPayload.session_key, {
+      phase,
+      projectId: normalizedPayload.project_id,
+      userId: normalizedPayload.user_id,
+      eventContext: event.context || {}
+    })
+  };
+}
+
 function handleHeartbeat(payload) {
   const normalizedPayload = normalizePayload(payload);
   requirePayloadFields(normalizedPayload, 'heartbeat', ['workspace', 'session_key']);
@@ -446,6 +477,9 @@ function handleManagedHookEvent(event = {}) {
       return handleSessionRollover(event);
     case 'command:stop':
       return handleManagedStop(event);
+    case 'session:compact:before':
+    case 'session:compact:after':
+      return handleManagedCompact(event);
     default:
       return {
         status: 'ignored',

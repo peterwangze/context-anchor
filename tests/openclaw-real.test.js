@@ -326,7 +326,10 @@ test('real OpenClaw profile discovers context-anchor after one-click install', {
 
     assert.match(hooksList, /anchor-hook/);
     assert.match(hookInfo, /Source:\s+openclaw-managed/);
-    assert.match(hookInfo, /Events:\s+agent:bootstrap, command:new, command:reset, command:stop/);
+    assert.match(
+      hookInfo,
+      /Events:\s+agent:bootstrap, command:new, command:reset, command:stop, session:compact:before, session:compact:after/
+    );
     assert.match(skillsList, /context-anchor/);
     assert.match(skillsList, /context-anchor[\s\S]{0,240}openclaw-managed/);
   } finally {
@@ -765,6 +768,88 @@ test(
     } finally {
       cleanupTestDir(profileHome, os.homedir(), '.openclaw-context-anchor-runtime-rollover-');
       cleanupTestDir(workspaceDir, os.tmpdir(), 'context-anchor-runtime-rollover-');
+    }
+  }
+);
+
+test(
+  'real OpenClaw runtime loads managed hooks and persists assets across session compaction',
+  { timeout: 240000 },
+  async (t) => {
+    if (!resolveOpenClawCommand()) {
+      t.skip('OpenClaw CLI is not installed on PATH.');
+      return;
+    }
+
+    const profileName = createTestProfileName('context-anchor-runtime-compact');
+    const profileHome = getProfileHome(profileName);
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'context-anchor-runtime-compact-'));
+
+    try {
+      JSON.parse(
+        runInstallCommand([
+          '--openclaw-home',
+          profileHome,
+          '--yes',
+          '--keep-memory',
+          '--apply-config'
+        ])
+      );
+
+      const config = readJson(path.join(profileHome, 'openclaw.json'));
+
+      await withOpenClawHome(profileHome, async () => {
+        runSessionStart(workspaceDir, 'runtime-compact', 'runtime-project', {
+          openClawSessionId: 'openclaw-runtime-compact'
+        });
+
+        const runtime = await loadManagedHooksIntoRuntime(profileHome, workspaceDir, config);
+        const compactBeforeEvent = runtime.createInternalHookEvent('session', 'compact:before', 'runtime-compact', {
+          sessionId: 'openclaw-runtime-compact',
+          messageCount: 52,
+          tokenCount: 4100
+        });
+
+        await runtime.triggerInternalHook(compactBeforeEvent);
+
+        assert.ok(
+          fs.existsSync(
+            path.join(workspaceDir, '.context-anchor', 'sessions', 'runtime-compact', 'checkpoint.md')
+          )
+        );
+        assert.ok(
+          fs.existsSync(
+            path.join(workspaceDir, '.context-anchor', 'sessions', 'runtime-compact', 'openclaw-bootstrap.md')
+          )
+        );
+
+        const compactAfterEvent = runtime.createInternalHookEvent('session', 'compact:after', 'runtime-compact', {
+          sessionId: 'openclaw-runtime-compact',
+          messageCount: 14,
+          tokenCount: 900,
+          compactedCount: 38,
+          firstKeptEntryId: 'entry-42'
+        });
+
+        await runtime.triggerInternalHook(compactAfterEvent);
+
+        const state = readJson(
+          path.join(workspaceDir, '.context-anchor', 'sessions', 'runtime-compact', 'state.json')
+        );
+
+        assert.ok(
+          fs.existsSync(
+            path.join(workspaceDir, '.context-anchor', 'sessions', 'runtime-compact', 'compact-packet.json')
+          )
+        );
+        assert.equal(state.metadata.last_compaction_event, 'after');
+        assert.equal(state.metadata.compaction_compacted_count, 38);
+
+        runtime.clearInternalHooks();
+      });
+    } finally {
+      cleanupTestDir(profileHome, os.homedir(), '.openclaw-context-anchor-runtime-compact-');
+      cleanupTestDir(workspaceDir, os.tmpdir(), 'context-anchor-runtime-compact-');
     }
   }
 );

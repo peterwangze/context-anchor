@@ -279,6 +279,36 @@ function findSession(config, workspaceArg, sessionKeyArg) {
   );
 }
 
+function findSessionByKey(config, sessionKeyArg) {
+  if (!sessionKeyArg) {
+    return null;
+  }
+
+  const sessionKey = sanitizeKey(sessionKeyArg, 'default');
+  const matches = config.sessions.filter((entry) => entry.session_key === sessionKey);
+  if (matches.length === 0) {
+    return null;
+  }
+
+  return [...matches].sort((left, right) => {
+    const leftActive = left.status === 'active' ? 1 : 0;
+    const rightActive = right.status === 'active' ? 1 : 0;
+    if (leftActive !== rightActive) {
+      return rightActive - leftActive;
+    }
+
+    const rightUpdated = new Date(right.updated_at || right.last_active || 0).getTime();
+    const leftUpdated = new Date(left.updated_at || left.last_active || 0).getTime();
+    if (rightUpdated !== leftUpdated) {
+      return rightUpdated - leftUpdated;
+    }
+
+    const rightActiveAt = new Date(right.last_active || 0).getTime();
+    const leftActiveAt = new Date(left.last_active || 0).getTime();
+    return rightActiveAt - leftActiveAt;
+  })[0];
+}
+
 function upsertUser(config, userId) {
   const normalizedUserId = normalizeUserId(userId);
   const existing = findUser(config, normalizedUserId);
@@ -357,13 +387,16 @@ function setOnboardingPolicy(config, options = {}) {
 
 function resolveOwnership(openClawHomeArg, options = {}) {
   const config = readHostConfig(openClawHomeArg);
+  const globalSession = options.sessionKey ? findSessionByKey(config, options.sessionKey) : null;
   const workspace =
     options.workspace !== undefined && options.workspace !== null && options.workspace !== ''
       ? path.resolve(options.workspace)
-      : config.defaults.workspace
+      : globalSession?.workspace
+        ? path.resolve(globalSession.workspace)
+        : config.defaults.workspace
         ? path.resolve(config.defaults.workspace)
         : null;
-  const session = workspace && options.sessionKey ? findSession(config, workspace, options.sessionKey) : null;
+  const session = workspace && options.sessionKey ? findSession(config, workspace, options.sessionKey) || globalSession : globalSession;
   const workspaceEntry = workspace ? findWorkspaceEntry(config, workspace) : null;
   const userId = normalizeUserId(
     options.userId ||
@@ -532,6 +565,7 @@ module.exports = {
   DEFAULT_PROJECT_ID,
   HOST_CONFIG_VERSION,
   findSession,
+  findSessionByKey,
   findUser,
   findWorkspace,
   findWorkspaceExact,
