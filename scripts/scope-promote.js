@@ -6,6 +6,7 @@ const {
   appendEvidence,
   buildScopedSkillMarkdown,
   createPaths,
+  ensureExperienceValidation,
   generateId,
   loadProjectExperiences,
   loadProjectSkills,
@@ -28,19 +29,30 @@ const {
   writeUserSkills,
   userSkillsDir
 } = require('./lib/context-anchor');
+const { resolveOwnership } = require('./lib/host-config');
 const { calculateSkillificationScore, suggestSkillName } = require('./skillification-score');
+const { runUserExperienceSync } = require('./user-experience-sync');
 
 function ensurePromotionMeta(experience, scope) {
-  const validation = normalizeValidation(experience.validation);
+  const validation =
+    scope === 'user'
+      ? ensureExperienceValidation(experience, 'scope-promote:user')
+      : normalizeValidation(experience.validation);
   const scoreResult = calculateSkillificationScore(experience);
+  const baseSuggestion =
+    validation.status === 'validated' &&
+    scoreResult.meetsMinDays &&
+    scoreResult.score >= 0.7;
+  const scopeEligible = scope !== 'user' || Number(validation.cross_project_count || 0) >= 2;
+
   return {
     ...experience,
     validation,
     skillification_score: experience.skillification_score ?? scoreResult.score,
     skillification_breakdown: experience.skillification_breakdown || scoreResult.breakdown,
-    skillification_suggested:
-      experience.skillification_suggested ??
-      (validation.status === 'validated' && scoreResult.meetsMinDays && scoreResult.score >= 0.7),
+    skillification_suggested: scope === 'user'
+      ? baseSuggestion && scopeEligible
+      : experience.skillification_suggested ?? baseSuggestion,
     skillification_suggested_name:
       experience.skillification_suggested_name || suggestSkillName(experience),
     promotion_history: Array.isArray(experience.promotion_history) ? experience.promotion_history : [],
@@ -286,16 +298,26 @@ function promoteUserSkills(paths, userId) {
 
 function runScopePromote(workspaceArg, options = {}) {
   const paths = createPaths(workspaceArg);
-  const projectId = resolveProjectId(paths.workspace, options.projectId);
-  const userId = resolveUserId(options.userId || DEFAULTS.userId);
+  const ownership = resolveOwnership(paths.openClawHome, {
+    workspace: paths.workspace,
+    projectId: options.projectId,
+    userId: options.userId
+  });
+  const projectId = resolveProjectId(paths.workspace, ownership.projectId || options.projectId);
+  const userId = resolveUserId(ownership.userId || options.userId || DEFAULTS.userId);
   const sessionKey = options.sessionKey ? sanitizeKey(options.sessionKey) : null;
   const projectPromotions = promoteProjectSkills(paths, projectId, sessionKey);
+  const userSync = runUserExperienceSync(paths.workspace, {
+    userId,
+    projectId
+  });
   const userPromotions = promoteUserSkills(paths, userId);
 
   return {
     status: 'promoted',
     project_id: projectId,
     user_id: userId,
+    user_sync: userSync,
     project_promotions: projectPromotions.length,
     user_promotions: userPromotions.length,
     project_skills: projectPromotions.map((skill) => ({

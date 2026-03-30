@@ -2597,6 +2597,293 @@ test('scope promote creates active user skills from validated user experiences w
   }
 });
 
+test('heartbeat aggregates validated project experiences across user workspaces into one user experience and promotes a user skill', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const clientA = path.join(workspace, 'client-a');
+  const clientB = path.join(workspace, 'client-b');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'alice',
+        defaultWorkspace: clientA,
+        addUsers: [],
+        addWorkspaces: [
+          {
+            workspace: clientB,
+            userId: 'alice',
+            projectId: 'client-b'
+          }
+        ]
+      });
+
+      runSessionStart(clientA, 'user-rollup-a', 'client-a');
+      runSessionStart(clientB, 'user-rollup-b', 'client-b');
+
+      const savedA = runMemorySave(
+        clientA,
+        'user-rollup-a',
+        'project',
+        'best_practice',
+        'Keep user-facing summaries concise',
+        JSON.stringify({
+          heat: 95,
+          access_count: 4,
+          access_sessions: ['user-rollup-a-reuse'],
+          details: 'shared pattern from client A',
+          tags: ['summary']
+        })
+      );
+      const savedB = runMemorySave(
+        clientB,
+        'user-rollup-b',
+        'project',
+        'best_practice',
+        'Keep user-facing summaries concise',
+        JSON.stringify({
+          heat: 93,
+          access_count: 5,
+          access_sessions: ['user-rollup-b-reuse'],
+          details: 'shared pattern from client B',
+          tags: ['summary']
+        })
+      );
+
+      runExperienceValidate(clientA, savedA.id, 'validated', 'client-a');
+      runExperienceValidate(clientB, savedB.id, 'validated', 'client-b');
+
+      const projectAFile = path.join(clientA, '.context-anchor', 'projects', 'client-a', 'experiences.json');
+      const projectA = readJson(projectAFile, { experiences: [] });
+      projectA.experiences[0].created_at = '2026-03-01T00:00:00Z';
+      writeJson(projectAFile, projectA);
+
+      const projectBFile = path.join(clientB, '.context-anchor', 'projects', 'client-b', 'experiences.json');
+      const projectB = readJson(projectBFile, { experiences: [] });
+      projectB.experiences[0].created_at = '2026-03-03T00:00:00Z';
+      writeJson(projectBFile, projectB);
+
+      const result = runHeartbeat(clientA, 'user-rollup-a', 'client-a', 50, {
+        userId: 'alice'
+      });
+      const userExperiences = readJson(
+        path.join(openClawHome, 'context-anchor', 'users', 'alice', 'experiences.json'),
+        { experiences: [] }
+      ).experiences;
+      const userSkills = readJson(
+        path.join(openClawHome, 'context-anchor', 'users', 'alice', 'skills', 'index.json'),
+        { skills: [] }
+      ).skills;
+
+      assert.equal(result.promotions.user_promotions, 1);
+      assert.equal(userExperiences.length, 1);
+      assert.equal(userExperiences[0].source, 'project-experience-rollup');
+      assert.equal(userExperiences[0].validation.cross_project_count, 2);
+      assert.deepEqual(userExperiences[0].supporting_projects.sort(), ['client-a', 'client-b']);
+      assert.equal(userExperiences[0].summary, 'Keep user-facing summaries concise');
+      assert.equal(userSkills.length, 1);
+      assert.equal(userSkills[0].scope, 'user');
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('heartbeat keeps user rollups scoped to the owning user and does not mix other users workspaces', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const clientA = path.join(workspace, 'client-a');
+  const clientB = path.join(workspace, 'client-b');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'alice',
+        defaultWorkspace: clientA,
+        addUsers: ['bob'],
+        addWorkspaces: [
+          {
+            workspace: clientB,
+            userId: 'bob',
+            projectId: 'client-b'
+          }
+        ]
+      });
+
+      runSessionStart(clientA, 'user-owner-a', 'client-a');
+      runSessionStart(clientB, 'user-owner-b', 'client-b');
+
+      const savedA = runMemorySave(
+        clientA,
+        'user-owner-a',
+        'project',
+        'best_practice',
+        'Keep user-facing summaries concise',
+        JSON.stringify({
+          heat: 95,
+          access_count: 4,
+          access_sessions: ['user-owner-a-reuse'],
+          details: 'alice pattern',
+          tags: ['summary']
+        })
+      );
+      const savedB = runMemorySave(
+        clientB,
+        'user-owner-b',
+        'project',
+        'best_practice',
+        'Keep user-facing summaries concise',
+        JSON.stringify({
+          heat: 96,
+          access_count: 5,
+          access_sessions: ['user-owner-b-reuse'],
+          details: 'bob pattern',
+          tags: ['summary']
+        })
+      );
+
+      runExperienceValidate(clientA, savedA.id, 'validated', 'client-a');
+      runExperienceValidate(clientB, savedB.id, 'validated', 'client-b');
+
+      const projectAFile = path.join(clientA, '.context-anchor', 'projects', 'client-a', 'experiences.json');
+      const projectA = readJson(projectAFile, { experiences: [] });
+      projectA.experiences[0].created_at = '2026-03-01T00:00:00Z';
+      writeJson(projectAFile, projectA);
+
+      const projectBFile = path.join(clientB, '.context-anchor', 'projects', 'client-b', 'experiences.json');
+      const projectB = readJson(projectBFile, { experiences: [] });
+      projectB.experiences[0].created_at = '2026-03-03T00:00:00Z';
+      writeJson(projectBFile, projectB);
+
+      const result = runHeartbeat(clientA, 'user-owner-a', 'client-a', 50, {
+        userId: 'alice'
+      });
+      const aliceExperiences = readJson(
+        path.join(openClawHome, 'context-anchor', 'users', 'alice', 'experiences.json'),
+        { experiences: [] }
+      ).experiences;
+      const aliceSkills = readJson(
+        path.join(openClawHome, 'context-anchor', 'users', 'alice', 'skills', 'index.json'),
+        { skills: [] }
+      ).skills;
+
+      assert.equal(result.promotions.user_promotions, 0);
+      assert.equal(aliceExperiences.length, 1);
+      assert.equal(aliceExperiences[0].validation.cross_project_count, 1);
+      assert.deepEqual(aliceExperiences[0].supporting_projects, ['client-a']);
+      assert.equal(aliceSkills.length, 0);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('heartbeat deactivates a promoted user skill when cross-project support falls back to a single project', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const clientA = path.join(workspace, 'client-a');
+  const clientB = path.join(workspace, 'client-b');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'alice',
+        defaultWorkspace: clientA,
+        addUsers: [],
+        addWorkspaces: [
+          {
+            workspace: clientB,
+            userId: 'alice',
+            projectId: 'client-b'
+          }
+        ]
+      });
+
+      runSessionStart(clientA, 'user-reconcile-a', 'client-a');
+      runSessionStart(clientB, 'user-reconcile-b', 'client-b');
+
+      const savedA = runMemorySave(
+        clientA,
+        'user-reconcile-a',
+        'project',
+        'best_practice',
+        'Keep user-facing summaries concise',
+        JSON.stringify({
+          heat: 95,
+          access_count: 4,
+          access_sessions: ['user-reconcile-a-reuse'],
+          details: 'client A evidence',
+          tags: ['summary']
+        })
+      );
+      const savedB = runMemorySave(
+        clientB,
+        'user-reconcile-b',
+        'project',
+        'best_practice',
+        'Keep user-facing summaries concise',
+        JSON.stringify({
+          heat: 93,
+          access_count: 5,
+          access_sessions: ['user-reconcile-b-reuse'],
+          details: 'client B evidence',
+          tags: ['summary']
+        })
+      );
+
+      runExperienceValidate(clientA, savedA.id, 'validated', 'client-a');
+      runExperienceValidate(clientB, savedB.id, 'validated', 'client-b');
+
+      const projectAFile = path.join(clientA, '.context-anchor', 'projects', 'client-a', 'experiences.json');
+      const projectA = readJson(projectAFile, { experiences: [] });
+      projectA.experiences[0].created_at = '2026-03-01T00:00:00Z';
+      writeJson(projectAFile, projectA);
+
+      const projectBFile = path.join(clientB, '.context-anchor', 'projects', 'client-b', 'experiences.json');
+      const projectB = readJson(projectBFile, { experiences: [] });
+      projectB.experiences[0].created_at = '2026-03-03T00:00:00Z';
+      writeJson(projectBFile, projectB);
+
+      const first = runHeartbeat(clientA, 'user-reconcile-a', 'client-a', 50, {
+        userId: 'alice'
+      });
+      assert.equal(first.promotions.user_promotions, 1);
+
+      runExperienceValidate(clientB, savedB.id, 'rejected', 'client-b');
+
+      const second = runHeartbeat(clientA, 'user-reconcile-a', 'client-a', 50, {
+        userId: 'alice'
+      });
+      const userExperiences = readJson(
+        path.join(openClawHome, 'context-anchor', 'users', 'alice', 'experiences.json'),
+        { experiences: [] }
+      ).experiences;
+      const userSkills = readJson(
+        path.join(openClawHome, 'context-anchor', 'users', 'alice', 'skills', 'index.json'),
+        { skills: [] }
+      ).skills;
+
+      assert.equal(second.reconcile.user_deactivated, 1);
+      assert.equal(userExperiences.length, 1);
+      assert.equal(userExperiences[0].validation.cross_project_count, 1);
+      assert.equal(userExperiences[0].skillification_suggested, false);
+      assert.equal(userSkills.length, 1);
+      assert.equal(userSkills[0].status, 'inactive');
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('scope promote reuses an existing active project skill for same-name experiences', () => {
   const workspace = makeWorkspace();
 

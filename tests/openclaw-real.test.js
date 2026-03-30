@@ -6,6 +6,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { pathToFileURL } = require('url');
 
+const { runExperienceValidate } = require('../scripts/experience-validate');
 const { runMemorySave } = require('../scripts/memory-save');
 const { runSessionStart } = require('../scripts/session-start');
 
@@ -523,6 +524,114 @@ test(
     } finally {
       cleanupTestDir(profileHome, os.homedir(), '.openclaw-context-anchor-installed-monitor-');
       cleanupTestDir(workspaceDir, os.tmpdir(), 'context-anchor-installed-monitor-');
+    }
+  }
+);
+
+test(
+  'real installed workspace monitor aggregates cross-workspace user evidence into a user skill',
+  { timeout: 240000 },
+  (t) => {
+    if (!resolveOpenClawCommand()) {
+      t.skip('OpenClaw CLI is not installed on PATH.');
+      return;
+    }
+
+    const profileName = createTestProfileName('context-anchor-installed-user-rollup');
+    const profileHome = getProfileHome(profileName);
+    const workspaceA = fs.mkdtempSync(path.join(os.tmpdir(), 'context-anchor-installed-user-rollup-a-'));
+    const workspaceB = fs.mkdtempSync(path.join(os.tmpdir(), 'context-anchor-installed-user-rollup-b-'));
+
+    try {
+      const install = JSON.parse(
+        runInstallCommand([
+          '--openclaw-home',
+          profileHome,
+          '--yes',
+          '--keep-memory',
+          '--apply-config'
+        ])
+      );
+
+      withOpenClawHome(profileHome, () => {
+        runSessionStart(workspaceA, 'user-rollup-a', 'client-a', {
+          openClawSessionId: 'openclaw-installed-user-rollup-a'
+        });
+        runSessionStart(workspaceB, 'user-rollup-b', 'client-b', {
+          openClawSessionId: 'openclaw-installed-user-rollup-b'
+        });
+
+        const savedA = runMemorySave(
+          workspaceA,
+          'user-rollup-a',
+          'project',
+          'best_practice',
+          'Keep user-facing summaries concise',
+          JSON.stringify({
+            heat: 95,
+            access_count: 4,
+            access_sessions: ['user-rollup-a-reuse'],
+            tags: ['summary']
+          })
+        );
+        const savedB = runMemorySave(
+          workspaceB,
+          'user-rollup-b',
+          'project',
+          'best_practice',
+          'Keep user-facing summaries concise',
+          JSON.stringify({
+            heat: 94,
+            access_count: 5,
+            access_sessions: ['user-rollup-b-reuse'],
+            tags: ['summary']
+          })
+        );
+
+        runExperienceValidate(workspaceA, savedA.id, 'validated', 'client-a');
+        runExperienceValidate(workspaceB, savedB.id, 'validated', 'client-b');
+
+        const projectA = readJson(path.join(workspaceA, '.context-anchor', 'projects', 'client-a', 'experiences.json'));
+        projectA.experiences[0].created_at = '2026-03-01T00:00:00Z';
+        fs.writeFileSync(
+          path.join(workspaceA, '.context-anchor', 'projects', 'client-a', 'experiences.json'),
+          `${JSON.stringify(projectA, null, 2)}\n`,
+          'utf8'
+        );
+
+        const projectB = readJson(path.join(workspaceB, '.context-anchor', 'projects', 'client-b', 'experiences.json'));
+        projectB.experiences[0].created_at = '2026-03-03T00:00:00Z';
+        fs.writeFileSync(
+          path.join(workspaceB, '.context-anchor', 'projects', 'client-b', 'experiences.json'),
+          `${JSON.stringify(projectB, null, 2)}\n`,
+          'utf8'
+        );
+      });
+
+      const result = JSON.parse(
+        runNodeScript(install.install.workspace_monitor_script, [workspaceA], {
+          OPENCLAW_HOME: profileHome
+        })
+      );
+      const userExperiences = readJson(
+        path.join(profileHome, 'context-anchor', 'users', 'default-user', 'experiences.json')
+      ).experiences;
+      const userSkills = readJson(
+        path.join(profileHome, 'context-anchor', 'users', 'default-user', 'skills', 'index.json')
+      ).skills;
+
+      assert.equal(result.status, 'processed');
+      assert.equal(result.handled_sessions, 1);
+      assert.equal(result.results[0].promotions.user_promotions, 1);
+      assert.equal(userExperiences.length, 1);
+      assert.equal(userExperiences[0].validation.cross_project_count, 2);
+      assert.deepEqual(userExperiences[0].supporting_projects.sort(), ['client-a', 'client-b']);
+      assert.equal(userSkills.length, 1);
+      assert.equal(userSkills[0].scope, 'user');
+    } finally {
+      cleanupTestDir(profileHome, os.homedir(), '.openclaw-context-anchor-installed-user-rollup-');
+      cleanupTestDir(workspaceA, os.tmpdir(), 'context-anchor-installed-user-rollup-a-');
+      cleanupTestDir(workspaceB, os.tmpdir(), 'context-anchor-installed-user-rollup-b-');
     }
   }
 );

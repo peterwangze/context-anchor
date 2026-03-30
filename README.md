@@ -46,6 +46,7 @@
 - 第一次见到新 workspace 时，默认自动登记归属，尽量不打断你
 - 在合适的时候自动做 checkpoint、总结、经验提炼和技能治理
 - 运行中的 heartbeat / workspace monitor 也会持续把 session memory 增量提炼成 session experiences
+- 同一用户在多个已登记 workspace 里重复验证过的项目经验，会自动汇总成 user experiences 并驱动 user skill 晋升
 
 ### 哪些场景会自动接上
 
@@ -53,6 +54,7 @@
 - `/stop`、`/new`、`/reset` 会自动收口当前 session，避免旧 session 悬空
 - OpenClaw 或 gateway 重启后，`gateway:startup` 先给恢复提示，进入对话时再由 `agent:bootstrap` 注入记忆
 - heartbeat 和后台 workspace monitor 会持续做增量经验提炼，不必等到 session close 才开始沉淀
+- heartbeat / workspace monitor 也会跨同一用户的已登记 workspace 汇总 project experiences，自动累积 user 级 cross-project evidence
 - 对已经存在的存量 session，执行一次 `upgrade-sessions.js` 后，后续 `/compact`、重启恢复和 bootstrap 都会直接走最新生命周期
 
 ### 前置条件
@@ -759,6 +761,12 @@ node "<installed-skill-dir>/scripts/heartbeat.js" "<workspace>" "<session-key>" 
 node "<installed-skill-dir>/scripts/session-experience-sync.js" "<workspace>" "<session-key>" "<project-id>"
 ```
 
+#### 手动汇总 user experiences
+
+```bash
+node "<installed-skill-dir>/scripts/user-experience-sync.js" "<workspace>" [user-id]
+```
+
 #### 手动生成 compact packet
 
 ```bash
@@ -815,6 +823,7 @@ node "<installed-skill-dir>/scripts/skill-create.js" "<workspace>" <experience-i
 - 旧 `projects/_global` 仍兼容读取，但新的长期用户数据应写入 `user` 层
 - `session skill draft` 已实现
 - `project/user active skill` 已支持自动晋升、自动回收/回流、归档与 evidence 追踪
+- user 级技能晋升现在会自动复用同一用户跨 workspace 的 project evidence，不再要求你先手工写 user experiences
 
 ### 开发者指南
 
@@ -849,6 +858,7 @@ npm test
 - `scripts/session-start.js`：进入 session 时如何恢复记忆和激活技能
 - `scripts/heartbeat.js`：运行中如何推进记忆同步、热度、技能化与压力处理
 - `scripts/session-experience-sync.js`：运行中如何把 session memory 增量提炼为 session experiences
+- `scripts/user-experience-sync.js`：如何把同一用户跨 workspace 的 project experiences 汇总为 user experiences
 - `scripts/session-compact.js`：`/compact` 前后如何刷新 checkpoint、压缩恢复资产和 bootstrap cache
 - `scripts/session-close.js`：退出时如何做总结、经验沉淀和技能草稿生成
 - `hooks/context-anchor-hook/handler.js`：OpenClaw managed hook 接入点
@@ -872,6 +882,7 @@ npm test
 - session 恢复
 - checkpoint 与压力处理
 - heartbeat / workspace monitor 驱动的 session experience 增量提炼
+- 同一用户跨 workspace 的 user evidence 自动汇总与 user skill 自动晋升/降级
 - compact packet 与 compact 前后 lifecycle hook
 - session close
 - session skill draft
