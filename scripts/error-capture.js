@@ -1,9 +1,17 @@
 #!/usr/bin/env node
 
+const crypto = require('crypto');
 const { createPaths, loadSessionState, sanitizeKey, writeSessionState } = require('./lib/context-anchor');
+const { resolveOwnership } = require('./lib/host-config');
 const { runMemorySave } = require('./memory-save');
 
-function runErrorCapture(workspaceArg, sessionKeyArg, errorTypeArg, summaryArg, detailsArg, solutionArg) {
+function buildStableErrorEntryId(sessionKey, errorType, summary, dedupeKey) {
+  const fingerprint = `${dedupeKey || ''}|${sessionKey}|${errorType}|${summary}`.toLowerCase();
+  const digest = crypto.createHash('sha1').update(fingerprint).digest('hex').slice(0, 16);
+  return `err-${digest}`;
+}
+
+function runErrorCapture(workspaceArg, sessionKeyArg, errorTypeArg, summaryArg, detailsArg, solutionArg, options = {}) {
   const summary = summaryArg || '';
   if (!summary) {
     throw new Error(
@@ -13,17 +21,36 @@ function runErrorCapture(workspaceArg, sessionKeyArg, errorTypeArg, summaryArg, 
 
   const sessionKey = sanitizeKey(sessionKeyArg);
   const paths = createPaths(workspaceArg);
-  const sessionState = loadSessionState(paths, sessionKey, undefined, {
+  const ownership = resolveOwnership(paths.openClawHome, {
+    workspace: paths.workspace,
+    sessionKey,
+    projectId: options.projectId,
+    userId: options.userId
+  });
+  const sessionState = loadSessionState(paths, sessionKey, ownership.projectId, {
     createIfMissing: true,
-    touch: true
+    touch: true,
+    userId: ownership.userId
   });
   const errorType = errorTypeArg || 'general';
+  sessionState.user_id = ownership.userId;
+  sessionState.project_id = ownership.projectId;
   const heatMap = {
     user_correction: 70,
     command_failed: 60,
     api_failed: 60,
     general: 50
   };
+  const tags = ['error', errorType, ...(Array.isArray(options.tags) ? options.tags : [])]
+    .map((entry) => String(entry).trim())
+    .filter(Boolean)
+    .filter((entry, index, values) => values.indexOf(entry) === index);
+  const entryId = buildStableErrorEntryId(
+    sessionState.session_key,
+    errorType,
+    summary,
+    options.dedupeKey || options.entryId
+  );
 
   const saved = runMemorySave(
     paths.workspace,
@@ -32,13 +59,18 @@ function runErrorCapture(workspaceArg, sessionKeyArg, errorTypeArg, summaryArg, 
     'lesson',
     summary,
     JSON.stringify({
+      entry_id: options.entryId || entryId,
       details: detailsArg || '',
       solution: solutionArg || '',
       summary,
-      heat: heatMap[errorType] || 50,
-      tags: ['error', errorType],
+      heat: options.heat ?? (heatMap[errorType] || 50),
+      tags,
       validation_status: 'pending',
-      source: 'error-capture'
+      source: options.source || 'error-capture',
+      user_id: sessionState.user_id,
+      project_id: sessionState.project_id,
+      access_count: Number(options.accessCount || 1),
+      access_sessions: Array.isArray(options.accessSessions) ? options.accessSessions : [sessionState.session_key]
     })
   );
 
@@ -51,6 +83,8 @@ function runErrorCapture(workspaceArg, sessionKeyArg, errorTypeArg, summaryArg, 
     id: saved.id,
     type: 'lesson',
     error_type: errorType,
+    project_id: sessionState.project_id,
+    user_id: sessionState.user_id,
     heat: saved.heat,
     message: `Error captured: ${summary}`
   };
@@ -87,5 +121,6 @@ if (require.main === module) {
 }
 
 module.exports = {
+  buildStableErrorEntryId,
   runErrorCapture
 };

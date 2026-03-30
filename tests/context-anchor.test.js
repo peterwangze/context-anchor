@@ -16,6 +16,7 @@ const { findSessionByKey, getHostConfigFile, resolveOwnership } = require('../sc
 const { runCheckpointCreate } = require('../scripts/checkpoint-create');
 const { runConfigureHost } = require('../scripts/configure-host');
 const { runContextPressureHandle } = require('../scripts/context-pressure-handle');
+const { runContextPressureMonitor } = require('../scripts/context-pressure-monitor');
 const { handleHookEvent, handleManagedHookEvent } = require('../hooks/context-anchor-hook/handler');
 const { runExperienceValidate } = require('../scripts/experience-validate');
 const { runInstallHostAssets } = require('../scripts/install-host-assets');
@@ -186,6 +187,131 @@ test('context pressure handling creates a checkpoint and syncs hot memories', ()
     assert.equal(decisions.length, 1);
     assert.equal(decisions[0].decision, 'Use JSON storage');
     assert.ok(fs.existsSync(path.join(workspace, '.context-anchor', 'sessions', 'session-b', 'compact-packet.json')));
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('context pressure monitor captures structured errors into project lessons and preserves pressure handling', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'pressure-errors', 'demo');
+      const snapshotFile = path.join(workspace, 'pressure-errors.json');
+      writeJson(snapshotFile, {
+        sessions: [
+          {
+            session_key: 'pressure-errors',
+            usage_percent: 91,
+            errors: [
+              {
+                error_id: 'cmd-failure-1',
+                type: 'command_failed',
+                summary: 'npm test failed',
+                details: 'exit code 1',
+                solution: 'rerun in band'
+              }
+            ]
+          }
+        ]
+      });
+
+      const result = runContextPressureMonitor(workspace, snapshotFile);
+      const experiences = readJson(
+        path.join(workspace, '.context-anchor', 'projects', 'demo', 'experiences.json'),
+        { experiences: [] }
+      ).experiences;
+      const state = readJson(
+        path.join(workspace, '.context-anchor', 'sessions', 'pressure-errors', 'state.json'),
+        {}
+      );
+
+      assert.equal(result.status, 'processed');
+      assert.equal(result.results[0].status, 'handled');
+      assert.ok(result.results[0].actions.includes('checkpoint_created'));
+      assert.equal(result.results[0].error_captures.length, 1);
+      assert.equal(result.results[0].ignored_errors, 0);
+      assert.equal(experiences.length, 1);
+      assert.equal(experiences[0].type, 'lesson');
+      assert.equal(experiences[0].summary, 'npm test failed');
+      assert.ok(experiences[0].tags.includes('error'));
+      assert.ok(experiences[0].tags.includes('command_failed'));
+      assert.equal(state.errors_count, 1);
+      assert.ok(state.last_error);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('context pressure monitor upserts repeated structured errors by error id and ignores malformed errors', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'pressure-upsert', 'demo');
+      const snapshotFile = path.join(workspace, 'pressure-upsert.json');
+      writeJson(snapshotFile, {
+        sessions: [
+          {
+            session_key: 'pressure-upsert',
+            usage_percent: 0,
+            errors: [
+              {
+                error_id: 'cmd-failure-1',
+                type: 'command_failed',
+                summary: 'npm test failed',
+                details: 'exit code 1'
+              },
+              {
+                type: 'command_failed',
+                details: 'missing summary should be ignored'
+              }
+            ]
+          }
+        ]
+      });
+
+      const first = runContextPressureMonitor(workspace, snapshotFile);
+
+      writeJson(snapshotFile, {
+        sessions: [
+          {
+            session_key: 'pressure-upsert',
+            usage_percent: 0,
+            errors: [
+              {
+                error_id: 'cmd-failure-1',
+                type: 'command_failed',
+                summary: 'npm test failed',
+                details: 'exit code 2',
+                solution: 'rerun in band'
+              },
+              {
+                type: 'command_failed',
+                details: 'missing summary should still be ignored'
+              }
+            ]
+          }
+        ]
+      });
+
+      const second = runContextPressureMonitor(workspace, snapshotFile);
+      const experiences = readJson(
+        path.join(workspace, '.context-anchor', 'projects', 'demo', 'experiences.json'),
+        { experiences: [] }
+      ).experiences;
+
+      assert.equal(first.results[0].error_captures.length, 1);
+      assert.equal(first.results[0].ignored_errors, 1);
+      assert.equal(second.results[0].error_captures.length, 1);
+      assert.equal(second.results[0].ignored_errors, 1);
+      assert.equal(experiences.length, 1);
+      assert.equal(experiences[0].details, 'exit code 2');
+      assert.equal(experiences[0].solution, 'rerun in band');
+      assert.equal(experiences[0].access_count, 2);
     });
   } finally {
     cleanupWorkspace(workspace);

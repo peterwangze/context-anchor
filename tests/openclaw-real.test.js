@@ -711,6 +711,85 @@ test(
 );
 
 test(
+  'real installed context pressure monitor wrapper captures structured failures into project lessons',
+  { timeout: 240000 },
+  (t) => {
+    if (!resolveOpenClawCommand()) {
+      t.skip('OpenClaw CLI is not installed on PATH.');
+      return;
+    }
+
+    const profileName = createTestProfileName('context-anchor-installed-pressure-errors');
+    const profileHome = getProfileHome(profileName);
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'context-anchor-installed-pressure-errors-'));
+    const snapshotFile = path.join(workspaceDir, 'pressure-errors-snapshot.json');
+
+    try {
+      const install = JSON.parse(
+        runInstallCommand([
+          '--openclaw-home',
+          profileHome,
+          '--yes',
+          '--keep-memory',
+          '--apply-config'
+        ])
+      );
+
+      withOpenClawHome(profileHome, () => {
+        runSessionStart(workspaceDir, 'pressure-error-session', 'demo', {
+          openClawSessionId: 'openclaw-installed-pressure-errors'
+        });
+      });
+
+      fs.writeFileSync(
+        snapshotFile,
+        JSON.stringify(
+          {
+            sessions: [
+              {
+                session_key: 'pressure-error-session',
+                usage_percent: 91,
+                errors: [
+                  {
+                    error_id: 'cmd-failure-1',
+                    type: 'command_failed',
+                    summary: 'npm test failed',
+                    details: 'exit code 1',
+                    solution: 'rerun in band'
+                  }
+                ]
+              }
+            ]
+          },
+          null,
+          2
+        )
+      );
+
+      const result = JSON.parse(
+        runNodeScript(install.install.monitor_script, [workspaceDir, snapshotFile], {
+          OPENCLAW_HOME: profileHome
+        })
+      );
+      const experiences = readJson(
+        path.join(workspaceDir, '.context-anchor', 'projects', 'demo', 'experiences.json'),
+        { experiences: [] }
+      ).experiences;
+
+      assert.equal(result.status, 'processed');
+      assert.equal(result.handled_sessions, 1);
+      assert.equal(result.results[0].error_captures.length, 1);
+      assert.equal(experiences.length, 1);
+      assert.equal(experiences[0].summary, 'npm test failed');
+      assert.equal(experiences[0].type, 'lesson');
+    } finally {
+      cleanupTestDir(profileHome, os.homedir(), '.openclaw-context-anchor-installed-pressure-errors-');
+      cleanupTestDir(workspaceDir, os.tmpdir(), 'context-anchor-installed-pressure-errors-');
+    }
+  }
+);
+
+test(
   'real OpenClaw runtime loads managed hooks and injects bootstrap content through the internal hook registry',
   { timeout: 240000 },
   async (t) => {

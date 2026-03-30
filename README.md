@@ -55,6 +55,7 @@
 - OpenClaw 或 gateway 重启后，`gateway:startup` 先给恢复提示，进入对话时再由 `agent:bootstrap` 注入记忆
 - heartbeat 和后台 workspace monitor 会持续做增量经验提炼，不必等到 session close 才开始沉淀
 - heartbeat / workspace monitor 也会跨同一用户的已登记 workspace 汇总 project experiences，自动累积 user 级 cross-project evidence
+- 如果宿主的压力 snapshot 里带有结构化失败信息，context-pressure monitor 会自动把这些失败沉淀成 project lessons
 - 对已经存在的存量 session，执行一次 `upgrade-sessions.js` 后，后续 `/compact`、重启恢复和 bootstrap 都会直接走最新生命周期
 
 ### 前置条件
@@ -645,6 +646,7 @@ node scripts/configure-host.js --default-user "alice" --no-auto-register-workspa
 - 创建 checkpoint
 - 生成 `compact-packet.json`
 - 同步高热记忆到项目级
+- 如果 snapshot 里带了 `errors` 数组，还会把失败同步成 project lessons
 
 #### Session End / Command Stop
 
@@ -761,6 +763,12 @@ node "<installed-skill-dir>/scripts/heartbeat.js" "<workspace>" "<session-key>" 
 node "<installed-skill-dir>/scripts/session-experience-sync.js" "<workspace>" "<session-key>" "<project-id>"
 ```
 
+#### 手动捕获一条失败/错误 lesson
+
+```bash
+node "<installed-skill-dir>/scripts/error-capture.js" "<workspace>" "<session-key>" command_failed "npm test failed" "exit code 1" "rerun in band"
+```
+
 #### 手动汇总 user experiences
 
 ```bash
@@ -859,6 +867,7 @@ npm test
 - `scripts/heartbeat.js`：运行中如何推进记忆同步、热度、技能化与压力处理
 - `scripts/session-experience-sync.js`：运行中如何把 session memory 增量提炼为 session experiences
 - `scripts/user-experience-sync.js`：如何把同一用户跨 workspace 的 project experiences 汇总为 user experiences
+- `scripts/runtime-error-sync.js` / `scripts/error-capture.js`：如何把宿主结构化失败和手工错误记录沉淀成 project lessons
 - `scripts/session-compact.js`：`/compact` 前后如何刷新 checkpoint、压缩恢复资产和 bootstrap cache
 - `scripts/session-close.js`：退出时如何做总结、经验沉淀和技能草稿生成
 - `hooks/context-anchor-hook/handler.js`：OpenClaw managed hook 接入点
@@ -883,6 +892,7 @@ npm test
 - checkpoint 与压力处理
 - heartbeat / workspace monitor 驱动的 session experience 增量提炼
 - 同一用户跨 workspace 的 user evidence 自动汇总与 user skill 自动晋升/降级
+- pressure snapshot 中结构化失败自动沉淀为 project lessons
 - compact packet 与 compact 前后 lifecycle hook
 - session close
 - session skill draft

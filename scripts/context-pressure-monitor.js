@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { createPaths, readJson } = require('./lib/context-anchor');
 const { runContextPressureHandle } = require('./context-pressure-handle');
+const { runRuntimeErrorSync } = require('./runtime-error-sync');
 
 function loadSnapshot(snapshotArg, usageArg) {
   if (!snapshotArg) {
@@ -38,9 +39,21 @@ function runContextPressureMonitor(workspaceArg, snapshotArg, usageArg) {
     status: 'processed',
     workspace: paths.workspace,
     handled_sessions: sessions.length,
-    results: sessions.map((entry) =>
-      runContextPressureHandle(paths.workspace, entry.session_key, entry.usage_percent)
-    )
+    results: sessions.map((entry) => {
+      const pressure = runContextPressureHandle(paths.workspace, entry.session_key, entry.usage_percent);
+      const errors = runRuntimeErrorSync(paths.workspace, entry.session_key, entry.errors, {
+        projectId: entry.project_id,
+        userId: entry.user_id,
+        source: 'context-pressure-monitor'
+      });
+
+      return {
+        ...pressure,
+        error_captures: errors.captured,
+        ignored_errors: errors.ignored_errors,
+        ignored_error_details: errors.ignored
+      };
+    })
   };
 }
 
