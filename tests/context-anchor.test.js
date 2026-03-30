@@ -243,6 +243,77 @@ test('memory-flow upserts a previously synced session memory when it changes', (
   }
 });
 
+test('heartbeat incrementally derives session experiences and upserts them by source memory', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+    runSessionStart(workspace, 'heartbeat-experience', 'demo');
+    const saved = runMemorySave(
+      workspace,
+      'heartbeat-experience',
+      'session',
+      'best_practice',
+      'first version',
+      JSON.stringify({ heat: 95, details: 'v1', solution: 'step one' })
+    );
+
+    const first = runHeartbeat(workspace, 'heartbeat-experience', 'demo', 50);
+    const experiencesFile = path.join(
+      workspace,
+      '.context-anchor',
+      'sessions',
+      'heartbeat-experience',
+      'experiences.json'
+    );
+    let experiences = readJson(experiencesFile, { experiences: [] }).experiences;
+
+    assert.equal(first.session_experiences.created, 1);
+    assert.equal(first.session_experiences.updated, 0);
+    assert.equal(experiences.length, 1);
+    assert.equal(experiences[0].source_memory_id, saved.id);
+    assert.equal(experiences[0].summary, 'first version');
+    assert.equal(experiences[0].details, 'v1');
+    assert.equal(experiences[0].solution, 'step one');
+
+    const second = runHeartbeat(workspace, 'heartbeat-experience', 'demo', 50);
+    experiences = readJson(experiencesFile, { experiences: [] }).experiences;
+
+    assert.equal(second.session_experiences.created, 0);
+    assert.equal(second.session_experiences.updated, 0);
+    assert.equal(second.session_experiences.unchanged, 1);
+    assert.equal(experiences.length, 1);
+
+    const memoryFile = path.join(
+      workspace,
+      '.context-anchor',
+      'sessions',
+      'heartbeat-experience',
+      'memory-hot.json'
+    );
+    const memory = readJson(memoryFile, { entries: [] });
+    memory.entries[0].content = 'second version';
+    memory.entries[0].summary = 'second version';
+    memory.entries[0].details = 'v2';
+    memory.entries[0].solution = 'step two';
+    memory.entries[0].heat = 96;
+    writeJson(memoryFile, memory);
+
+    const third = runHeartbeat(workspace, 'heartbeat-experience', 'demo', 50);
+    experiences = readJson(experiencesFile, { experiences: [] }).experiences;
+
+    assert.equal(third.session_experiences.created, 0);
+    assert.equal(third.session_experiences.updated, 1);
+    assert.equal(experiences.length, 1);
+    assert.equal(experiences[0].summary, 'second version');
+    assert.equal(experiences[0].details, 'v2');
+    assert.equal(experiences[0].solution, 'step two');
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('skillification auto-validates reused experiences before suggesting a skill', () => {
   const workspace = makeWorkspace();
 
@@ -1560,6 +1631,14 @@ test('workspace monitor runs maintenance for recent sessions without extending t
         'keep last_active stable',
         JSON.stringify({ heat: 90 })
       );
+      runMemorySave(
+        workspace,
+        'monitor-session',
+        'session',
+        'best_practice',
+        'keep maintenance accumulation continuous',
+        JSON.stringify({ heat: 94, details: 'monitor derived experience' })
+      );
 
       const stateFile = path.join(
         workspace,
@@ -1585,11 +1664,22 @@ test('workspace monitor runs maintenance for recent sessions without extending t
       const result = runWorkspaceMonitor(workspace, {
         windowMs: 7 * 24 * 60 * 60 * 1000
       });
+      const experiencesFile = path.join(
+        workspace,
+        '.context-anchor',
+        'sessions',
+        'monitor-session',
+        'experiences.json'
+      );
+      const experiences = readJson(experiencesFile, { experiences: [] }).experiences;
       const nextState = readJson(stateFile, {});
       const nextIndex = readJson(indexFile, { sessions: [] });
 
       assert.equal(result.status, 'processed');
       assert.equal(result.handled_sessions, 1);
+      assert.equal(result.results[0].session_experiences.created, 1);
+      assert.equal(experiences.length, 1);
+      assert.equal(experiences[0].summary, 'keep maintenance accumulation continuous');
       assert.equal(nextState.last_active, preservedLastActive);
       assert.equal(nextIndex.sessions[0].last_active, preservedLastActive);
     });

@@ -45,12 +45,14 @@
 - 在后续 session 里自动复用之前的经验和技能
 - 第一次见到新 workspace 时，默认自动登记归属，尽量不打断你
 - 在合适的时候自动做 checkpoint、总结、经验提炼和技能治理
+- 运行中的 heartbeat / workspace monitor 也会持续把 session memory 增量提炼成 session experiences
 
 ### 哪些场景会自动接上
 
 - `/compact` 前会先落 checkpoint 和记忆同步，完成后刷新 `compact-packet` 和恢复缓存
 - `/stop`、`/new`、`/reset` 会自动收口当前 session，避免旧 session 悬空
 - OpenClaw 或 gateway 重启后，`gateway:startup` 先给恢复提示，进入对话时再由 `agent:bootstrap` 注入记忆
+- heartbeat 和后台 workspace monitor 会持续做增量经验提炼，不必等到 session close 才开始沉淀
 - 对已经存在的存量 session，执行一次 `upgrade-sessions.js` 后，后续 `/compact`、重启恢复和 bootstrap 都会直接走最新生命周期
 
 ### 前置条件
@@ -118,7 +120,7 @@ node scripts/doctor.js
 
 - 安装器会把需要的 skill、hook 和 automation 文件放到 OpenClaw 目录
 - 新 workspace 第一次进入时会自动登记，不需要你先手工配置
-- 后续 heartbeat / stop / bootstrap 会自动接上记忆、恢复和沉淀链路
+- 后续 heartbeat / workspace monitor / stop / bootstrap 会自动接上记忆、恢复和沉淀链路
 - 如果你没有关闭自动登记，绝大多数情况下不会先看到 `needs_configuration`
 
 只有下面几类情况，才建议继续往下读更详细的内容：
@@ -747,6 +749,14 @@ node "<installed-skill-dir>/scripts/checkpoint-create.js" "<workspace>" "<sessio
 node "<installed-skill-dir>/scripts/heartbeat.js" "<workspace>" "<session-key>" "<project-id>" 80
 ```
 
+这条命令除了会推进热度、技能化和压力处理，也会顺手把当前 session memory 增量提炼到 `sessions/<session-key>/experiences.json`。
+
+#### 手动增量提炼 session experiences
+
+```bash
+node "<installed-skill-dir>/scripts/session-experience-sync.js" "<workspace>" "<session-key>" "<project-id>"
+```
+
 #### 手动生成 compact packet
 
 ```bash
@@ -836,6 +846,7 @@ npm test
 - `scripts/lib/host-config.js`：宿主配置、workspace 归属、session 归属和自动接管策略
 - `scripts/session-start.js`：进入 session 时如何恢复记忆和激活技能
 - `scripts/heartbeat.js`：运行中如何推进记忆同步、热度、技能化与压力处理
+- `scripts/session-experience-sync.js`：运行中如何把 session memory 增量提炼为 session experiences
 - `scripts/session-compact.js`：`/compact` 前后如何刷新 checkpoint、压缩恢复资产和 bootstrap cache
 - `scripts/session-close.js`：退出时如何做总结、经验沉淀和技能草稿生成
 - `hooks/context-anchor-hook/handler.js`：OpenClaw managed hook 接入点
@@ -858,6 +869,7 @@ npm test
 - user/project/session 三层加载
 - session 恢复
 - checkpoint 与压力处理
+- heartbeat / workspace monitor 驱动的 session experience 增量提炼
 - compact packet 与 compact 前后 lifecycle hook
 - session close
 - session skill draft

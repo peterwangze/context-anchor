@@ -6,6 +6,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { pathToFileURL } = require('url');
 
+const { runMemorySave } = require('../scripts/memory-save');
 const { runSessionStart } = require('../scripts/session-start');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -489,6 +490,17 @@ test(
         runSessionStart(workspaceDir, 'monitor-session', 'demo', {
           openClawSessionId: 'openclaw-installed-monitor'
         });
+        runMemorySave(
+          workspaceDir,
+          'monitor-session',
+          'session',
+          'best_practice',
+          'capture monitor-driven runtime experience',
+          JSON.stringify({
+            heat: 96,
+            details: 'real monitor coverage'
+          })
+        );
       });
 
       const result = JSON.parse(
@@ -496,11 +508,18 @@ test(
           OPENCLAW_HOME: profileHome
         })
       );
+      const experiences = readJson(
+        path.join(workspaceDir, '.context-anchor', 'sessions', 'monitor-session', 'experiences.json'),
+        { experiences: [] }
+      ).experiences;
 
       assert.equal(result.status, 'processed');
       assert.equal(result.handled_sessions, 1);
       assert.equal(result.results[0].status, 'maintenance_ok');
       assert.equal(result.results[0].session_key, 'monitor-session');
+      assert.equal(result.results[0].session_experiences.created, 1);
+      assert.equal(experiences.length, 1);
+      assert.equal(experiences[0].summary, 'capture monitor-driven runtime experience');
     } finally {
       cleanupTestDir(profileHome, os.homedir(), '.openclaw-context-anchor-installed-monitor-');
       cleanupTestDir(workspaceDir, os.tmpdir(), 'context-anchor-installed-monitor-');

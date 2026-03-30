@@ -3,13 +3,10 @@
 const {
   DEFAULTS,
   createPaths,
-  generateId,
   loadSessionMemory,
   loadSessionState,
-  loadSessionExperiences,
   resolveUserId,
   sanitizeKey,
-  writeSessionExperiences,
   writeSessionState,
   writeSessionSummary
 } = require('./lib/context-anchor');
@@ -18,58 +15,11 @@ const { runCheckpointCreate } = require('./checkpoint-create');
 const { runCompactPacketCreate } = require('./compact-packet-create');
 const { runHeatEvaluation } = require('./heat-eval');
 const { runMemoryFlow } = require('./memory-flow');
+const { runSessionExperienceSync } = require('./session-experience-sync');
 const { runSkillReconcile } = require('./skill-reconcile');
 const { runScopePromote } = require('./scope-promote');
 const { runSkillDraftCreate } = require('./skill-draft-create');
 const { runSkillificationScore } = require('./skillification-score');
-
-function deriveSessionExperiences(sessionState, sessionMemories, existingExperiences) {
-  const existingKeys = new Set(existingExperiences.map((entry) => `${entry.source_memory_id || ''}:${entry.summary || ''}`));
-  const candidates = sessionMemories.filter((entry) =>
-    ['lesson', 'best_practice', 'tool-pattern', 'gotcha', 'feature_request'].includes(entry.type)
-  );
-
-  const created = [];
-  candidates.forEach((entry) => {
-    const key = `${entry.id}:${entry.summary || entry.content || ''}`;
-    if (existingKeys.has(key)) {
-      return;
-    }
-
-    created.push({
-      id: generateId('sess-exp'),
-      scope: 'session',
-      type: entry.type,
-      summary: entry.summary || entry.content,
-      details: entry.details || null,
-      solution: entry.solution || null,
-      source_memory_id: entry.id,
-      source_session: sessionState.session_key,
-      source_project: sessionState.project_id,
-      source_user: resolveUserId(sessionState.user_id),
-      created_at: new Date().toISOString(),
-      heat: Math.max(50, Number(entry.heat || 0)),
-      access_count: 1,
-      access_sessions: [sessionState.session_key],
-      validation: {
-        status: 'pending',
-        count: 0,
-        auto_validated: false,
-        last_reviewed_at: null,
-        notes: []
-      },
-      promotion_history: [],
-      load_policy: {
-        auto_load: true,
-        priority: 80,
-        budget_weight: 1
-      },
-      archived: false
-    });
-  });
-
-  return existingExperiences.concat(created);
-}
 
 function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
   const paths = createPaths(workspaceArg);
@@ -96,11 +46,12 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
     usagePercent: options.usagePercent,
     userId: sessionState.user_id
   });
+  const sessionExperiences = runSessionExperienceSync(paths.workspace, sessionKey, {
+    projectId: sessionState.project_id,
+    userId: sessionState.user_id
+  });
   const flow = runMemoryFlow(paths.workspace, sessionKey, { minimumHeat: 50 });
   const sessionMemories = loadSessionMemory(paths, sessionKey);
-  const existingExperiences = loadSessionExperiences(paths, sessionKey);
-  const allExperiences = deriveSessionExperiences(sessionState, sessionMemories, existingExperiences);
-  writeSessionExperiences(paths, sessionKey, allExperiences);
 
   const skillDraft = runSkillDraftCreate(paths.workspace, sessionKey);
   const heat = runHeatEvaluation(paths.workspace, sessionState.project_id);
@@ -123,7 +74,7 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
     active_task: sessionState.active_task,
     pending_commitments: (sessionState.commitments || []).filter((entry) => entry.status === 'pending'),
     memory_count: sessionMemories.length,
-    new_session_experiences: allExperiences.length - existingExperiences.length,
+    new_session_experiences: sessionExperiences.created,
     compact_packet_file: compact.compact_packet_file,
     promoted_project_skills: promotions.project_skills,
     promoted_user_skills: promotions.user_skills,
@@ -155,8 +106,9 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
     checkpoint,
     compact,
     flow,
+    session_experience_sync: sessionExperiences,
     session_summary_file: require('./lib/context-anchor').sessionSummaryFile(paths, sessionKey),
-    session_experiences: allExperiences.length,
+    session_experiences: sessionExperiences.total_experiences,
     skill_draft: skillDraft,
     promotions,
     reconcile,

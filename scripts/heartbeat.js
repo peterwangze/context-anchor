@@ -5,6 +5,7 @@ const { recordSessionOwnership, resolveOwnership } = require('./lib/host-config'
 const { runContextPressureHandle } = require('./context-pressure-handle');
 const { runHeatEvaluation } = require('./heat-eval');
 const { runMemoryFlow } = require('./memory-flow');
+const { runSessionExperienceSync } = require('./session-experience-sync');
 const { runSkillReconcile } = require('./skill-reconcile');
 const { runScopePromote } = require('./scope-promote');
 const { runSkillificationScore } = require('./skillification-score');
@@ -29,6 +30,10 @@ function runHeartbeat(workspaceArg, sessionKeyArg, projectIdArg, usagePercentArg
   recordSessionOwnership(paths.openClawHome, paths.workspace, sessionState, {
     status: sessionState.closed_at ? 'closed' : 'active'
   });
+  const sessionExperiences = runSessionExperienceSync(paths.workspace, sessionState.session_key, {
+    projectId: sessionState.project_id,
+    userId: sessionState.user_id
+  });
   const flow = runMemoryFlow(paths.workspace, sessionState.session_key, {});
   const heat = runHeatEvaluation(paths.workspace, sessionState.project_id);
   const skillification = runSkillificationScore(paths.workspace, sessionState.project_id);
@@ -50,6 +55,7 @@ function runHeartbeat(workspaceArg, sessionKeyArg, projectIdArg, usagePercentArg
     status: 'heartbeat_ok',
     session_key: sessionState.session_key,
     project_id: sessionState.project_id,
+    session_experiences: sessionExperiences,
     flow,
     heat,
     skillification,
