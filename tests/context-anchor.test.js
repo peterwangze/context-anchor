@@ -2163,6 +2163,14 @@ test('managed compact hooks persist checkpoint before compaction and refresh com
       runSessionStart(workspace, 'compact-hook', 'demo', {
         openClawSessionId: 'openclaw-compact-hook'
       });
+      runMemorySave(
+        workspace,
+        'compact-hook',
+        'session',
+        'best_practice',
+        'refresh checkout retries before compaction',
+        JSON.stringify({ heat: 96, details: 'compact lifecycle accumulation' })
+      );
 
       const beforeEvent = {
         type: 'session',
@@ -2178,11 +2186,15 @@ test('managed compact hooks persist checkpoint before compaction and refresh com
       const beforeResult = handleManagedHookEvent(beforeEvent);
       assert.equal(beforeResult.status, 'handled');
       assert.equal(beforeResult.result.phase, 'before');
+      assert.equal(beforeResult.result.heartbeat.session_experiences.created, 1);
       assert.ok(
         fs.existsSync(path.join(workspace, '.context-anchor', 'sessions', 'compact-hook', 'checkpoint.md'))
       );
       assert.ok(
         fs.existsSync(path.join(workspace, '.context-anchor', 'sessions', 'compact-hook', 'openclaw-bootstrap.md'))
+      );
+      assert.ok(
+        fs.existsSync(path.join(workspace, '.context-anchor', 'sessions', 'compact-hook', 'experiences.json'))
       );
 
       const afterEvent = {
@@ -2203,14 +2215,93 @@ test('managed compact hooks persist checkpoint before compaction and refresh com
         path.join(workspace, '.context-anchor', 'sessions', 'compact-hook', 'state.json'),
         {}
       );
+      const sessionSkills = readJson(
+        path.join(workspace, '.context-anchor', 'sessions', 'compact-hook', 'skills', 'index.json'),
+        { skills: [] }
+      ).skills;
 
       assert.equal(afterResult.status, 'handled');
       assert.equal(afterResult.result.phase, 'after');
+      assert.equal(afterResult.result.skill_draft.status, 'created');
       assert.ok(
         fs.existsSync(path.join(workspace, '.context-anchor', 'sessions', 'compact-hook', 'compact-packet.json'))
       );
+      assert.equal(sessionSkills.length, 1);
+      assert.equal(sessionSkills[0].status, 'draft');
+      assert.equal(sessionSkills[0].summary, 'refresh checkout retries before compaction');
       assert.equal(sessionState.metadata.last_compaction_event, 'after');
       assert.equal(sessionState.metadata.compaction_compacted_count, 30);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('session-close refreshes an existing compact-generated draft instead of duplicating it', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'compact-close-refresh', 'demo', {
+        openClawSessionId: 'openclaw-compact-close-refresh'
+      });
+      runMemorySave(
+        workspace,
+        'compact-close-refresh',
+        'session',
+        'best_practice',
+        'first compact draft',
+        JSON.stringify({ heat: 88, details: 'initial compact draft source' })
+      );
+
+      handleManagedHookEvent({
+        type: 'session',
+        action: 'compact:before',
+        sessionKey: 'compact-close-refresh',
+        context: {
+          sessionId: 'openclaw-compact-close-refresh'
+        }
+      });
+      handleManagedHookEvent({
+        type: 'session',
+        action: 'compact:after',
+        sessionKey: 'compact-close-refresh',
+        context: {
+          sessionId: 'openclaw-compact-close-refresh'
+        }
+      });
+
+      const skillsFile = path.join(
+        workspace,
+        '.context-anchor',
+        'sessions',
+        'compact-close-refresh',
+        'skills',
+        'index.json'
+      );
+      const firstSkills = readJson(skillsFile, { skills: [] }).skills;
+      const firstDraftId = firstSkills[0].id;
+
+      runMemorySave(
+        workspace,
+        'compact-close-refresh',
+        'session',
+        'tool-pattern',
+        'second close draft',
+        JSON.stringify({ heat: 99, details: 'better final draft source' })
+      );
+
+      const result = runSessionClose(workspace, 'compact-close-refresh', {
+        reason: 'session-end'
+      });
+      const finalSkills = readJson(skillsFile, { skills: [] }).skills;
+
+      assert.equal(firstSkills.length, 1);
+      assert.equal(result.skill_draft.status, 'updated');
+      assert.equal(finalSkills.length, 1);
+      assert.equal(finalSkills[0].id, firstDraftId);
+      assert.equal(finalSkills[0].summary, 'second close draft');
+      assert.equal(finalSkills[0].source_type, 'tool-pattern');
     });
   } finally {
     cleanupWorkspace(workspace);

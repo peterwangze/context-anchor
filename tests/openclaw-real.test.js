@@ -821,6 +821,17 @@ test(
         runSessionStart(workspaceDir, 'runtime-compact', 'runtime-project', {
           openClawSessionId: 'openclaw-runtime-compact'
         });
+        runMemorySave(
+          workspaceDir,
+          'runtime-compact',
+          'session',
+          'best_practice',
+          'persist compact runtime experience',
+          JSON.stringify({
+            heat: 97,
+            details: 'real compact coverage'
+          })
+        );
 
         const runtime = await loadManagedHooksIntoRuntime(profileHome, workspaceDir, config);
         const compactBeforeEvent = runtime.createInternalHookEvent('session', 'compact:before', 'runtime-compact', {
@@ -841,6 +852,11 @@ test(
             path.join(workspaceDir, '.context-anchor', 'sessions', 'runtime-compact', 'openclaw-bootstrap.md')
           )
         );
+        assert.ok(
+          fs.existsSync(
+            path.join(workspaceDir, '.context-anchor', 'sessions', 'runtime-compact', 'experiences.json')
+          )
+        );
 
         const compactAfterEvent = runtime.createInternalHookEvent('session', 'compact:after', 'runtime-compact', {
           sessionId: 'openclaw-runtime-compact',
@@ -855,12 +871,18 @@ test(
         const state = readJson(
           path.join(workspaceDir, '.context-anchor', 'sessions', 'runtime-compact', 'state.json')
         );
+        const skills = readJson(
+          path.join(workspaceDir, '.context-anchor', 'sessions', 'runtime-compact', 'skills', 'index.json')
+        ).skills;
 
         assert.ok(
           fs.existsSync(
             path.join(workspaceDir, '.context-anchor', 'sessions', 'runtime-compact', 'compact-packet.json')
           )
         );
+        assert.equal(skills.length, 1);
+        assert.equal(skills[0].status, 'draft');
+        assert.equal(skills[0].summary, 'persist compact runtime experience');
         assert.equal(state.metadata.last_compaction_event, 'after');
         assert.equal(state.metadata.compaction_compacted_count, 38);
 

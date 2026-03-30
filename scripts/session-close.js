@@ -84,9 +84,10 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
     reactivated_user_skills: reconcile.user_reactivated,
     archived_project_skills: reconcile.project_archived,
     archived_user_skills: reconcile.user_archived,
-    skill_draft: skillDraft.status === 'created' ? {
+    skill_draft: skillDraft.status !== 'skipped' ? {
       id: skillDraft.skill_id,
-      name: skillDraft.skill_name
+      name: skillDraft.skill_name,
+      status: skillDraft.status
     } : null
   };
   writeSessionSummary(paths, sessionKey, summary);

@@ -49,7 +49,7 @@
 
 ### 哪些场景会自动接上
 
-- `/compact` 前会先落 checkpoint 和记忆同步，完成后刷新 `compact-packet` 和恢复缓存
+- `/compact` 前会先落 checkpoint 和记忆同步，完成后刷新 `compact-packet`、session experiences 和 session draft
 - `/stop`、`/new`、`/reset` 会自动收口当前 session，避免旧 session 悬空
 - OpenClaw 或 gateway 重启后，`gateway:startup` 先给恢复提示，进入对话时再由 `agent:bootstrap` 注入记忆
 - heartbeat 和后台 workspace monitor 会持续做增量经验提炼，不必等到 session close 才开始沉淀
@@ -363,7 +363,9 @@ node "<openclaw-home>/hooks/context-anchor-hook/handler.js" session:compact:afte
 
 - 两次调用都返回 `handled`
 - `sessions/<session-key>/checkpoint.md` 被创建或更新
+- `sessions/<session-key>/experiences.json` 被创建或更新
 - `sessions/<session-key>/compact-packet.json` 被创建或更新
+- `sessions/<session-key>/skills/index.json` 里会创建或刷新当前 session draft
 - 下一次 `agent:bootstrap` 会直接使用新的压缩恢复资产
 
 #### 5. 验证 stop / session end

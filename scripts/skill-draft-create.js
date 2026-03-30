@@ -48,7 +48,58 @@ function pickDraftSource(experiences = [], memories = []) {
   return candidates[0] || null;
 }
 
-function runSkillDraftCreate(workspaceArg, sessionKeyArg) {
+function findReusableDraft(skills = [], sessionKey, skillName) {
+  return skills.find(
+    (entry) =>
+      entry &&
+      entry.scope === 'session' &&
+      entry.status === 'draft' &&
+      entry.name === skillName &&
+      entry.source_session === sessionKey &&
+      !entry.promoted_to_skill_id &&
+      !entry.archived
+  );
+}
+
+function buildDraftFingerprint(draft = {}) {
+  return JSON.stringify({
+    summary: draft.summary || null,
+    source_type: draft.source_type || null,
+    source_id: draft.source_id || null,
+    source_kind: draft.source_kind || null,
+    source_session: draft.source_session || null,
+    source_project: draft.source_project || null,
+    source_user: draft.source_user || null
+  });
+}
+
+function buildDraftRecord(paths, existingDraft, sessionState, sessionKey, skillName, source, note) {
+  const timestamp = new Date().toISOString();
+  const draftId = existingDraft?.id || generateId('skill-draft');
+  const skillPath = existingDraft?.path || path.join(sessionSkillsDir(paths, sessionKey), `${draftId}.md`);
+
+  return {
+    ...(existingDraft || {}),
+    id: draftId,
+    name: skillName,
+    scope: 'session',
+    status: 'draft',
+    conflict_key: skillConflictKey(skillName),
+    summary: source.summary || source.content || null,
+    source_type: source.type || 'memory',
+    source_id: source.id,
+    source_kind: source.__kind || 'memory',
+    path: skillPath,
+    source_session: sessionKey,
+    source_project: sessionState.project_id,
+    source_user: sessionState.user_id,
+    created_at: existingDraft?.created_at || timestamp,
+    updated_at: timestamp,
+    notes: note || existingDraft?.notes || 'Auto-generated from session assets'
+  };
+}
+
+function runSkillDraftCreate(workspaceArg, sessionKeyArg, options = {}) {
   const paths = createPaths(workspaceArg);
   const sessionKey = sanitizeKey(sessionKeyArg || DEFAULTS.sessionKey);
   const sessionState = loadSessionState(paths, sessionKey, undefined, {
@@ -68,38 +119,43 @@ function runSkillDraftCreate(workspaceArg, sessionKeyArg) {
   }
 
   const skills = loadSessionSkills(paths, sessionKey);
-  const draftId = generateId('skill-draft');
   const skillName = `${sessionKey}-draft`;
-  const fileName = `${draftId}.md`;
-  const skillPath = path.join(sessionSkillsDir(paths, sessionKey), fileName);
-  const draftRecord = {
-    id: draftId,
-    name: skillName,
-    scope: 'session',
-    status: 'draft',
-    conflict_key: skillConflictKey(skillName),
-    summary: source.summary || source.content || null,
-    source_type: source.type || 'memory',
-    source_id: source.id,
-    source_kind: source.__kind || 'memory',
-    path: skillPath,
-    source_session: sessionKey,
-    source_project: sessionState.project_id,
-    source_user: sessionState.user_id,
-    created_at: new Date().toISOString(),
-    notes: 'Auto-generated at session close'
-  };
+  const existingDraft = findReusableDraft(skills, sessionKey, skillName);
+  const draftRecord = buildDraftRecord(
+    paths,
+    existingDraft,
+    sessionState,
+    sessionKey,
+    skillName,
+    source,
+    options.note
+  );
 
-  writeText(skillPath, buildScopedSkillMarkdown(draftRecord));
-  skills.push(draftRecord);
+  if (existingDraft && buildDraftFingerprint(existingDraft) === buildDraftFingerprint(draftRecord)) {
+    return {
+      status: 'unchanged',
+      session_key: sessionKey,
+      skill_id: existingDraft.id,
+      skill_name: existingDraft.name,
+      path: existingDraft.path
+    };
+  }
+
+  writeText(draftRecord.path, buildScopedSkillMarkdown(draftRecord));
+  if (existingDraft) {
+    const existingIndex = skills.findIndex((entry) => entry.id === existingDraft.id);
+    skills[existingIndex] = draftRecord;
+  } else {
+    skills.push(draftRecord);
+  }
   writeSessionSkills(paths, sessionKey, skills);
 
   return {
-    status: 'created',
+    status: existingDraft ? 'updated' : 'created',
     session_key: sessionKey,
-    skill_id: draftId,
+    skill_id: draftRecord.id,
     skill_name: skillName,
-    path: skillPath
+    path: draftRecord.path
   };
 }
 

@@ -15,6 +15,8 @@ const { recordSessionOwnership, resolveOwnership } = require('./lib/host-config'
 const { runCheckpointCreate } = require('./checkpoint-create');
 const { runCompactPacketCreate } = require('./compact-packet-create');
 const { runHeartbeat } = require('./heartbeat');
+const { runSessionExperienceSync } = require('./session-experience-sync');
+const { runSkillDraftCreate } = require('./skill-draft-create');
 
 function updateCompactMetadata(sessionState, phase, eventContext = {}) {
   sessionState.metadata = {
@@ -91,6 +93,23 @@ function runSessionCompact(workspaceArg, sessionKeyArg, options = {}) {
     result.checkpoint = runCheckpointCreate(paths.workspace, sessionKey, 'compact-before');
     actions.push('heartbeat', 'checkpoint_created');
   } else {
+    result.session_experience_sync = runSessionExperienceSync(paths.workspace, sessionKey, {
+      projectId: ownership.projectId,
+      userId: ownership.userId
+    });
+    if (
+      result.session_experience_sync.created > 0 ||
+      result.session_experience_sync.updated > 0 ||
+      result.session_experience_sync.archived > 0
+    ) {
+      actions.push('session_experiences_synced');
+    }
+    result.skill_draft = runSkillDraftCreate(paths.workspace, sessionKey, {
+      note: 'Auto-generated during session compaction'
+    });
+    if (result.skill_draft.status !== 'skipped') {
+      actions.push('skill_draft_refreshed');
+    }
     result.compact = runCompactPacketCreate(paths.workspace, sessionKey, {
       reason: 'compact-after',
       projectId: ownership.projectId,

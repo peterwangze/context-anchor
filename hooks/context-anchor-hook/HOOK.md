@@ -21,8 +21,8 @@ Connects `context-anchor` to OpenClaw's real managed-hook lifecycle:
 - `command:new`: closes the current context-anchor session before OpenClaw resets
 - `command:reset`: closes the current context-anchor session before OpenClaw resets
 - `command:stop`: closes the current context-anchor session when `/stop` is issued
-- `session:compact:before`: persists checkpoint and memory assets before OpenClaw compacts the session
-- `session:compact:after`: refreshes compact recovery assets after OpenClaw finishes compaction
+- `session:compact:before`: persists checkpoint, runs heartbeat-style maintenance, and refreshes session experiences before OpenClaw compacts the session
+- `session:compact:after`: refreshes compact recovery assets and updates the current session draft after OpenClaw finishes compaction
 
 ## Notes
 
