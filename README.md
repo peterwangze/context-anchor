@@ -176,7 +176,7 @@ node scripts/install-one-click.js --yes --keep-memory --apply-config --upgrade-s
 
 这里的安装目录名始终是 `context-anchor`，不受你本地源码目录名影响。
 
-如果你本机上已经有正在使用的 OpenClaw session，推荐直接使用带 `--upgrade-sessions` 的方式重装，这样安装完成后就会顺手把存量 session 刷到最新 runtime 行为。
+如果你本机上已经有正在使用的 OpenClaw session，推荐直接使用带 `--upgrade-sessions` 的方式重装。现在这个命令除了会刷新存量 session 到最新 runtime 行为，也会顺手执行 SQLite mirror 回填，不需要你再额外手工补跑一次 JSON 迁移。
 
 ### 重新配置与 session 接管
 
@@ -236,13 +236,17 @@ node scripts/upgrade-sessions.js --workspace "<workspace>"
 node scripts/upgrade-sessions.js --session-key "<session-key>"
 ```
 
+```bash
+node scripts/upgrade-sessions.js --rebuild-mirror
+```
+
 如果状态查询提示异常，先跑 `sessions-diagnose.js`，再按输出里的诊断命令和修复命令处理。`sessions-status.js` 支持 `--json`，`configure-sessions.js` 和 `upgrade-sessions.js` 也支持 `--workspace` / `--session-key` 只处理一个 workspace 或 session。
 
-`upgrade-sessions.js` 会一次性刷新已发现或已登记的存量 session，重新生成 bootstrap cache，并让这些 session 在下一次 hook / bootstrap 时直接使用最新 runtime 行为；默认跳过已关闭 session，传 `--include-closed` 才会连已关闭 session 一起刷新。
+`upgrade-sessions.js` 会一次性刷新已发现或已登记的存量 session，重新生成 bootstrap cache，并让这些 session 在下一次 hook / bootstrap 时直接使用最新 runtime 行为；默认跳过已关闭 session，传 `--include-closed` 才会连已关闭 session 一起刷新。传 `--rebuild-mirror` 时，还会顺手把已有 JSON 资产回填到 SQLite mirror。
 
 对存量用户来说，这个升级不需要你手工重建 session。刷新完成后，后续的 `/compact`、`/stop`、`/new`、`/reset` 和重启后的恢复链路都会按最新行为执行。
 
-如果你是在已有 JSON 记忆之上新启用了 SQLite 镜像，建议再执行一次：
+如果你不是走上面的 `install-one-click.js --upgrade-sessions` 升级链，而是单独执行某个脚本，才需要手工补一次 mirror 回填：
 
 ```bash
 node scripts/mirror-rebuild.js

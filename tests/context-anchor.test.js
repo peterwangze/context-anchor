@@ -1383,7 +1383,9 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
         reason: 'manual-close'
       });
 
-      const result = runUpgradeSessions(openClawHome, path.join(openClawHome, 'skills'));
+      const result = runUpgradeSessions(openClawHome, path.join(openClawHome, 'skills'), {
+        rebuildMirror: true
+      });
       const activeResult = result.results.find((entry) => entry.session_key === 'active-session');
       const closedResult = result.results.find((entry) => entry.session_key === 'closed-session');
       const activeBootstrap = path.join(
@@ -1396,6 +1398,8 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
 
       assert.equal(result.status, 'ok');
       assert.equal(result.upgraded_sessions, 1);
+      assert.equal(result.mirror_rebuild.status, 'ok');
+      assert.ok(result.mirror_rebuild.workspaces_processed.some((entry) => entry === activeWorkspace));
       assert.equal(activeResult.action, 'upgraded');
       assert.equal(closedResult.action, 'skipped');
       assert.equal(closedResult.reason, 'closed_session');
@@ -1472,6 +1476,9 @@ test('one-click install can upgrade existing sessions after refreshing runtime a
       assert.equal(result.status, 'installed');
       assert.equal(result.session_upgrade.status, 'ok');
       assert.equal(result.session_upgrade.upgraded_sessions, 1);
+      assert.equal(result.session_upgrade.mirror_rebuild.status, 'ok');
+      assert.ok(result.session_upgrade.mirror_rebuild.workspaces_processed.some((entry) => entry === sessionWorkspace));
+      assert.equal(result.mirror_rebuild, null);
       assert.ok(fs.existsSync(bootstrapFile));
       assert.match(fs.readFileSync(bootstrapFile, 'utf8'), /refresh runtime for stored session/);
       assert.ok(fs.existsSync(path.join(openClawHome, 'skills', 'context-anchor', 'SKILL.md')));

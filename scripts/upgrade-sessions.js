@@ -16,6 +16,7 @@ const {
   resolveOwnership
 } = require('./lib/host-config');
 const { discoverOpenClawSessions } = require('./lib/openclaw-session-discovery');
+const { runMirrorRebuild } = require('./mirror-rebuild');
 const { runSessionStart } = require('./session-start');
 
 function parseArgs(argv) {
@@ -24,7 +25,8 @@ function parseArgs(argv) {
     skillsRoot: null,
     workspace: null,
     sessionKey: null,
-    includeClosed: false
+    includeClosed: false,
+    rebuildMirror: false
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -56,6 +58,11 @@ function parseArgs(argv) {
 
     if (arg === '--include-closed') {
       options.includeClosed = true;
+      continue;
+    }
+
+    if (arg === '--rebuild-mirror') {
+      options.rebuildMirror = true;
     }
   }
 
@@ -256,6 +263,14 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
   const openClawHome = getOpenClawHome(openClawHomeArg || options.openclawHome || null);
   const candidates = collectUpgradeCandidates(openClawHome).filter((candidate) => matchesFilters(candidate, options));
   const results = candidates.map((candidate) => upgradeCandidate(openClawHome, candidate, options));
+  const rebuildWorkspace =
+    options.workspace ||
+    ([...new Set(results.map((entry) => entry.workspace).filter(Boolean))].length === 1
+      ? results.map((entry) => entry.workspace).filter(Boolean)[0]
+      : null);
+  const mirrorRebuild = options.rebuildMirror
+    ? runMirrorRebuild(rebuildWorkspace, openClawHome, {})
+    : null;
 
   return {
     status: 'ok',
@@ -265,6 +280,7 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
     skipped_sessions: results.filter((entry) => entry.action === 'skipped').length,
     unresolved_sessions: results.filter((entry) => entry.reason === 'workspace_unresolved').length,
     configuration_required_sessions: results.filter((entry) => entry.reason === 'workspace_needs_configuration').length,
+    mirror_rebuild: mirrorRebuild,
     results
   };
 }

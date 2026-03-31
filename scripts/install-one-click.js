@@ -6,6 +6,7 @@ const readline = require('readline');
 const { getOpenClawHome } = require('./lib/context-anchor');
 const { runConfigureHost } = require('./configure-host');
 const { runInstallHostAssets } = require('./install-host-assets');
+const { runMirrorRebuild } = require('./mirror-rebuild');
 const { runUpgradeSessions } = require('./upgrade-sessions');
 
 function parseArgs(argv) {
@@ -315,9 +316,14 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
     ? runUpgradeSessions(openClawHome, skillsRoot, {
         workspace: options.upgradeWorkspace,
         sessionKey: options.upgradeSessionKey,
-        includeClosed: options.includeClosedSessions
+        includeClosed: options.includeClosedSessions,
+        rebuildMirror: preserveMemories !== false
       })
     : null;
+  const mirrorRebuild =
+    !options.upgradeSessions && preserveMemories !== false && state.has_memory_data
+      ? runMirrorRebuild(options.upgradeWorkspace, openClawHome, {})
+      : null;
 
   return {
     status: 'installed',
@@ -326,7 +332,8 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
     preserved_memories: preserveMemories,
     install,
     configuration,
-    session_upgrade: sessionUpgrade
+    session_upgrade: sessionUpgrade,
+    mirror_rebuild: mirrorRebuild
   };
 }
 
