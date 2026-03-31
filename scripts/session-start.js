@@ -9,10 +9,13 @@ const {
   DEFAULTS,
   createPaths,
   ensureAnchorDirs,
+  getRepoRoot,
   getRecentSessions,
   loadCompactPacket,
   loadProjectDecisions,
   loadProjectExperiences,
+  loadProjectFacts,
+  loadRankedCollection,
   loadProjectSkills,
   loadProjectState,
   loadSessionSkills,
@@ -24,6 +27,9 @@ const {
   loadUserState,
   mergeAccessMetadata,
   normalizeSkillRecord,
+  projectDecisionsFile,
+  projectExperiencesFile,
+  projectFactsFile,
   readJson,
   readText,
   recordHeatEntry,
@@ -33,10 +39,13 @@ const {
   selectEffectiveSkills,
   sanitizeKey,
   sessionCheckpointFile,
+  sessionMemoryFile,
   sortByHeat,
   syncProjectStateMetadata,
   touchGlobalIndex,
   touchSessionIndex,
+  userExperiencesFile,
+  userMemoriesFile,
   writeProjectDecisions,
   writeProjectExperiences,
   writeSessionState,
@@ -283,6 +292,187 @@ function buildReuseReason(overlap, options = {}) {
   return reasons.length > 0 ? reasons : ['high_value_fallback'];
 }
 
+function buildPersistentLookupCommand(paths, sessionState) {
+  return `node "${path.join(getRepoRoot(), 'scripts', 'memory-search.js')}" "${paths.workspace}" "${sessionState.session_key}" "<query>"`;
+}
+
+function buildPersistentCatalogEntry(source, scope, tier, count, file, options = {}) {
+  if (!count) {
+    return null;
+  }
+
+  return {
+    source,
+    scope,
+    tier,
+    count,
+    file,
+    hot_count: Number(options.hotCount || 0),
+    validated_count: Number(options.validatedCount || 0),
+    summary: options.summary || null
+  };
+}
+
+function buildPersistentMemoryCatalog(paths, sessionState, collections = {}) {
+  return {
+    strategy: 'persist_on_demand',
+    lookup_command: buildPersistentLookupCommand(paths, sessionState),
+    catalogs: [
+      buildPersistentCatalogEntry(
+        'project_decisions',
+        'project',
+        'warm',
+        collections.decisions.length,
+        projectDecisionsFile(paths, sessionState.project_id),
+        {
+          hotCount: collections.decisions.filter((entry) => Number(entry.heat || 0) >= DEFAULTS.hotMemoryHeat).length,
+          summary: 'Project-level decisions and implementation choices'
+        }
+      ),
+      buildPersistentCatalogEntry(
+        'project_experiences',
+        'project',
+        'warm',
+        collections.experiences.length,
+        projectExperiencesFile(paths, sessionState.project_id),
+        {
+          hotCount: collections.experiences.filter((entry) => Number(entry.heat || 0) >= DEFAULTS.hotMemoryHeat).length,
+          validatedCount: collections.experiences.filter((entry) => entry.validation?.status === 'validated').length,
+          summary: 'Validated and reusable project lessons'
+        }
+      ),
+      buildPersistentCatalogEntry(
+        'project_facts',
+        'project',
+        'cold',
+        collections.projectFacts.length,
+        projectFactsFile(paths, sessionState.project_id),
+        {
+          hotCount: collections.projectFacts.filter((entry) => Number(entry.heat || 0) >= DEFAULTS.hotMemoryHeat).length,
+          summary: 'Low-frequency facts and reference notes'
+        }
+      ),
+      buildPersistentCatalogEntry(
+        'user_memories',
+        'user',
+        'warm',
+        collections.userMemories.length,
+        userMemoriesFile(paths, sessionState.user_id),
+        {
+          hotCount: collections.userMemories.filter((entry) => Number(entry.heat || 0) >= DEFAULTS.hotMemoryHeat).length,
+          summary: 'Reusable user preferences and recurring habits'
+        }
+      ),
+      buildPersistentCatalogEntry(
+        'user_experiences',
+        'user',
+        'warm',
+        collections.userExperiences.length,
+        userExperiencesFile(paths, sessionState.user_id),
+        {
+          hotCount: collections.userExperiences.filter((entry) => Number(entry.heat || 0) >= DEFAULTS.hotMemoryHeat).length,
+          validatedCount: collections.userExperiences.filter((entry) => entry.validation?.status === 'validated').length,
+          summary: 'Cross-project user-level reusable lessons'
+        }
+      )
+    ].filter(Boolean)
+  };
+}
+
+function calculateRecencyBonus(timestamp) {
+  if (!timestamp) {
+    return 0;
+  }
+
+  const ageHours = (Date.now() - new Date(timestamp).getTime()) / (1000 * 60 * 60);
+  if (ageHours <= 6) {
+    return 20;
+  }
+  if (ageHours <= 24) {
+    return 12;
+  }
+  if (ageHours <= 72) {
+    return 6;
+  }
+
+  return 0;
+}
+
+function collectContinuationHotMemories(continuationSource) {
+  if (!continuationSource?.compact_packet) {
+    return [];
+  }
+
+  const packet = continuationSource.compact_packet;
+  const entries = Array.isArray(packet.memory_tiers?.hot?.session_memories)
+    ? packet.memory_tiers.hot.session_memories
+    : Array.isArray(packet.session_memories)
+      ? packet.session_memories
+      : [];
+
+  return entries
+    .filter((entry) => Number(entry.heat || 0) >= DEFAULTS.hotMemoryHeat)
+    .map((entry) => ({
+      ...entry,
+      source: 'continued_session',
+      source_session: continuationSource.session_key,
+      last_accessed: continuationSource.last_active || packet.created_at || null
+    }));
+}
+
+function buildShortTermHotMemories(sessionState, continuationSource, contextTokens, sessionMemories = []) {
+  const candidates = [
+    ...sessionMemories
+      .filter((entry) => !entry.archived && Number(entry.heat || 0) >= DEFAULTS.hotMemoryHeat)
+      .map((entry) => ({
+        id: entry.id,
+        type: entry.type || 'memory',
+        summary: entry.summary || entry.content,
+        heat: Number(entry.heat || 0),
+        source: 'current_session',
+        source_session: sessionState.session_key,
+        last_accessed: entry.last_accessed || entry.created_at || null,
+        access_count: Number(entry.access_count || 0)
+      })),
+    ...collectContinuationHotMemories(continuationSource).map((entry) => ({
+      id: entry.id,
+      type: entry.type || 'memory',
+      summary: entry.summary || entry.content,
+      heat: Number(entry.heat || 0),
+      source: entry.source,
+      source_session: entry.source_session,
+      last_accessed: entry.last_accessed || null,
+      access_count: Number(entry.access_count || 0)
+    }))
+  ];
+
+  return candidates
+    .map((entry) => {
+      const overlap = countTokenOverlap(contextTokens, [entry.summary, entry.type].filter(Boolean).join(' '));
+      const score =
+        overlap * 30 +
+        entry.heat +
+        calculateRecencyBonus(entry.last_accessed) +
+        Math.min(10, entry.access_count || 0) +
+        (entry.source === 'continued_session' ? 25 : 20);
+
+      return {
+        id: entry.id,
+        type: entry.type,
+        summary: entry.summary,
+        heat: entry.heat,
+        source: entry.source,
+        source_session: entry.source_session,
+        score,
+        reasons: buildReuseReason(overlap, {
+          heat: entry.heat
+        })
+      };
+    })
+    .sort((left, right) => right.score - left.score)
+    .slice(0, DEFAULTS.bootstrapHotMemoryLimit);
+}
+
 function recommendExperienceReuse(contextTokens, experiences = [], scope) {
   return experiences
     .filter((entry) => !entry.archived)
@@ -402,14 +592,20 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
   const projectState = loadProjectState(paths, sessionState.project_id);
   const loadedDecisions = loadProjectDecisions(paths, sessionState.project_id);
   const loadedExperiences = loadProjectExperiences(paths, sessionState.project_id);
+  const loadedProjectFacts = loadProjectFacts(paths, sessionState.project_id);
   const projectSkills = loadProjectSkills(paths, sessionState.project_id);
   const sessionSkills = loadSessionSkills(paths, sessionState.session_key);
+  const sessionMemories = loadRankedCollection(sessionMemoryFile(paths, sessionState.session_key), 'entries', {
+    minHeat: DEFAULTS.hotMemoryHeat,
+    limit: DEFAULTS.bootstrapHotMemoryLimit * 4
+  });
   const decisions = sortByHeat(loadedDecisions).filter(
     (entry) => !entry.archived
   );
   const experiences = sortByHeat(loadedExperiences).filter(
     (entry) => !entry.archived
   );
+  const projectFacts = sortByHeat(loadedProjectFacts).filter((entry) => !entry.archived);
   const userState = loadUserState(paths, sessionState.user_id);
   const userMemories = sortByHeat(loadUserMemories(paths, sessionState.user_id)).filter((entry) => !entry.archived);
   const userExperiences = sortByHeat(loadUserExperiences(paths, sessionState.user_id)).filter((entry) => !entry.archived);
@@ -423,92 +619,6 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
     .slice(0, 3);
 
   touchSessionIndex(paths, sessionState);
-  const injectedDecisionIds = decisions
-    .filter((entry) => Number(entry.heat || 0) >= 70)
-    .slice(0, 5)
-    .map((entry) => entry.id);
-  const injectedExperienceIds = experiences
-    .filter((entry) => Number(entry.heat || 0) >= 60)
-    .slice(0, 5)
-    .map((entry) => entry.id);
-  const injectedUserMemoryIds = userMemories
-    .filter((entry) => Number(entry.heat || 0) >= 60)
-    .slice(0, 5)
-    .map((entry) => entry.id);
-  const injectedUserExperienceIds = userExperiences
-    .filter((entry) => Number(entry.heat || 0) >= 60)
-    .slice(0, 5)
-    .map((entry) => entry.id);
-
-  if (injectedDecisionIds.length > 0) {
-    const nextDecisions = loadedDecisions.map((entry) => {
-      if (!injectedDecisionIds.includes(entry.id)) {
-        return entry;
-      }
-
-      const isCrossSession = !(entry.access_sessions || []).includes(sessionState.session_key);
-      const nextEntry = mergeAccessMetadata(entry, sessionState.session_key, {
-        heatDelta: isCrossSession ? 10 : 5
-      });
-      recordHeatEntry(paths, sessionState.project_id, {
-        ...nextEntry,
-        type: 'decision'
-      });
-      return nextEntry;
-    });
-    writeProjectDecisions(paths, sessionState.project_id, nextDecisions);
-  }
-
-  if (injectedExperienceIds.length > 0) {
-    const nextExperiences = loadedExperiences.map((entry) => {
-      if (!injectedExperienceIds.includes(entry.id)) {
-        return entry;
-      }
-
-      const isCrossSession = !(entry.access_sessions || []).includes(sessionState.session_key);
-      const nextEntry = mergeAccessMetadata(entry, sessionState.session_key, {
-        heatDelta: isCrossSession ? 10 : 5
-      });
-      recordHeatEntry(paths, sessionState.project_id, {
-        ...nextEntry,
-        type: entry.type || 'experience'
-      });
-      return nextEntry;
-    });
-    writeProjectExperiences(paths, sessionState.project_id, nextExperiences);
-  }
-
-  if (injectedUserMemoryIds.length > 0) {
-    const nextUserMemories = userMemories.map((entry) => {
-      if (!injectedUserMemoryIds.includes(entry.id)) {
-        return entry;
-      }
-
-      const isCrossSession = !(entry.access_sessions || []).includes(sessionState.session_key);
-      const nextEntry = mergeAccessMetadata(entry, sessionState.session_key, {
-        heatDelta: isCrossSession ? 10 : 5
-      });
-      recordUserHeatEntry(paths, sessionState.user_id, nextEntry);
-      return nextEntry;
-    });
-    writeUserMemories(paths, sessionState.user_id, nextUserMemories);
-  }
-
-  if (injectedUserExperienceIds.length > 0) {
-    const nextUserExperiences = userExperiences.map((entry) => {
-      if (!injectedUserExperienceIds.includes(entry.id)) {
-        return entry;
-      }
-
-      const isCrossSession = !(entry.access_sessions || []).includes(sessionState.session_key);
-      const nextEntry = mergeAccessMetadata(entry, sessionState.session_key, {
-        heatDelta: isCrossSession ? 10 : 5
-      });
-      recordUserHeatEntry(paths, sessionState.user_id, nextEntry);
-      return nextEntry;
-    });
-    writeUserExperiences(paths, sessionState.user_id, nextUserExperiences);
-  }
 
   syncProjectStateMetadata(paths, sessionState.project_id);
   touchGlobalIndex(paths);
@@ -526,6 +636,19 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
     continuationSource?.summary?.reason,
     continuationSource?.summary?.skill_draft?.name
   );
+  const shortTermHotMemories = buildShortTermHotMemories(
+    sessionState,
+    continuationSource,
+    reuseContextTokens,
+    sessionMemories
+  );
+  const persistentMemory = buildPersistentMemoryCatalog(paths, sessionState, {
+    decisions,
+    experiences,
+    projectFacts,
+    userMemories,
+    userExperiences
+  });
   const recommendedReuse = {
     experiences: [
       ...recommendExperienceReuse(reuseContextTokens, experiences, 'project'),
@@ -600,9 +723,21 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
         project: projectSkills.slice(0, 5),
         user: userSkills.slice(0, 5)
       },
+      memory_policy: {
+        bootstrap_context_budget: DEFAULTS.bootstrapContextBudget,
+        inject_tiers: ['hot', 'preference'],
+        persist_tiers: ['warm', 'cold']
+      },
+      persistent_memory: persistentMemory,
       recommended_reuse: recommendedReuse
     },
     memories_to_inject: [],
+    persistent_memory: persistentMemory,
+    memory_policy: {
+      bootstrap_context_budget: DEFAULTS.bootstrapContextBudget,
+      inject_tiers: ['hot', 'preference'],
+      persist_tiers: ['warm', 'cold']
+    },
     recommended_reuse: recommendedReuse,
     related_sessions: relatedSessions,
     compatibility: {
@@ -610,27 +745,11 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
     }
   };
 
-  if (decisions.length > 0) {
+  if (shortTermHotMemories.length > 0) {
     summary.memories_to_inject.push({
-      source: 'project_decisions',
-      entries: decisions.slice(0, 5).map((entry) => ({
-        id: entry.id,
-        decision: entry.decision,
-        heat: entry.heat
-      }))
-    });
-  }
-
-  if (experiences.length > 0) {
-    summary.memories_to_inject.push({
-      source: 'project_experiences',
-      entries: experiences.slice(0, 5).map((entry) => ({
-        id: entry.id,
-        type: entry.type,
-        summary: entry.summary,
-        heat: entry.heat,
-        validation_status: entry.validation?.status || 'pending'
-      }))
+      source: 'short_term_hot_memories',
+      tier: 'hot',
+      entries: shortTermHotMemories
     });
   }
 
@@ -640,30 +759,6 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
       entries: Object.entries(userState.preferences).map(([key, value]) => ({
         key,
         value
-      }))
-    });
-  }
-
-  if (userMemories.length > 0) {
-    summary.memories_to_inject.push({
-      source: 'user_memories',
-      entries: userMemories.slice(0, 5).map((entry) => ({
-        id: entry.id,
-        summary: entry.summary || entry.content,
-        heat: entry.heat
-      }))
-    });
-  }
-
-  if (userExperiences.length > 0) {
-    summary.memories_to_inject.push({
-      source: 'user_experiences',
-      entries: userExperiences.slice(0, 5).map((entry) => ({
-        id: entry.id,
-        type: entry.type,
-        summary: entry.summary,
-        heat: entry.heat,
-        validation_status: entry.validation?.status || 'pending'
       }))
     });
   }

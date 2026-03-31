@@ -7,11 +7,17 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  DEFAULTS,
+  createPaths,
   loadCompactPacket,
+  loadRankedCollection,
   loadUserMemories,
   readJson,
+  sessionMemoryFile,
   writeJson
 } = require('../scripts/lib/context-anchor');
+const { buildBootstrapCacheContent } = require('../scripts/lib/bootstrap-cache');
+const { describeCollectionFile, readMirrorCollection } = require('../scripts/lib/context-anchor-db');
 const { findSessionByKey, getHostConfigFile, resolveOwnership } = require('../scripts/lib/host-config');
 const { runCheckpointCreate } = require('../scripts/checkpoint-create');
 const { runConfigureHost } = require('../scripts/configure-host');
@@ -26,6 +32,7 @@ const { runMemoryFlow } = require('../scripts/memory-flow');
 const { runMemorySave } = require('../scripts/memory-save');
 const { runHeartbeat } = require('../scripts/heartbeat');
 const { runHeatEvaluation } = require('../scripts/heat-eval');
+const { runMemorySearch } = require('../scripts/memory-search');
 const { runDoctor } = require('../scripts/doctor');
 const { discoverOpenClawSessions } = require('../scripts/lib/openclaw-session-discovery');
 const {
@@ -363,6 +370,59 @@ test('memory-flow upserts a previously synced session memory when it changes', (
     assert.equal(experiences.length, 1);
     assert.equal(experiences[0].summary, 'second version');
     assert.equal(experiences[0].details, 'v2');
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('session memory writes sync a SQLite mirror and ranked reads use the mirrored order', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'sqlite-mirror', 'demo');
+      runMemorySave(
+        workspace,
+        'sqlite-mirror',
+        'session',
+        'best_practice',
+        'medium heat retry note',
+        JSON.stringify({ heat: 86 })
+      );
+      runMemorySave(
+        workspace,
+        'sqlite-mirror',
+        'session',
+        'best_practice',
+        'highest heat checkout retry playbook',
+        JSON.stringify({ heat: 99 })
+      );
+      runMemorySave(
+        workspace,
+        'sqlite-mirror',
+        'session',
+        'best_practice',
+        'high heat cache verification note',
+        JSON.stringify({ heat: 93 })
+      );
+
+      const paths = createPaths(workspace);
+      const memoryFile = sessionMemoryFile(paths, 'sqlite-mirror');
+      const descriptor = describeCollectionFile(memoryFile, 'entries');
+      const mirror = readMirrorCollection(memoryFile, 'entries');
+      const ranked = loadRankedCollection(memoryFile, 'entries', {
+        minHeat: 90,
+        limit: 2
+      });
+
+      assert.ok(descriptor?.dbFile);
+      assert.ok(fs.existsSync(descriptor.dbFile));
+      assert.equal(mirror.status, 'available');
+      assert.equal(mirror.items.length, 3);
+      assert.equal(ranked.length, 2);
+      assert.match(ranked[0].summary || ranked[0].content, /highest heat checkout retry playbook/);
+      assert.match(ranked[1].summary || ranked[1].content, /high heat cache verification note/);
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -2064,8 +2124,177 @@ test('session-start loads user scope memories and skills', () => {
       const result = runSessionStart(workspace, 'session-user-load');
       assert.equal(result.user.id, 'default-user');
       assert.ok(result.memories_to_inject.some((entry) => entry.source === 'user_preferences'));
-      assert.ok(result.memories_to_inject.some((entry) => entry.source === 'user_experiences'));
+      assert.ok(result.persistent_memory.catalogs.some((entry) => entry.source === 'user_experiences'));
       assert.equal(result.skills_to_activate.user.length, 1);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('bootstrap cache keeps only short-term hot memory in context and leaves long-term memory persisted', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'memory-source', 'demo');
+      runMemorySave(
+        workspace,
+        'memory-source',
+        'session',
+        'best_practice',
+        'Use checkout retry budget before restarting the worker',
+        JSON.stringify({
+          heat: 98,
+          details: 'short-term operational memory'
+        })
+      );
+      runMemorySave(
+        workspace,
+        'memory-source',
+        'project',
+        'fact',
+        'warm archive note '.repeat(140),
+        JSON.stringify({
+          summary: 'Large persisted project fact',
+          heat: 45
+        })
+      );
+      runMemorySave(
+        workspace,
+        'memory-source',
+        'project',
+        'best_practice',
+        'warm archive practice '.repeat(120),
+        JSON.stringify({
+          summary: 'Large persisted project experience',
+          heat: 72,
+          validation_status: 'validated'
+        })
+      );
+      runMemorySave(
+        workspace,
+        'memory-source',
+        'user',
+        'best_practice',
+        'user archive preference '.repeat(120),
+        JSON.stringify({
+          user_id: 'default-user',
+          summary: 'Large persisted user experience',
+          heat: 75,
+          validation_status: 'validated'
+        })
+      );
+
+      runSessionClose(workspace, 'memory-source', {
+        reason: 'command-reset',
+        usagePercent: 84
+      });
+
+      const result = runSessionStart(workspace, 'memory-target', 'demo');
+      const bootstrap = buildBootstrapCacheContent(result);
+      const packet = loadCompactPacket(createPaths(workspace), 'memory-source');
+
+      assert.ok(result.memories_to_inject.some((entry) => entry.source === 'short_term_hot_memories'));
+      assert.ok(result.persistent_memory.catalogs.some((entry) => entry.source === 'project_facts'));
+      assert.ok(result.persistent_memory.catalogs.some((entry) => entry.source === 'project_experiences'));
+      assert.ok(result.persistent_memory.catalogs.some((entry) => entry.source === 'user_experiences'));
+      assert.ok(Buffer.byteLength(bootstrap, 'utf8') <= DEFAULTS.bootstrapContextBudget);
+      assert.match(bootstrap, /Short-Term Hot Memory/);
+      assert.match(bootstrap, /checkout retry budget/);
+      assert.match(bootstrap, /Long-Term Memory/);
+      assert.match(bootstrap, /lookup:/i);
+      assert.doesNotMatch(bootstrap, /truncated to stay within the 10K bootstrap budget/i);
+      assert.doesNotMatch(bootstrap, /warm archive note warm archive note/);
+      assert.ok(Array.isArray(packet.memory_tiers.hot.session_memories));
+      assert.ok(packet.memory_tiers.hot.session_memories.some((entry) => entry.summary.includes('checkout retry budget')));
+      assert.ok(packet.persistent_memory.catalogs.some((entry) => entry.source === 'project_facts'));
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('bootstrap cache compacts semantically under a tight budget instead of hard truncating', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'tight-budget-source', 'demo');
+
+      for (let index = 0; index < 5; index += 1) {
+        runMemorySave(
+          workspace,
+          'tight-budget-source',
+          'session',
+          'best_practice',
+          `Checkout retry budget rule ${index}: retry worker restart only after bounded checkout recovery and dependency cache verification`,
+          JSON.stringify({
+            heat: 95 - index
+          })
+        );
+      }
+
+      runMemorySave(
+        workspace,
+        'tight-budget-source',
+        'user',
+        'preference',
+        'language:zh-CN',
+        JSON.stringify({ user_id: 'default-user' })
+      );
+      runMemorySave(
+        workspace,
+        'tight-budget-source',
+        'project',
+        'best_practice',
+        'Stabilize checkout retries with bounded retry budget and cache verification',
+        JSON.stringify({
+          heat: 88,
+          validation_status: 'validated'
+        })
+      );
+
+      const sourceStateFile = path.join(
+        workspace,
+        '.context-anchor',
+        'sessions',
+        'tight-budget-source',
+        'state.json'
+      );
+      const sourceState = readJson(sourceStateFile, {});
+      sourceState.active_task = 'stabilize checkout retries without wasting context';
+      sourceState.commitments = [
+        {
+          id: 'tight-1',
+          what: 'verify checkout retry budget',
+          status: 'pending'
+        },
+        {
+          id: 'tight-2',
+          what: 'confirm cache verification order',
+          status: 'pending'
+        }
+      ];
+      writeJson(sourceStateFile, sourceState);
+
+      runSessionClose(workspace, 'tight-budget-source', {
+        reason: 'command-reset',
+        usagePercent: 83
+      });
+
+      const result = runSessionStart(workspace, 'tight-budget-target', 'demo');
+      const bootstrap = buildBootstrapCacheContent(result, {
+        budgetBytes: 700
+      });
+
+      assert.ok(Buffer.byteLength(bootstrap, 'utf8') <= 700);
+      assert.doesNotMatch(bootstrap, /truncated to stay within the 10K bootstrap budget/i);
+      assert.match(bootstrap, /Context Anchor Session Memory/);
+      assert.match(bootstrap, /checkout retry/);
+      assert.match(bootstrap, /Long-Term Memory/);
+      assert.match(bootstrap, /\+\d+ more/);
+      assert.match(bootstrap, /lookup:/i);
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -2138,6 +2367,59 @@ test('session-start continues from the latest related session and recommends reu
       assert.equal(result.recovery.continuity.source_session_key, 'previous-session');
       assert.ok(result.recommended_reuse.experiences.some((entry) => entry.summary.includes('checkout pipeline')));
       assert.ok(result.recommended_reuse.skills.some((entry) => entry.scope === 'project'));
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('memory-search retrieves persisted long-term memory on demand', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'lookup-session', 'demo');
+      runMemorySave(
+        workspace,
+        'lookup-session',
+        'project',
+        'fact',
+        'Checkout retry budget is capped at three attempts',
+        JSON.stringify({
+          heat: 55
+        })
+      );
+      runMemorySave(
+        workspace,
+        'lookup-session',
+        'project',
+        'best_practice',
+        'Use checkout retries with a bounded retry budget',
+        JSON.stringify({
+          heat: 88,
+          validation_status: 'validated'
+        })
+      );
+      runMemorySave(
+        workspace,
+        'lookup-session',
+        'user',
+        'best_practice',
+        'Prefer concise retry summaries for checkout incidents',
+        JSON.stringify({
+          user_id: 'default-user',
+          heat: 70
+        })
+      );
+
+      const result = runMemorySearch(workspace, 'lookup-session', 'checkout retry budget');
+
+      assert.equal(result.status, 'ok');
+      assert.ok(result.returned > 0);
+      assert.equal(result.results[0].source, 'project_experiences');
+      assert.match(result.results[0].summary, /retry budget/);
+      assert.ok(result.results.some((entry) => entry.source === 'project_facts'));
+      assert.ok(result.scope_summary.project_experiences.count >= 1);
     });
   } finally {
     cleanupWorkspace(workspace);

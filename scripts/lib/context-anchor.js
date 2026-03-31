@@ -3,6 +3,12 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const {
+  isDbEnabled,
+  loadRankedMirrorCollection,
+  readMirrorCollection,
+  syncCollectionMirror
+} = require('./context-anchor-db');
 
 const DEFAULTS = {
   userId: 'default-user',
@@ -27,6 +33,11 @@ const DEFAULTS = {
     project: 2,
     user: 1
   },
+  bootstrapContextBudget: 10000,
+  bootstrapHotMemoryLimit: 4,
+  bootstrapWarmPreviewLimit: 2,
+  bootstrapRelatedSessionLimit: 2,
+  memorySearchResultLimit: 8,
   skillArchivePriorityThreshold: 25
   ,
   skillArchiveUsageThreshold: 0
@@ -36,6 +47,20 @@ const SKILL_STATUSES = ['draft', 'active', 'inactive', 'archived'];
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function classifyHeatTier(heat) {
+  const numericHeat = Number(heat || 0);
+
+  if (numericHeat >= DEFAULTS.hotMemoryHeat) {
+    return 'hot';
+  }
+
+  if (numericHeat >= DEFAULTS.warmMemoryHeat) {
+    return 'warm';
+  }
+
+  return 'cold';
 }
 
 function nowIso() {
@@ -278,13 +303,51 @@ function userSkillsIndexFile(paths, userId = DEFAULTS.userId) {
 }
 
 function loadCollection(file, key) {
+  const mirror = readMirrorCollection(file, key);
+  if (mirror.status === 'available') {
+    return Array.isArray(mirror.items) ? mirror.items : [];
+  }
+
   const content = readJson(file, { [key]: [] });
   const items = Array.isArray(content[key]) ? content[key] : [];
+  if (isDbEnabled()) {
+    syncCollectionMirror(file, key, items);
+  }
   return items;
 }
 
 function writeCollection(file, key, items) {
   writeJson(file, { [key]: items });
+  if (isDbEnabled()) {
+    syncCollectionMirror(file, key, items);
+  }
+}
+
+function loadRankedCollection(file, key, options = {}) {
+  const ranked = loadRankedMirrorCollection(file, key, options);
+  if (Array.isArray(ranked)) {
+    return ranked;
+  }
+
+  const content = readJson(file, { [key]: [] });
+  const items = Array.isArray(content[key]) ? content[key] : [];
+  const minHeat = options.minHeat === undefined ? null : Number(options.minHeat);
+  const includeArchived = Boolean(options.includeArchived);
+  const limit = Number(options.limit || 0);
+
+  const filtered = items
+    .filter((entry) => includeArchived || !entry.archived)
+    .filter((entry) => minHeat === null || Number(entry.heat || 0) >= minHeat)
+    .sort((left, right) => {
+      const byHeat = Number(right.heat || 0) - Number(left.heat || 0);
+      if (byHeat !== 0) {
+        return byHeat;
+      }
+
+      return Number(right.access_count || right.applied_count || 0) - Number(left.access_count || left.applied_count || 0);
+    });
+
+  return limit > 0 ? filtered.slice(0, limit) : filtered;
 }
 
 function generateId(prefix) {
@@ -1215,6 +1278,7 @@ module.exports = {
   buildCheckpointContent,
   buildScopedSkillMarkdown,
   calculateDaysSince,
+  classifyHeatTier,
   clamp,
   copyDir,
   createPaths,
@@ -1237,6 +1301,7 @@ module.exports = {
   loadProjectDecisions,
   loadProjectExperiences,
   loadProjectFacts,
+  loadRankedCollection,
   loadProjectSkills,
   loadProjectState,
   loadSessionMemory,

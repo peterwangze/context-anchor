@@ -5,13 +5,13 @@ const {
   buildCheckpointContent,
   createPaths,
   getRepoRoot,
-  loadProjectDecisions,
-  loadSessionMemory,
+  loadRankedCollection,
   loadSessionState,
+  projectDecisionsFile,
   readText,
   sanitizeKey,
   sessionCheckpointFile,
-  sortByHeat,
+  sessionMemoryFile,
   writeSessionState,
   writeText
 } = require('./lib/context-anchor');
@@ -24,12 +24,14 @@ function runCheckpointCreate(workspaceArg, sessionKeyArg, reasonArg, options = {
     createIfMissing: true,
     touch: true
   });
-  const memoryEntries = sortByHeat(loadSessionMemory(paths, sessionKey)).filter(
-    (entry) => !entry.archived
-  );
-  const decisions = sortByHeat(loadProjectDecisions(paths, sessionState.project_id)).filter(
-    (entry) => !entry.archived
-  );
+  const memoryEntries = loadRankedCollection(sessionMemoryFile(paths, sessionKey), 'entries', {
+    minHeat: 0,
+    limit: 5
+  });
+  const decisions = loadRankedCollection(projectDecisionsFile(paths, sessionState.project_id), 'decisions', {
+    minHeat: 0,
+    limit: 5
+  });
   const templateFile = path.join(getRepoRoot(), 'templates', 'checkpoint.md');
   const template = readText(templateFile);
   const timestamp = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
@@ -39,12 +41,10 @@ function runCheckpointCreate(workspaceArg, sessionKeyArg, reasonArg, options = {
     activeTask: sessionState.active_task || '无',
     hotMemories:
       memoryEntries
-        .slice(0, 5)
         .map((entry) => `- [${entry.type}] ${entry.summary || entry.content}`)
         .join('\n') || '无',
     keyDecisions:
       decisions
-        .slice(0, 5)
         .map((entry) => `- ${entry.decision}`)
         .join('\n') || '无',
     pendingCommitments:

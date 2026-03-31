@@ -6,6 +6,9 @@
 - Session 状态持久化
 - 项目级经验沉淀
 - 上下文压力下的 checkpoint、`compact-packet` 和记忆同步
+- bootstrap 注入硬限制在 10K UTF-8 bytes 内，优先加载短期热记忆
+- 长期记忆默认持久化保存，通过按需检索而不是预加载进入上下文
+- 在不改变 JSON 兼容格式的前提下，用内嵌 SQLite 镜像加速热读和长期记忆检索
 - Session 结束前的自动总结、经验提炼和技能草稿沉淀
 - 满足条件的项目级 / 用户级经验自动晋升为 active skill
 - 经验校验与技能化候选
@@ -43,6 +46,8 @@
 - 记住当前 session 的上下文，不容易因为压缩或重启丢状态
 - 把有价值的经验沉淀到项目级和用户级
 - 在后续 session 里自动复用之前的经验和技能
+- 只把短期热记忆直接注入 bootstrap，长期记忆继续留在持久化存储里按需查找
+- 关键集合会同步到内嵌 SQLite 镜像，减少热读和检索时反复扫描大 JSON 的成本
 - 第一次见到新 workspace 时，默认自动登记归属，尽量不打断你
 - 在合适的时候自动做 checkpoint、总结、经验提炼和技能治理
 - 运行中的 heartbeat / workspace monitor 也会持续把 session memory 增量提炼成 session experiences
@@ -578,6 +583,7 @@ node scripts/configure-host.js --default-user "alice" --no-auto-register-workspa
 
 ```text
 .context-anchor/
+├── catalog.sqlite
 ├── projects/{project-id}/
 │   ├── state.json
 │   ├── decisions.json
@@ -611,6 +617,8 @@ node scripts/configure-host.js --default-user "alice" --no-auto-register-workspa
 ├── experiences.json
 ├── skills/index.json
 └── heat-index.json
+
+<openclaw-home>/context-anchor/users/catalog.sqlite
 ```
 
 ### 自动生命周期
@@ -780,6 +788,16 @@ node "<installed-skill-dir>/scripts/user-experience-sync.js" "<workspace>" [user
 ```bash
 node "<installed-skill-dir>/scripts/compact-packet-create.js" "<workspace>" "<session-key>" manual 80
 ```
+
+#### 按需检索长期记忆
+
+```bash
+node "<installed-skill-dir>/scripts/memory-search.js" "<workspace>" "<session-key>" "checkout retry budget"
+```
+
+默认会优先走 SQLite 镜像检索；原始 JSON 仍然保留为兼容格式。
+
+如果你需要临时关闭数据库镜像，可以设置 `CONTEXT_ANCHOR_DISABLE_DB=1`。
 
 #### 手动执行 session close
 
