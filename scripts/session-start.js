@@ -125,6 +125,10 @@ function loadContinuationSource(paths, currentSessionKey, projectId) {
     project_id: previous.project_id,
     user_id: previous.user_id || state?.user_id || null,
     last_active: previous.last_active || state?.last_active || null,
+    closed_at:
+      Object.prototype.hasOwnProperty.call(state || {}, 'closed_at')
+        ? state?.closed_at || null
+        : null,
     active_task: activeTask,
     pending_commitments: pendingCommitments,
     checkpoint_excerpt: checkpoint ? checkpoint.split('\n').slice(0, 10).join('\n') : null,
@@ -217,17 +221,21 @@ function restoreSessionContinuity(sessionState, continuationSource) {
     return {
       restored: false,
       inherited_active_task: false,
-      inherited_commitments: 0
+      inherited_commitments: 0,
+      reference_only: false
     };
   }
 
   let inheritedActiveTask = false;
   let inheritedCommitments = 0;
+  let referenceOnly = false;
   const currentPendingCommitments = Array.isArray(sessionState.commitments)
     ? sessionState.commitments.filter((entry) => entry.status === 'pending')
     : [];
+  const shouldCarryActiveTask =
+    continuationSource.pending_commitments.length > 0 || !continuationSource.closed_at;
 
-  if (!sessionState.active_task && continuationSource.active_task) {
+  if (!sessionState.active_task && shouldCarryActiveTask && continuationSource.active_task) {
     sessionState.active_task = continuationSource.active_task;
     inheritedActiveTask = true;
   }
@@ -239,18 +247,24 @@ function restoreSessionContinuity(sessionState, continuationSource) {
     inheritedCommitments = sessionState.commitments.length;
   }
 
-  if (inheritedActiveTask || inheritedCommitments > 0) {
+  if (continuationSource.session_key) {
+    referenceOnly = !(inheritedActiveTask || inheritedCommitments > 0);
+  }
+
+  if (inheritedActiveTask || inheritedCommitments > 0 || referenceOnly) {
     sessionState.metadata = {
       ...(sessionState.metadata || {}),
       continued_from_session: continuationSource.session_key,
-      continuity_restored_at: new Date().toISOString()
+      continuity_restored_at: new Date().toISOString(),
+      ...(referenceOnly ? { continuity_reference_only: true } : {})
     };
   }
 
   return {
-    restored: inheritedActiveTask || inheritedCommitments > 0,
+    restored: inheritedActiveTask || inheritedCommitments > 0 || referenceOnly,
     inherited_active_task: inheritedActiveTask,
-    inherited_commitments: inheritedCommitments
+    inherited_commitments: inheritedCommitments,
+    reference_only: referenceOnly
   };
 }
 
@@ -700,8 +714,10 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
       continuity: continuationSource ? {
         source_session_key: continuationSource.session_key,
         source_last_active: continuationSource.last_active,
+        source_closed_at: continuationSource.closed_at,
         inherited_active_task: continuityRestoration.inherited_active_task,
         inherited_commitments: continuityRestoration.inherited_commitments,
+        reference_only: continuityRestoration.reference_only,
         recovered_before_restore: continuationRecovery.recovered,
         recovered_at: continuationSource.continuation_recovered_at || null,
         source_summary_available: Boolean(continuationSource.summary?.created_at),

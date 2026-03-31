@@ -2499,6 +2499,52 @@ test('session-start continues from the latest related session and recommends reu
   }
 });
 
+test('session-start does not carry forward stale active task from a closed session without pending commitments', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'finished-session', 'demo');
+      runMemorySave(
+        workspace,
+        'finished-session',
+        'session',
+        'best_practice',
+        'Finalize sqlite mirror rollout',
+        JSON.stringify({
+          heat: 94
+        })
+      );
+
+      const stateFile = path.join(
+        workspace,
+        '.context-anchor',
+        'sessions',
+        'finished-session',
+        'state.json'
+      );
+      const finishedState = readJson(stateFile, {});
+      finishedState.active_task = 'stale task from older round';
+      finishedState.commitments = [];
+      writeJson(stateFile, finishedState);
+
+      runSessionClose(workspace, 'finished-session', {
+        reason: 'command-reset'
+      });
+
+      const result = runSessionStart(workspace, 'next-session', 'demo');
+
+      assert.equal(result.session.continued_from, 'finished-session');
+      assert.equal(result.recovery.active_task, null);
+      assert.equal(result.recovery.pending_commitments.length, 0);
+      assert.equal(result.recovery.continuity.inherited_active_task, false);
+      assert.equal(result.recovery.continuity.reference_only, true);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('memory-search retrieves persisted long-term memory on demand', () => {
   const workspace = makeWorkspace();
 
