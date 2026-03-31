@@ -4,7 +4,7 @@ const path = require('path');
 const {
   createPaths,
   getOpenClawHome,
-  readJson,
+  readMirroredDocumentSnapshot,
   sanitizeKey,
   sessionStateFile
 } = require('./lib/context-anchor');
@@ -192,7 +192,7 @@ function upgradeCandidate(openClawHome, candidate, options = {}) {
   }
 
   const paths = createPaths(candidate.workspace);
-  const existingState = readJson(sessionStateFile(paths, candidate.session_key), null);
+  const existingState = readMirroredDocumentSnapshot(sessionStateFile(paths, candidate.session_key), null);
   const closed = classifyClosedCandidate(candidate, existingState);
   if (closed && !options.includeClosed) {
     return {

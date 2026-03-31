@@ -7,6 +7,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  compactPacketFile,
   DEFAULTS,
   createPaths,
   getRecentSessions,
@@ -15,6 +16,7 @@ const {
   loadSessionState,
   loadUserMemories,
   readJson,
+  sessionSummaryFile,
   sessionStateFile,
   sessionMemoryFile,
   writeJson
@@ -2786,11 +2788,15 @@ test('session-close writes summary, compact packet, and session skill draft', ()
       assert.ok(fs.existsSync(path.join(workspace, '.context-anchor', 'sessions', 'session-close', 'skills', 'index.json')));
       const skills = readJson(path.join(workspace, '.context-anchor', 'sessions', 'session-close', 'skills', 'index.json'), { skills: [] }).skills;
       assert.equal(skills.length, 1);
-      const compactPacket = loadCompactPacket(
-        { ...require('../scripts/lib/context-anchor').createPaths(workspace) },
-        'session-close'
-      );
+      const paths = createPaths(workspace);
+      const compactPacket = loadCompactPacket(paths, 'session-close');
+      const compactMirror = readMirrorDocument(compactPacketFile(paths, 'session-close'));
+      const summaryMirror = readMirrorDocument(sessionSummaryFile(paths, 'session-close'));
       assert.equal(compactPacket.session_key, 'session-close');
+      assert.equal(compactMirror.status, 'available');
+      assert.equal(compactMirror.data.session_key, 'session-close');
+      assert.equal(summaryMirror.status, 'available');
+      assert.equal(summaryMirror.data.session_key, 'session-close');
     });
   } finally {
     cleanupWorkspace(workspace);

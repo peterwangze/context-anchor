@@ -713,19 +713,19 @@ function writeUserSkills(paths, userId, skills) {
 }
 
 function writeCompactPacket(paths, sessionKey, packet) {
-  writeJson(compactPacketFile(paths, sessionKey), packet);
+  writeMirroredDocument(compactPacketFile(paths, sessionKey), packet);
 }
 
 function loadCompactPacket(paths, sessionKey) {
-  return readJson(compactPacketFile(paths, sessionKey), {});
+  return readMirroredDocumentSnapshot(compactPacketFile(paths, sessionKey), {});
 }
 
 function writeSessionSummary(paths, sessionKey, summary) {
-  writeJson(sessionSummaryFile(paths, sessionKey), summary);
+  writeMirroredDocument(sessionSummaryFile(paths, sessionKey), summary);
 }
 
 function loadSessionSummary(paths, sessionKey) {
-  return readJson(sessionSummaryFile(paths, sessionKey), {});
+  return readMirroredDocumentSnapshot(sessionSummaryFile(paths, sessionKey), {});
 }
 
 function writeProjectFacts(paths, projectId, facts) {

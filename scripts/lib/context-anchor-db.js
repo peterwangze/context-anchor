@@ -271,6 +271,26 @@ function describeDocumentFile(file) {
       };
     }
 
+    if (fileName === 'compact-packet.json' && normalized[anchorIndex + 1] === 'sessions' && parts.length > anchorIndex + 3) {
+      return {
+        dbFile,
+        scope: 'session',
+        ownerId: parts[anchorIndex + 2],
+        docType: 'session_compact_packet',
+        filePath: path.resolve(file)
+      };
+    }
+
+    if (fileName === 'session-summary.json' && normalized[anchorIndex + 1] === 'sessions' && parts.length > anchorIndex + 3) {
+      return {
+        dbFile,
+        scope: 'session',
+        ownerId: parts[anchorIndex + 2],
+        docType: 'session_summary',
+        filePath: path.resolve(file)
+      };
+    }
+
     if (fileName === 'state.json' && normalized[anchorIndex + 1] === 'projects' && parts.length > anchorIndex + 3) {
       return {
         dbFile,

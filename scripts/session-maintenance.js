@@ -2,7 +2,7 @@
 
 const {
   createPaths,
-  readJson,
+  readMirroredDocumentSnapshot,
   sanitizeKey,
   sessionStateFile,
   touchSessionIndex,
@@ -14,7 +14,7 @@ function runSessionMaintenance(workspaceArg, sessionKeyArg, projectIdArg, usageP
   const paths = createPaths(workspaceArg);
   const sessionKey = sanitizeKey(sessionKeyArg);
   const stateFile = sessionStateFile(paths, sessionKey);
-  const previousState = readJson(stateFile, null);
+  const previousState = readMirroredDocumentSnapshot(stateFile, null);
 
   if (!previousState) {
     return {
@@ -33,7 +33,7 @@ function runSessionMaintenance(workspaceArg, sessionKeyArg, projectIdArg, usageP
     projectIdArg || previousState.project_id,
     usagePercentArg
   );
-  const nextState = readJson(stateFile, previousState);
+  const nextState = readMirroredDocumentSnapshot(stateFile, previousState);
 
   if (preservedLastActive) {
     nextState.last_active = preservedLastActive;
