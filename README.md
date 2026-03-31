@@ -30,6 +30,7 @@
 - 使用者：从「使用者」开始，先看 5 分钟上手和易用性命令
 - 贡献者：从「贡献者」开始，重点看高级配置、运行时结构和开发者指南
 - 想查运行规范：继续看 `SKILL.md`
+- 想查长期记忆治理与 SQLite 演进：看 `references/storage-governance-evolution-plan.md`
 
 ## 使用者
 
