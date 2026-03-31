@@ -851,6 +851,77 @@ function loadRecentSessionIndexEntries(file, windowMs, options = {}) {
   }
 }
 
+function summarizeCatalogDatabase(dbFile) {
+  if (!isDbEnabled() || !dbFile || !fs.existsSync(dbFile)) {
+    return {
+      available: false,
+      db_file: dbFile || null,
+      collections: 0,
+      documents: 0,
+      indexed_items: 0,
+      indexed_sessions: 0,
+      session_states: 0,
+      session_summaries: 0,
+      compact_packets: 0,
+      projects: 0
+    };
+  }
+
+  const db = openDatabase(dbFile);
+  if (!db) {
+    return {
+      available: false,
+      db_file: dbFile,
+      collections: 0,
+      documents: 0,
+      indexed_items: 0,
+      indexed_sessions: 0,
+      session_states: 0,
+      session_summaries: 0,
+      compact_packets: 0,
+      projects: 0
+    };
+  }
+
+  try {
+    const collectionSummary = db.prepare(
+      `
+        SELECT
+          COUNT(*) AS collections,
+          COALESCE(SUM(item_count), 0) AS indexed_items,
+          COALESCE(MAX(CASE WHEN source = 'session_index' THEN item_count ELSE 0 END), 0) AS indexed_sessions,
+          COUNT(DISTINCT CASE WHEN scope = 'project' THEN owner_id END) AS projects
+        FROM catalog_collections
+      `
+    ).get();
+    const documentSummary = db.prepare(
+      `
+        SELECT
+          COUNT(*) AS documents,
+          COALESCE(SUM(CASE WHEN doc_type = 'session_state' THEN 1 ELSE 0 END), 0) AS session_states,
+          COALESCE(SUM(CASE WHEN doc_type = 'session_summary' THEN 1 ELSE 0 END), 0) AS session_summaries,
+          COALESCE(SUM(CASE WHEN doc_type = 'session_compact_packet' THEN 1 ELSE 0 END), 0) AS compact_packets
+        FROM catalog_documents
+      `
+    ).get();
+
+    return {
+      available: true,
+      db_file: dbFile,
+      collections: Number(collectionSummary?.collections || 0),
+      documents: Number(documentSummary?.documents || 0),
+      indexed_items: Number(collectionSummary?.indexed_items || 0),
+      indexed_sessions: Number(collectionSummary?.indexed_sessions || 0),
+      session_states: Number(documentSummary?.session_states || 0),
+      session_summaries: Number(documentSummary?.session_summaries || 0),
+      compact_packets: Number(documentSummary?.compact_packets || 0),
+      projects: Number(collectionSummary?.projects || 0)
+    };
+  } finally {
+    db.close();
+  }
+}
+
 function searchCatalogItems(dbFile, filters, query, limit) {
   if (!isDbEnabled() || !fs.existsSync(dbFile) || !Array.isArray(filters) || filters.length === 0) {
     return [];
@@ -1016,6 +1087,7 @@ module.exports = {
   readMirrorCollection,
   readCatalogCollectionSummaries,
   searchCatalogItems,
+  summarizeCatalogDatabase,
   syncCollectionMirror,
   syncDocumentMirror
 };

@@ -5,6 +5,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { runDoctor } = require('../doctor');
 const { createPaths, sanitizeKey } = require('./context-anchor');
+const { summarizeCatalogDatabase } = require('./context-anchor-db');
 const { discoverOpenClawSessions } = require('./openclaw-session-discovery');
 const {
   findSession,
@@ -123,6 +124,26 @@ function buildGroupScope(group) {
     workspace: normalizeScopeWorkspace(group.workspace || firstResolvedSession?.workspace),
     sessionKey: !group.workspace && group.sessions.length > 0 ? group.sessions[0].session_key : null
   };
+}
+
+function buildWorkspaceMirrorSummary(workspace) {
+  if (!workspace) {
+    return {
+      available: false,
+      db_file: null,
+      collections: 0,
+      documents: 0,
+      indexed_items: 0,
+      indexed_sessions: 0,
+      session_states: 0,
+      session_summaries: 0,
+      compact_packets: 0,
+      projects: 0
+    };
+  }
+
+  const paths = createPaths(workspace);
+  return summarizeCatalogDatabase(path.join(paths.anchorDir, 'catalog.sqlite'));
 }
 
 function buildActionCommands(scope, options = {}) {
@@ -501,6 +522,7 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
       scope: commandScope,
       hook_status: hookStatus,
       monitor_status: monitorStatus,
+      mirror: buildWorkspaceMirrorSummary(workspace),
       workspace_status: workspaceStatus,
       session_count: group.sessions.length,
       ready_count: ready,
@@ -612,6 +634,12 @@ function renderOpenClawSessionStatusReport(report) {
         `Ready: ${group.ready_count} | ` +
         `Attention: ${group.attention_count}`
     );
+    lines.push(
+      `  Mirror: ${group.mirror.available ? 'ON' : 'OFF'} | ` +
+        `Collections: ${group.mirror.collections} | ` +
+        `Docs: ${group.mirror.documents} | ` +
+        `Indexed sessions: ${group.mirror.indexed_sessions}`
+    );
     if (group.attention_count > 0) {
       lines.push(`  Issues: ${group.issues.map(describeIssue).join(', ')}`);
       lines.push(`  Diagnose: ${group.diagnostic_command}`);
@@ -641,6 +669,12 @@ function renderOpenClawSessionDiagnosisReport(report) {
     lines.push('');
     for (const group of report.groups) {
       lines.push(`Workspace: ${group.workspace || 'unresolved'}`);
+      lines.push(
+        `  Mirror: ${group.mirror.available ? 'ON' : 'OFF'} | ` +
+          `Collections: ${group.mirror.collections} | ` +
+          `Docs: ${group.mirror.documents} | ` +
+          `Indexed sessions: ${group.mirror.indexed_sessions}`
+      );
       lines.push(`  Diagnose: ${group.diagnostic_command}`);
       lines.push(`  Repair: ${group.repair_command}`);
       lines.push(...renderSessionRows(group.sessions));
@@ -651,6 +685,12 @@ function renderOpenClawSessionDiagnosisReport(report) {
 
   for (const group of problemGroups) {
     lines.push(`Workspace: ${group.workspace || 'unresolved'}`);
+    lines.push(
+      `  Mirror: ${group.mirror.available ? 'ON' : 'OFF'} | ` +
+        `Collections: ${group.mirror.collections} | ` +
+        `Docs: ${group.mirror.documents} | ` +
+        `Indexed sessions: ${group.mirror.indexed_sessions}`
+    );
     lines.push(`  Issues: ${group.issues.map(describeIssue).join(', ')}`);
     lines.push(`  Diagnose: ${group.diagnostic_command}`);
     lines.push(`  Repair: ${group.repair_command}`);

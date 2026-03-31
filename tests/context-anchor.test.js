@@ -1733,6 +1733,10 @@ test('session status overview groups workspaces and shows skill, hook, and monit
       assert.equal(report.summary.unresolved_sessions, 1);
       assert.equal(configuredGroup.hook_status, 'on');
       assert.equal(configuredGroup.monitor_status, 'running');
+      assert.equal(configuredGroup.mirror.available, true);
+      assert.ok(configuredGroup.mirror.collections >= 1);
+      assert.ok(configuredGroup.mirror.documents >= 1);
+      assert.ok(configuredGroup.mirror.indexed_sessions >= 1);
       assert.equal(
         configuredGroup.sessions.find((entry) => entry.session_key === 'agent:main:main').classification.skill,
         'ready'
@@ -1743,11 +1747,15 @@ test('session status overview groups workspaces and shows skill, hook, and monit
       );
       assert.equal(unregisteredGroup.hook_status, 'off');
       assert.equal(unregisteredGroup.monitor_status, 'off');
+      assert.equal(unregisteredGroup.mirror.available, false);
       assert.equal(unregisteredGroup.sessions[0].classification.skill, 'missing');
+      assert.equal(unresolvedGroup.mirror.available, false);
       assert.equal(unresolvedGroup.sessions[0].classification.skill, 'unknown');
       assert.match(report.commands.diagnostic_command, /diagnose:sessions/);
       assert.match(report.commands.repair_command, /configure:sessions/);
       assert.match(configuredGroup.diagnostic_command, /--workspace/);
+      assert.match(rendered, /Mirror: ON/);
+      assert.match(diagnosisRendered, /Mirror: ON/);
       assert.match(configuredGroup.repair_command, /--workspace/);
       assert.match(rendered, /Context-Anchor Session Overview/);
       assert.match(rendered, /Diagnostic command:/);
