@@ -133,6 +133,9 @@ function runDoctor(options = {}) {
     commands: {
       install: `node ${quoteArg(path.join(__dirname, 'install-one-click.js'))}`,
       configure: `node ${quoteArg(path.join(__dirname, 'configure-host.js'))}`,
+      rebuild_mirror: `node ${quoteArg(path.join(__dirname, 'mirror-rebuild.js'))}${
+        workspace ? ` --workspace ${quoteArg(workspace)}` : ''
+      }`,
       hook_with_payload_file: `node ${quoteArg(hookHandler)} heartbeat ${quoteArg(
         process.platform === 'win32' ? '.\\context-anchor-payload.json' : './context-anchor-payload.json'
       )}`,
@@ -143,6 +146,7 @@ function runDoctor(options = {}) {
     },
     notes: [
       'Prefer absolute paths and always wrap paths in double quotes when running commands manually.',
+      'If you introduced the SQLite mirror on top of existing JSON memories, run the rebuild_mirror command once to backfill old data.',
       'OpenClaw reads managed hook and skill settings from openclaw.json; the legacy config.json file is not used for this integration.',
       'If you install context-anchor into the default managed skills directory (~/.openclaw/skills), skills.load.extraDirs is not required.',
       'If shell quoting is difficult, write payload JSON to a file and pass the file path to the hook handler.',

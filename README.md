@@ -242,6 +242,18 @@ node scripts/upgrade-sessions.js --session-key "<session-key>"
 
 对存量用户来说，这个升级不需要你手工重建 session。刷新完成后，后续的 `/compact`、`/stop`、`/new`、`/reset` 和重启后的恢复链路都会按最新行为执行。
 
+如果你是在已有 JSON 记忆之上新启用了 SQLite 镜像，建议再执行一次：
+
+```bash
+node scripts/mirror-rebuild.js
+```
+
+也可以只回填单个 workspace：
+
+```bash
+node scripts/mirror-rebuild.js --workspace "<workspace>"
+```
+
 ### 安装后你应该看到什么
 
 至少检查这几个路径：

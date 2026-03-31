@@ -39,6 +39,7 @@ const { runExperienceValidate } = require('../scripts/experience-validate');
 const { runInstallHostAssets } = require('../scripts/install-host-assets');
 const { runOneClickInstall } = require('../scripts/install-one-click');
 const { runMigrateGlobalToUser } = require('../scripts/migrate-global-to-user');
+const { runMirrorRebuild } = require('../scripts/mirror-rebuild');
 const { runMemoryFlow } = require('../scripts/memory-flow');
 const { runMemorySave } = require('../scripts/memory-save');
 const { runHeartbeat } = require('../scripts/heartbeat');
@@ -1832,6 +1833,7 @@ test('doctor reports installed absolute paths and wrapper returns a helpful payl
       assert.ok(fs.existsSync(result.doctor_script));
       assert.equal(doctor.configuration.ready, true);
       assert.ok(doctor.commands.hook_with_payload_file.includes(result.hook_handler));
+      assert.match(doctor.commands.rebuild_mirror, /mirror-rebuild\.js/);
 
       assert.throws(
         () => execFileSync(process.execPath, [result.hook_handler, 'heartbeat', '{broken-json'], { encoding: 'utf8' }),
@@ -1840,6 +1842,69 @@ test('doctor reports installed absolute paths and wrapper returns a helpful payl
           return true;
         }
       );
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('mirror-rebuild backfills sqlite mirrors from existing JSON assets', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'mirror-rebuild-session', 'demo');
+      runMemorySave(
+        workspace,
+        'mirror-rebuild-session',
+        'session',
+        'best_practice',
+        'Backfill checkout retry memory',
+        JSON.stringify({ heat: 96 })
+      );
+      runMemorySave(
+        workspace,
+        'mirror-rebuild-session',
+        'user',
+        'best_practice',
+        'Backfill user summary preference',
+        JSON.stringify({
+          user_id: 'default-user',
+          heat: 72
+        })
+      );
+      runSessionClose(workspace, 'mirror-rebuild-session', {
+        reason: 'session-end'
+      });
+
+      const paths = createPaths(workspace);
+      const workspaceDb = path.join(workspace, '.context-anchor', 'catalog.sqlite');
+      const userDb = path.join(workspace, 'openclaw-home', 'context-anchor', 'users', 'catalog.sqlite');
+      if (fs.existsSync(workspaceDb)) {
+        fs.rmSync(workspaceDb, { force: true });
+      }
+      if (fs.existsSync(userDb)) {
+        fs.rmSync(userDb, { force: true });
+      }
+
+      const result = runMirrorRebuild(workspace, path.join(workspace, 'openclaw-home'));
+      const sessionMemoryMirror = readMirrorCollection(sessionMemoryFile(paths, 'mirror-rebuild-session'), 'entries');
+      const sessionSummaryMirror = readMirrorDocument(sessionSummaryFile(paths, 'mirror-rebuild-session'));
+      const userMemoryMirror = readMirrorCollection(
+        path.join(workspace, 'openclaw-home', 'context-anchor', 'users', 'default-user', 'memories.json'),
+        'memories'
+      );
+
+      assert.equal(result.status, 'ok');
+      assert.ok(result.workspaces_processed.some((entry) => entry === workspace));
+      assert.ok(result.users_processed.includes('default-user'));
+      assert.ok(result.collections_synced >= 1);
+      assert.ok(result.documents_synced >= 1);
+      assert.ok(fs.existsSync(workspaceDb));
+      assert.ok(fs.existsSync(userDb));
+      assert.equal(sessionMemoryMirror.status, 'available');
+      assert.equal(sessionSummaryMirror.status, 'available');
+      assert.equal(userMemoryMirror.status, 'available');
     });
   } finally {
     cleanupWorkspace(workspace);
