@@ -7,6 +7,7 @@ const {
   isDbEnabled,
   loadRankedMirrorCollection,
   loadRecentSessionIndexEntries,
+  readMirrorCollectionCount,
   readMirrorDocument,
   readMirrorCollection,
   syncCollectionMirror,
@@ -150,6 +151,15 @@ function writeMirroredDocument(file, data) {
   if (isDbEnabled()) {
     syncDocumentMirror(file, data);
   }
+}
+
+function readMirroredDocumentSnapshot(file, defaultValue = {}) {
+  const mirror = readMirrorDocument(file);
+  if (mirror.status === 'available') {
+    return mirror.data;
+  }
+
+  return readJson(file, defaultValue);
 }
 
 function resolveWorkspace(workspaceArg) {
@@ -371,6 +381,41 @@ function loadRankedCollection(file, key, options = {}) {
     });
 
   return limit > 0 ? filtered.slice(0, limit) : filtered;
+}
+
+function loadCollectionCount(file, key) {
+  const mirror = readMirrorCollectionCount(file, key);
+  if (mirror.status === 'available') {
+    return mirror.count;
+  }
+
+  const content = readJson(file, { [key]: [] });
+  const items = Array.isArray(content[key]) ? content[key] : [];
+  if (isDbEnabled() && fs.existsSync(file)) {
+    syncCollectionMirror(file, key, items);
+  }
+  return items.length;
+}
+
+function loadCollectionSnapshot(file, key) {
+  const mirror = readMirrorCollection(file, key);
+  if (mirror.status === 'available') {
+    return Array.isArray(mirror.items) ? mirror.items : [];
+  }
+
+  const content = readJson(file, { [key]: [] });
+  return Array.isArray(content[key]) ? content[key] : [];
+}
+
+function loadCollectionCountSnapshot(file, key) {
+  const mirror = readMirrorCollectionCount(file, key);
+  if (mirror.status === 'available') {
+    return mirror.count;
+  }
+
+  const content = readJson(file, { [key]: [] });
+  const items = Array.isArray(content[key]) ? content[key] : [];
+  return items.length;
 }
 
 function generateId(prefix) {
@@ -1329,6 +1374,9 @@ module.exports = {
   collectSkillDiagnostics,
   loadCompactPacket,
   loadCollection,
+  loadCollectionCount,
+  loadCollectionCountSnapshot,
+  loadCollectionSnapshot,
   loadGlobalState,
   loadHeatIndex,
   loadProjectDecisions,
@@ -1361,6 +1409,7 @@ module.exports = {
   projectSkillsIndexFile,
   projectStateFile,
   readJson,
+  readMirroredDocumentSnapshot,
   readText,
   recordHeatEntry,
   recordUserHeatEntry,

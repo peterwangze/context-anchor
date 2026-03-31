@@ -7,13 +7,15 @@ const {
   collectSkillDiagnostics,
   countByStatus,
   createPaths,
+  loadCollectionCountSnapshot,
+  loadCollectionSnapshot,
   loadSessionState,
   projectDecisionsFile,
   projectExperiencesFile,
   projectFactsFile,
   projectSkillsIndexFile,
   projectStateFile,
-  readJson,
+  readMirroredDocumentSnapshot,
   resolveProjectId,
   resolveUserId,
   sanitizeKey,
@@ -29,11 +31,6 @@ const {
   writeStatusSnapshot
 } = require('./lib/context-anchor');
 const { resolveOwnership } = require('./lib/host-config');
-
-function readCollection(file, key) {
-  const content = readJson(file, { [key]: [] });
-  return Array.isArray(content[key]) ? content[key] : [];
-}
 
 function summarizeSkillEvidence(skills = []) {
   const entries = skills.flatMap((skill) =>
@@ -75,7 +72,7 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
   });
   const userId = resolveUserId(userIdArg || existingSessionState?.user_id || ownership.userId || DEFAULTS.userId);
 
-  const projectState = readJson(projectStateFile(paths, projectId), {
+  const projectState = readMirroredDocumentSnapshot(projectStateFile(paths, projectId), {
     project_id: projectId,
     name: projectId,
     created_at: null,
@@ -86,7 +83,7 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
     user_preferences: {},
     metadata: {}
   });
-  const userState = readJson(userStateFile(paths, userId), {
+  const userState = readMirroredDocumentSnapshot(userStateFile(paths, userId), {
     user_id: userId,
     created_at: null,
     last_updated: null,
@@ -108,17 +105,17 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
       last_summary: null
     };
 
-  const sessionMemories = readCollection(sessionMemoryFile(paths, sessionKey), 'entries');
-  const sessionExperiences = readCollection(sessionExperiencesFile(paths, sessionKey), 'experiences');
-  const sessionSkills = readCollection(sessionSkillsIndexFile(paths, sessionKey), 'skills');
-  const sessionSummary = readJson(sessionSummaryFile(paths, sessionKey), {});
-  const projectDecisions = readCollection(projectDecisionsFile(paths, projectId), 'decisions');
-  const projectExperiences = readCollection(projectExperiencesFile(paths, projectId), 'experiences');
-  const projectFacts = readCollection(projectFactsFile(paths, projectId), 'facts');
-  const projectSkills = readCollection(projectSkillsIndexFile(paths, projectId), 'skills');
-  const userMemories = readCollection(userMemoriesFile(paths, userId), 'memories');
-  const userExperiences = readCollection(userExperiencesFile(paths, userId), 'experiences');
-  const userSkills = readCollection(userSkillsIndexFile(paths, userId), 'skills');
+  const sessionMemories = loadCollectionCountSnapshot(sessionMemoryFile(paths, sessionKey), 'entries');
+  const sessionExperiences = loadCollectionCountSnapshot(sessionExperiencesFile(paths, sessionKey), 'experiences');
+  const sessionSkills = loadCollectionSnapshot(sessionSkillsIndexFile(paths, sessionKey), 'skills');
+  const sessionSummary = readMirroredDocumentSnapshot(sessionSummaryFile(paths, sessionKey), {});
+  const projectDecisions = loadCollectionCountSnapshot(projectDecisionsFile(paths, projectId), 'decisions');
+  const projectExperiences = loadCollectionCountSnapshot(projectExperiencesFile(paths, projectId), 'experiences');
+  const projectFacts = loadCollectionCountSnapshot(projectFactsFile(paths, projectId), 'facts');
+  const projectSkills = loadCollectionSnapshot(projectSkillsIndexFile(paths, projectId), 'skills');
+  const userMemories = loadCollectionCountSnapshot(userMemoriesFile(paths, userId), 'memories');
+  const userExperiences = loadCollectionCountSnapshot(userExperiencesFile(paths, userId), 'experiences');
+  const userSkills = loadCollectionSnapshot(userSkillsIndexFile(paths, userId), 'skills');
 
   const diagnostics = collectSkillDiagnostics({
     session: sessionSkills,
@@ -133,24 +130,24 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
     user: {
       id: userId,
       preferences_count: Object.keys(userState.preferences || {}).length,
-      memories: userMemories.length,
-      experiences: userExperiences.length,
+      memories: userMemories,
+      experiences: userExperiences,
       skills: userSkills.length
     },
     project: {
       id: projectId,
       name: projectState.name,
-      decisions: projectDecisions.length,
-      experiences: projectExperiences.length,
-      facts: projectFacts.length,
+      decisions: projectDecisions,
+      experiences: projectExperiences,
+      facts: projectFacts,
       skills: projectSkills.length
     },
     session: {
       key: sessionKey,
       active_task: sessionState.active_task,
       pending_commitments: (sessionState.commitments || []).filter((entry) => entry.status === 'pending').length,
-      memories: sessionMemories.length,
-      experiences: sessionExperiences.length,
+      memories: sessionMemories,
+      experiences: sessionExperiences,
       skills: sessionSkills.length,
       last_checkpoint: sessionState.last_checkpoint,
       last_summary: sessionState.last_summary,

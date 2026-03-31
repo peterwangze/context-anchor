@@ -24,7 +24,32 @@ function getSqliteRuntime() {
   }
 
   try {
-    sqliteRuntime = require('node:sqlite');
+    const shouldShowWarning = process.env.CONTEXT_ANCHOR_SHOW_SQLITE_WARNING === '1';
+    if (shouldShowWarning) {
+      sqliteRuntime = require('node:sqlite');
+      return sqliteRuntime;
+    }
+
+    const originalEmitWarning = process.emitWarning;
+    process.emitWarning = function patchedEmitWarning(warning, ...args) {
+      const warningName =
+        typeof warning === 'string' ? (typeof args[0] === 'string' ? args[0] : '') : warning?.name || '';
+      const warningMessage = typeof warning === 'string' ? warning : warning?.message || '';
+      const isSqliteExperimentalWarning =
+        warningName === 'ExperimentalWarning' && /SQLite is an experimental feature/i.test(warningMessage);
+
+      if (isSqliteExperimentalWarning) {
+        return;
+      }
+
+      return originalEmitWarning.call(this, warning, ...args);
+    };
+
+    try {
+      sqliteRuntime = require('node:sqlite');
+    } finally {
+      process.emitWarning = originalEmitWarning;
+    }
   } catch {
     sqliteRuntime = false;
   }
@@ -669,6 +694,57 @@ function readMirrorCollection(file, key) {
   }
 }
 
+function readMirrorCollectionCount(file, key) {
+  const descriptor = describeCollectionFile(file, key);
+  if (!descriptor || !isDbEnabled() || !fs.existsSync(descriptor.dbFile)) {
+    return {
+      status: 'missing',
+      count: null
+    };
+  }
+
+  const db = openDatabase(descriptor.dbFile);
+  if (!db) {
+    return {
+      status: 'missing',
+      count: null
+    };
+  }
+
+  try {
+    const collection = db
+      .prepare(
+        `
+          SELECT item_count, json_mtime_ms
+          FROM catalog_collections
+          WHERE scope = ? AND owner_id = ? AND source = ?
+        `
+      )
+      .get(descriptor.scope, descriptor.ownerId, descriptor.source);
+
+    if (!collection) {
+      return {
+        status: 'missing',
+        count: null
+      };
+    }
+
+    if (Number(collection.json_mtime_ms || 0) !== normalizeMtime(descriptor.filePath)) {
+      return {
+        status: 'stale',
+        count: null
+      };
+    }
+
+    return {
+      status: 'available',
+      count: Number(collection.item_count || 0)
+    };
+  } finally {
+    db.close();
+  }
+}
+
 function loadRankedMirrorCollection(file, key, options = {}) {
   const descriptor = describeCollectionFile(file, key);
   if (!descriptor || !isDbEnabled() || !fs.existsSync(descriptor.dbFile)) {
@@ -915,6 +991,7 @@ module.exports = {
   isDbEnabled,
   loadRankedMirrorCollection,
   loadRecentSessionIndexEntries,
+  readMirrorCollectionCount,
   readMirrorDocument,
   readMirrorCollection,
   readCatalogCollectionSummaries,
