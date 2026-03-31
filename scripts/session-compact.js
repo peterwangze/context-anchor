@@ -15,6 +15,7 @@ const { recordSessionOwnership, resolveOwnership } = require('./lib/host-config'
 const { runCheckpointCreate } = require('./checkpoint-create');
 const { runCompactPacketCreate } = require('./compact-packet-create');
 const { runHeartbeat } = require('./heartbeat');
+const { runRuntimeStateUpdate } = require('./runtime-state-update');
 const { runSessionExperienceSync } = require('./session-experience-sync');
 const { runSkillDraftCreate } = require('./skill-draft-create');
 
@@ -125,6 +126,15 @@ function runSessionCompact(workspaceArg, sessionKeyArg, options = {}) {
   result.bootstrap = bootstrap;
   if (bootstrap.bootstrap_content_written) {
     actions.push('bootstrap_cache_refreshed');
+  }
+
+  if (phase === 'after') {
+    result.runtime_state = runRuntimeStateUpdate(paths.workspace, sessionKey, {
+      projectId: ownership.projectId,
+      userId: ownership.userId,
+      reason: 'compact-after'
+    }).runtime_state;
+    actions.push('runtime_state_refreshed');
   }
 
   const persistedState = loadSessionState(paths, sessionKey, ownership.projectId, {

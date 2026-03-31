@@ -3,6 +3,7 @@ const path = require('path');
 const {
   DEFAULTS,
   createPaths,
+  readRuntimeStateSnapshot,
   loadSessionState,
   readText,
   sanitizeKey,
@@ -578,13 +579,32 @@ function buildMinimalBootstrapContent(workspace, sessionKey, ownership, options 
     createIfMissing: false,
     touch: false
   });
-  if (!sessionState) {
+  const runtimeState = readRuntimeStateSnapshot(paths, sessionKey, ownership.project_id, {
+    userId: ownership.user_id || sessionState?.user_id || null
+  });
+  if (!sessionState && !runtimeState) {
     return '';
   }
 
-  const pendingCommitments = (sessionState.commitments || []).filter((entry) => entry.status === 'pending');
+  const pendingCommitments = Array.isArray(runtimeState?.pending_commitments)
+    ? runtimeState.pending_commitments
+    : (sessionState?.commitments || []).filter((entry) => entry.status === 'pending');
   const checkpoint = readText(sessionCheckpointFile(paths, sessionKey), '');
-  const summary = buildMinimalSummary(sessionState, pendingCommitments, checkpoint, budgetBytes);
+  const summary = buildMinimalSummary(
+    {
+      ...(sessionState || {}),
+      session_key: runtimeState?.session_key || sessionState?.session_key || sanitizeKey(sessionKey),
+      project_id: runtimeState?.project_id || sessionState?.project_id || ownership.project_id || null,
+      user_id: runtimeState?.user_id || sessionState?.user_id || ownership.user_id || null,
+      active_task:
+        Object.prototype.hasOwnProperty.call(runtimeState || {}, 'active_task')
+          ? runtimeState.active_task
+          : sessionState?.active_task || null
+    },
+    pendingCommitments,
+    checkpoint,
+    budgetBytes
+  );
 
   return chooseBudgetedRender(
     RENDER_PROFILES.map((profile) => () => renderSummaryWithProfile(summary, profile, budgetBytes)),

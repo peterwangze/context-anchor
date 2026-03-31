@@ -31,6 +31,7 @@ const {
   projectDecisionsFile,
   projectExperiencesFile,
   projectFactsFile,
+  readRuntimeStateSnapshot,
   readText,
   recordHeatEntry,
   recordUserHeatEntry,
@@ -40,6 +41,7 @@ const {
   sanitizeKey,
   sessionCheckpointFile,
   sessionMemoryFile,
+  syncRuntimeStateFromSessionState,
   sortByHeat,
   syncProjectStateMetadata,
   touchGlobalIndex,
@@ -92,6 +94,32 @@ function collectPendingCommitments(sessionState = {}, summary = {}, compactPacke
   return [];
 }
 
+function mergeRuntimeCommitments(sessionState = {}, runtimeState = null) {
+  const existing = Array.isArray(sessionState.commitments) ? sessionState.commitments : [];
+  const nonPending = existing.filter((entry) => entry.status !== 'pending');
+  const runtimePending = Array.isArray(runtimeState?.pending_commitments)
+    ? runtimeState.pending_commitments.map((entry) => ({ ...entry }))
+    : [];
+  return [...nonPending, ...runtimePending];
+}
+
+function applyRuntimeStateToSessionState(sessionState, runtimeState) {
+  if (!runtimeState) {
+    return;
+  }
+
+  sessionState.active_task = runtimeState.active_task;
+  sessionState.commitments = mergeRuntimeCommitments(sessionState, runtimeState);
+  sessionState.last_checkpoint = runtimeState.last_checkpoint || sessionState.last_checkpoint || null;
+  sessionState.checkpoint_reason = runtimeState.checkpoint_reason || sessionState.checkpoint_reason || null;
+  sessionState.last_summary = runtimeState.last_summary || sessionState.last_summary || null;
+  sessionState.closed_at = runtimeState.closed_at || null;
+  sessionState.metadata = {
+    ...(sessionState.metadata || {}),
+    ...(runtimeState.metadata || {})
+  };
+}
+
 function loadContinuationSource(paths, currentSessionKey, projectId) {
   const candidates = loadCollection(paths.sessionIndexFile, 'sessions');
   const previous = candidates
@@ -106,15 +134,24 @@ function loadContinuationSource(paths, currentSessionKey, projectId) {
     createIfMissing: false,
     touch: false
   });
+  const runtimeState = readRuntimeStateSnapshot(paths, previous.session_key, previous.project_id, {
+    userId: previous.user_id || state?.user_id || null
+  });
   const summary = loadSessionSummary(paths, previous.session_key);
   const compactPacket = loadCompactPacket(paths, previous.session_key);
   const checkpoint = readText(sessionCheckpointFile(paths, previous.session_key), '');
   const activeTask =
+    (runtimeState && Object.prototype.hasOwnProperty.call(runtimeState, 'active_task')
+      ? runtimeState.active_task
+      : null) ||
     state?.active_task ||
     summary?.active_task ||
     compactPacket?.active_task ||
     null;
-  const pendingCommitments = collectPendingCommitments(state || {}, summary || {}, compactPacket || {});
+  const pendingCommitments =
+    Array.isArray(runtimeState?.pending_commitments) && runtimeState.pending_commitments.length > 0
+      ? runtimeState.pending_commitments.map((entry) => ({ ...entry }))
+      : collectPendingCommitments(state || {}, summary || {}, compactPacket || {});
 
   if (!activeTask && pendingCommitments.length === 0 && !checkpoint && !summary?.created_at && !compactPacket?.created_at) {
     return null;
@@ -123,16 +160,20 @@ function loadContinuationSource(paths, currentSessionKey, projectId) {
   return {
     session_key: previous.session_key,
     project_id: previous.project_id,
-    user_id: previous.user_id || state?.user_id || null,
-    last_active: previous.last_active || state?.last_active || null,
+    user_id: previous.user_id || runtimeState?.user_id || state?.user_id || null,
+    last_active: runtimeState?.last_active || previous.last_active || state?.last_active || null,
     closed_at:
-      Object.prototype.hasOwnProperty.call(state || {}, 'closed_at')
-        ? state?.closed_at || null
+      Object.prototype.hasOwnProperty.call(runtimeState || {}, 'closed_at')
+        ? runtimeState?.closed_at || null
+        : Object.prototype.hasOwnProperty.call(state || {}, 'closed_at')
+          ? state?.closed_at || null
         : null,
     active_task: activeTask,
     pending_commitments: pendingCommitments,
     checkpoint_excerpt: checkpoint ? checkpoint.split('\n').slice(0, 10).join('\n') : null,
-    continuation_recovered_at: state?.metadata?.continuation_recovered_at || null,
+    continuation_recovered_at:
+      runtimeState?.metadata?.continuation_recovered_at || state?.metadata?.continuation_recovered_at || null,
+    runtime_state: runtimeState,
     summary,
     compact_packet: compactPacket
   };
@@ -199,6 +240,11 @@ function recoverContinuationSource(paths, currentSessionKey, source, options = {
       continuation_recovered_at: new Date().toISOString()
     };
     writeSessionState(paths, source.session_key, recoveredState);
+    syncRuntimeStateFromSessionState(paths, source.session_key, recoveredState, {
+      lastActive: preservedLastActive,
+      closedAt: preservedClosedAt,
+      metadata: recoveredState.metadata
+    });
     touchSessionIndex(paths, recoveredState);
   }
 
@@ -573,6 +619,11 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
     touch: true,
     userId: ownership.userId
   });
+  const existingRuntimeState = readRuntimeStateSnapshot(paths, sessionKey, projectId, {
+    userId: ownership.userId,
+    fallbackToSession: false
+  });
+  applyRuntimeStateToSessionState(sessionState, existingRuntimeState);
   const openClawSessionId =
     typeof options.openClawSessionId === 'string' && options.openClawSessionId.trim()
       ? options.openClawSessionId.trim()
@@ -602,6 +653,9 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
     ...(openClawSessionId ? { openclaw_session_id: openClawSessionId } : {})
   };
   writeSessionState(paths, sessionState.session_key, sessionState);
+  syncRuntimeStateFromSessionState(paths, sessionState.session_key, sessionState, {
+    metadata: sessionState.metadata
+  });
   const projectState = loadProjectState(paths, sessionState.project_id);
   const loadedDecisions = loadProjectDecisions(paths, sessionState.project_id);
   const loadedExperiences = loadProjectExperiences(paths, sessionState.project_id);

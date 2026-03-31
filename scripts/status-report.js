@@ -9,6 +9,7 @@ const {
   createPaths,
   loadCollectionCountSnapshot,
   loadCollectionSnapshot,
+  readRuntimeStateSnapshot,
   loadSessionState,
   projectDecisionsFile,
   projectExperiencesFile,
@@ -104,6 +105,9 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
       last_checkpoint: null,
       last_summary: null
     };
+  const runtimeState = readRuntimeStateSnapshot(paths, sessionKey, projectId, {
+    userId
+  });
 
   const sessionMemories = loadCollectionCountSnapshot(sessionMemoryFile(paths, sessionKey), 'entries');
   const sessionExperiences = loadCollectionCountSnapshot(sessionExperiencesFile(paths, sessionKey), 'experiences');
@@ -144,13 +148,18 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
     },
     session: {
       key: sessionKey,
-      active_task: sessionState.active_task,
-      pending_commitments: (sessionState.commitments || []).filter((entry) => entry.status === 'pending').length,
+      active_task:
+        Object.prototype.hasOwnProperty.call(runtimeState || {}, 'active_task')
+          ? runtimeState?.active_task || null
+          : sessionState.active_task,
+      pending_commitments: Array.isArray(runtimeState?.pending_commitments)
+        ? runtimeState.pending_commitments.length
+        : (sessionState.commitments || []).filter((entry) => entry.status === 'pending').length,
       memories: sessionMemories,
       experiences: sessionExperiences,
       skills: sessionSkills.length,
-      last_checkpoint: sessionState.last_checkpoint,
-      last_summary: sessionState.last_summary,
+      last_checkpoint: runtimeState?.last_checkpoint || sessionState.last_checkpoint,
+      last_summary: runtimeState?.last_summary || sessionState.last_summary,
       last_summary_snapshot: sessionSummary.created_at ? {
         created_at: sessionSummary.created_at,
         promoted_project_skills: (sessionSummary.promoted_project_skills || []).length,

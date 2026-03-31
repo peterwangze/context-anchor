@@ -16,9 +16,11 @@ const {
   loadSessionState,
   loadUserMemories,
   readJson,
+  runtimeStateFile,
   sessionSummaryFile,
   sessionStateFile,
   sessionMemoryFile,
+  syncRuntimeStateFromSessionState,
   writeJson
 } = require('../scripts/lib/context-anchor');
 const { buildBootstrapCacheContent } = require('../scripts/lib/bootstrap-cache');
@@ -60,6 +62,7 @@ const { runSkillReconcile } = require('../scripts/skill-reconcile');
 const { runStatusReport } = require('../scripts/status-report');
 const { runSkillSupersede } = require('../scripts/skill-supersede');
 const { runSessionClose } = require('../scripts/session-close');
+const { runSessionCompact } = require('../scripts/session-compact');
 const { runSessionStart } = require('../scripts/session-start');
 const { runConfigureSessions } = require('../scripts/configure-sessions');
 const { runUpgradeSessions } = require('../scripts/upgrade-sessions');
@@ -100,6 +103,15 @@ function withOpenClawHome(workspace, fn) {
     restore();
     throw error;
   }
+}
+
+function syncRuntimeStateFixture(workspace, sessionKey, projectId) {
+  const paths = createPaths(workspace);
+  const sessionState = loadSessionState(paths, sessionKey, projectId, {
+    createIfMissing: false,
+    touch: false
+  });
+  return syncRuntimeStateFromSessionState(paths, sessionKey, sessionState);
 }
 
 function writeSessionTranscript(sessionFile, workspace, sessionId) {
@@ -156,6 +168,7 @@ test('session-start preserves existing session state', () => {
       }
     ];
     writeJson(sessionFile, state);
+    syncRuntimeStateFixture(workspace, 'session-a', 'demo');
 
     const result = runSessionStart(workspace, 'session-a', 'demo');
     const nextState = readJson(sessionFile, {});
@@ -163,6 +176,87 @@ test('session-start preserves existing session state', () => {
     assert.equal(nextState.active_task, 'keep-me');
     assert.equal(nextState.commitments.length, 1);
     assert.equal(result.session.restored, true);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('session-start prefers runtime state over stale session state for the current session', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      const paths = createPaths(workspace);
+      runSessionStart(workspace, 'runtime-backed-session', 'demo');
+
+      const stateFile = sessionStateFile(paths, 'runtime-backed-session');
+      const runtimeFile = runtimeStateFile(paths, 'runtime-backed-session');
+      const state = readJson(stateFile, {});
+      const runtimeState = readJson(runtimeFile, {});
+
+      state.active_task = 'stale state task';
+      state.commitments = [];
+      writeJson(stateFile, state);
+
+      runtimeState.active_task = 'continue from runtime state';
+      runtimeState.pending_commitments = [
+        {
+          id: 'runtime-1',
+          what: 'ship runtime sync',
+          status: 'pending'
+        }
+      ];
+      runtimeState.closed_at = null;
+      writeJson(runtimeFile, runtimeState);
+
+      const result = runSessionStart(workspace, 'runtime-backed-session', 'demo');
+      const nextState = readJson(stateFile, {});
+
+      assert.equal(result.recovery.active_task, 'continue from runtime state');
+      assert.equal(result.recovery.pending_commitments.length, 1);
+      assert.equal(nextState.active_task, 'continue from runtime state');
+      assert.equal(nextState.commitments.filter((entry) => entry.status === 'pending').length, 1);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('session-compact after refreshes runtime state metadata', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      const paths = createPaths(workspace);
+      runSessionStart(workspace, 'compact-runtime-session', 'demo');
+
+      const stateFile = sessionStateFile(paths, 'compact-runtime-session');
+      const state = readJson(stateFile, {});
+      state.active_task = 'refresh runtime after compact';
+      state.commitments = [
+        {
+          id: 'compact-runtime-1',
+          what: 'keep pending work visible',
+          status: 'pending'
+        }
+      ];
+      writeJson(stateFile, state);
+      syncRuntimeStateFixture(workspace, 'compact-runtime-session', 'demo');
+
+      const result = runSessionCompact(workspace, 'compact-runtime-session', {
+        phase: 'after',
+        projectId: 'demo'
+      });
+      const runtimeState = readJson(runtimeStateFile(paths, 'compact-runtime-session'), {});
+
+      assert.equal(result.status, 'handled');
+      assert.ok(result.actions.includes('runtime_state_refreshed'));
+      assert.equal(runtimeState.active_task, 'refresh runtime after compact');
+      assert.equal(runtimeState.pending_commitments.length, 1);
+      assert.equal(runtimeState.metadata.last_compaction_event, 'after');
+      assert.ok(runtimeState.metadata.last_compaction_at);
+      assert.equal(runtimeState.metadata.runtime_state_reason, 'compact-after');
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -695,6 +789,7 @@ test('gateway startup hook emits a resume message for the latest active session'
         }
       ];
       writeJson(sessionFile, state);
+      syncRuntimeStateFixture(workspace, 'resume-session', 'demo');
       runCheckpointCreate(workspace, 'resume-session', 'manual');
 
       const result = handleHookEvent('gateway:startup', {
@@ -1375,6 +1470,7 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
       const activeState = readJson(activeStateFile, {});
       activeState.active_task = 'refresh the active session';
       writeJson(activeStateFile, activeState);
+      syncRuntimeStateFixture(activeWorkspace, 'active-session', 'active-project');
 
       runSessionStart(closedWorkspace, 'closed-session', 'closed-project', {
         userId: 'peter'
@@ -1442,6 +1538,7 @@ test('one-click install can upgrade existing sessions after refreshing runtime a
       const sessionState = readJson(sessionStateFile, {});
       sessionState.active_task = 'refresh runtime for stored session';
       writeJson(sessionStateFile, sessionState);
+      syncRuntimeStateFixture(sessionWorkspace, 'agent-main-main', 'workspace-a');
 
       fs.mkdirSync(agentSessionsDir, { recursive: true });
       writeSessionTranscript(transcriptFile, sessionWorkspace, 'openclaw-session-a');
@@ -2403,6 +2500,7 @@ test('bootstrap cache compacts semantically under a tight budget instead of hard
         }
       ];
       writeJson(sourceStateFile, sourceState);
+      syncRuntimeStateFixture(workspace, 'tight-budget-source', 'demo');
 
       runSessionClose(workspace, 'tight-budget-source', {
         reason: 'command-reset',
@@ -2450,6 +2548,7 @@ test('session-start continues from the latest related session and recommends reu
         }
       ];
       writeJson(sessionFile, previousState);
+      syncRuntimeStateFixture(workspace, 'previous-session', 'demo');
 
       runMemorySave(
         workspace,
@@ -2527,6 +2626,7 @@ test('session-start does not carry forward stale active task from a closed sessi
       finishedState.active_task = 'stale task from older round';
       finishedState.commitments = [];
       writeJson(stateFile, finishedState);
+      syncRuntimeStateFixture(workspace, 'finished-session', 'demo');
 
       runSessionClose(workspace, 'finished-session', {
         reason: 'command-reset'
@@ -2634,6 +2734,7 @@ test('session-start auto-recovers unfinished continuation assets before restorin
         }
       ];
       writeJson(sourceStateFile, sourceState);
+      syncRuntimeStateFixture(workspace, 'handoff-source', 'demo');
       const preservedLastActive = readJson(sourceStateFile, {}).last_active;
 
       const result = runSessionStart(workspace, 'handoff-target', 'demo');
@@ -2703,6 +2804,7 @@ test('managed bootstrap injects recovered continuity for an unfinished prior ses
         }
       ];
       writeJson(sourceStateFile, sourceState);
+      syncRuntimeStateFixture(workspace, 'bootstrap-source', 'demo');
 
       const event = {
         type: 'agent',

@@ -243,6 +243,10 @@ function sessionStateFile(paths, sessionKey) {
   return path.join(sessionDir(paths, sessionKey), 'state.json');
 }
 
+function runtimeStateFile(paths, sessionKey) {
+  return path.join(sessionDir(paths, sessionKey), 'runtime-state.json');
+}
+
 function sessionMemoryFile(paths, sessionKey) {
   return path.join(sessionDir(paths, sessionKey), 'memory-hot.json');
 }
@@ -448,6 +452,165 @@ function createSessionState(sessionKey, projectId, existing = {}, options = {}) 
     last_summary: existing.last_summary || null,
     metadata: existing.metadata || {}
   };
+}
+
+function normalizePendingCommitments(entries = []) {
+  return (Array.isArray(entries) ? entries : [])
+    .filter((entry) => entry && entry.status === 'pending')
+    .map((entry) => ({ ...entry }));
+}
+
+function createRuntimeState(sessionKey, projectId, existing = {}, options = {}) {
+  const timestamp = nowIso();
+
+  return {
+    session_key: sanitizeKey(existing.session_key || sessionKey),
+    user_id: resolveUserId(existing.user_id || options.userId || DEFAULTS.userId),
+    project_id: existing.project_id || projectId || DEFAULTS.projectId,
+    started_at: existing.started_at || timestamp,
+    last_active: timestamp,
+    updated_at: timestamp,
+    active_task:
+      Object.prototype.hasOwnProperty.call(existing, 'active_task') ? existing.active_task : null,
+    pending_commitments: normalizePendingCommitments(existing.pending_commitments || existing.commitments),
+    last_checkpoint: existing.last_checkpoint || null,
+    checkpoint_reason: existing.checkpoint_reason || null,
+    last_summary: existing.last_summary || null,
+    closed_at: existing.closed_at || null,
+    metadata: existing.metadata || {}
+  };
+}
+
+function buildRuntimeStateFromSessionState(sessionState = {}, existing = {}, options = {}) {
+  const timestamp = nowIso();
+  const pendingCommitments = Object.prototype.hasOwnProperty.call(options, 'pendingCommitments')
+    ? normalizePendingCommitments(options.pendingCommitments)
+    : Array.isArray(sessionState.commitments)
+      ? normalizePendingCommitments(sessionState.commitments)
+      : normalizePendingCommitments(existing.pending_commitments);
+
+  return {
+    session_key: sanitizeKey(sessionState.session_key || existing.session_key || DEFAULTS.sessionKey),
+    user_id: resolveUserId(sessionState.user_id || existing.user_id || options.userId || DEFAULTS.userId),
+    project_id: sessionState.project_id || existing.project_id || options.projectId || DEFAULTS.projectId,
+    started_at: sessionState.started_at || existing.started_at || timestamp,
+    last_active: options.lastActive || sessionState.last_active || existing.last_active || timestamp,
+    updated_at: options.updatedAt || timestamp,
+    active_task:
+      Object.prototype.hasOwnProperty.call(options, 'activeTask')
+        ? options.activeTask
+        : Object.prototype.hasOwnProperty.call(sessionState, 'active_task')
+          ? sessionState.active_task
+          : Object.prototype.hasOwnProperty.call(existing, 'active_task')
+            ? existing.active_task
+            : null,
+    pending_commitments: pendingCommitments,
+    last_checkpoint:
+      Object.prototype.hasOwnProperty.call(options, 'lastCheckpoint')
+        ? options.lastCheckpoint
+        : sessionState.last_checkpoint || existing.last_checkpoint || null,
+    checkpoint_reason:
+      Object.prototype.hasOwnProperty.call(options, 'checkpointReason')
+        ? options.checkpointReason
+        : sessionState.checkpoint_reason || existing.checkpoint_reason || null,
+    last_summary:
+      Object.prototype.hasOwnProperty.call(options, 'lastSummary')
+        ? options.lastSummary
+        : sessionState.last_summary || existing.last_summary || null,
+    closed_at:
+      Object.prototype.hasOwnProperty.call(options, 'closedAt')
+        ? options.closedAt
+        : Object.prototype.hasOwnProperty.call(sessionState, 'closed_at')
+          ? sessionState.closed_at || null
+          : existing.closed_at || null,
+    metadata: {
+      ...(existing.metadata || {}),
+      ...(sessionState.metadata || {}),
+      ...(options.metadata || {})
+    }
+  };
+}
+
+function readRuntimeStateSnapshot(paths, sessionKey, projectId = DEFAULTS.projectId, options = {}) {
+  const normalizedKey = sanitizeKey(sessionKey);
+  const file = runtimeStateFile(paths, normalizedKey);
+  const existing = fs.existsSync(file) ? readMirroredDocumentSnapshot(file, null) : null;
+
+  if (existing) {
+    const state = createRuntimeState(normalizedKey, projectId, existing, options);
+    state.started_at = existing.started_at || state.started_at;
+    state.last_active = existing.last_active || state.last_active;
+    state.updated_at = existing.updated_at || existing.last_active || state.updated_at;
+    state.last_checkpoint = existing.last_checkpoint || state.last_checkpoint;
+    state.checkpoint_reason = existing.checkpoint_reason || state.checkpoint_reason;
+    state.last_summary = existing.last_summary || state.last_summary;
+    state.closed_at = Object.prototype.hasOwnProperty.call(existing, 'closed_at') ? existing.closed_at || null : null;
+    state.metadata = existing.metadata || {};
+    return state;
+  }
+
+  if (options.fallbackToSession === false) {
+    return null;
+  }
+
+  const sessionState = loadSessionState(paths, normalizedKey, projectId, {
+    createIfMissing: false,
+    touch: false,
+    userId: options.userId
+  });
+  if (!sessionState) {
+    return null;
+  }
+
+  return buildRuntimeStateFromSessionState(sessionState, {}, {
+    updatedAt: sessionState.last_active || nowIso()
+  });
+}
+
+function loadRuntimeState(paths, sessionKey, projectId = DEFAULTS.projectId, options = {}) {
+  const normalizedKey = sanitizeKey(sessionKey);
+  const file = runtimeStateFile(paths, normalizedKey);
+  const existing = readRuntimeStateSnapshot(paths, normalizedKey, projectId, options);
+
+  if (!existing && options.createIfMissing === false) {
+    return null;
+  }
+
+  const state = createRuntimeState(normalizedKey, projectId, existing || {}, options);
+  if (existing && options.touch === false) {
+    state.started_at = existing.started_at || state.started_at;
+    state.last_active = existing.last_active || state.last_active;
+    state.updated_at = existing.updated_at || state.updated_at;
+    state.last_checkpoint = existing.last_checkpoint || state.last_checkpoint;
+    state.checkpoint_reason = existing.checkpoint_reason || state.checkpoint_reason;
+    state.last_summary = existing.last_summary || state.last_summary;
+    state.closed_at = existing.closed_at || null;
+    state.metadata = existing.metadata || {};
+  }
+
+  if (options.touch !== false || !fs.existsSync(file)) {
+    writeMirroredDocument(file, state);
+  }
+
+  return state;
+}
+
+function writeRuntimeState(paths, sessionKey, state) {
+  writeMirroredDocument(runtimeStateFile(paths, sessionKey), state);
+}
+
+function syncRuntimeStateFromSessionState(paths, sessionKey, sessionState, options = {}) {
+  if (!sessionState) {
+    return null;
+  }
+
+  const existing = readRuntimeStateSnapshot(paths, sessionKey, sessionState.project_id, {
+    fallbackToSession: false,
+    userId: sessionState.user_id
+  }) || {};
+  const runtimeState = buildRuntimeStateFromSessionState(sessionState, existing, options);
+  writeRuntimeState(paths, sessionKey, runtimeState);
+  return runtimeState;
 }
 
 function loadSessionState(paths, sessionKey, projectId = DEFAULTS.projectId, options = {}) {
@@ -1360,6 +1523,7 @@ module.exports = {
   clamp,
   copyDir,
   createPaths,
+  createRuntimeState,
   createSessionState,
   ensureAnchorDirs,
   ensureDir,
@@ -1385,6 +1549,7 @@ module.exports = {
   loadRankedCollection,
   loadProjectSkills,
   loadProjectState,
+  loadRuntimeState,
   loadSessionMemory,
   loadSessionExperiences,
   loadSessionSkills,
@@ -1408,6 +1573,7 @@ module.exports = {
   projectSkillsDir,
   projectSkillsIndexFile,
   projectStateFile,
+  readRuntimeStateSnapshot,
   readJson,
   readMirroredDocumentSnapshot,
   readText,
@@ -1416,6 +1582,7 @@ module.exports = {
   resolveWorkspace,
   resolveProjectId,
   resolveUserId,
+  runtimeStateFile,
   sanitizeKey,
   sessionExperiencesFile,
   sessionCheckpointFile,
@@ -1428,6 +1595,7 @@ module.exports = {
   statusSnapshotFile,
   sortByHeat,
   summarizeEvidence,
+  syncRuntimeStateFromSessionState,
   isSkillLoadable,
   matchSkillIdentifier,
   selectEffectiveSkills,
@@ -1459,6 +1627,7 @@ module.exports = {
   writeSessionSkills,
   writeSessionState,
   writeSessionSummary,
+  writeRuntimeState,
   writeStatusSnapshot,
   writeText,
   writeUserExperiences,

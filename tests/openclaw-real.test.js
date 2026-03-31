@@ -7,6 +7,7 @@ const assert = require('node:assert/strict');
 const { pathToFileURL } = require('url');
 
 const { runExperienceValidate } = require('../scripts/experience-validate');
+const { createPaths, loadSessionState, syncRuntimeStateFromSessionState } = require('../scripts/lib/context-anchor');
 const { runMemorySave } = require('../scripts/memory-save');
 const { runSessionStart } = require('../scripts/session-start');
 
@@ -170,6 +171,15 @@ function runNodeScript(scriptPath, args = [], env = {}) {
 
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+function syncRuntimeStateFixture(workspace, sessionKey, projectId) {
+  const paths = createPaths(workspace);
+  const sessionState = loadSessionState(paths, sessionKey, projectId, {
+    createIfMissing: false,
+    touch: false
+  });
+  return syncRuntimeStateFromSessionState(paths, sessionKey, sessionState);
 }
 
 function withOpenClawHome(openClawHome, fn) {
@@ -440,6 +450,7 @@ test(
           }
         ];
         fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+        syncRuntimeStateFixture(workspaceDir, 'installed-resume', 'demo');
         fs.writeFileSync(checkpointFile, '# Checkpoint\n\n- verify rollback path\n', 'utf8');
       });
 

@@ -12,6 +12,7 @@ const {
   createPaths,
   getRecentSessions,
   loadSessionState,
+  readRuntimeStateSnapshot,
   readText,
   sanitizeKey,
   sessionCheckpointFile
@@ -235,14 +236,25 @@ function handleStartup(payload) {
     createIfMissing: false,
     touch: false
   });
+  const runtimeState = readRuntimeStateSnapshot(paths, latest.session_key, latest.project_id, {
+    userId: latest.user_id || sessionState?.user_id || null
+  });
   const checkpoint = readText(sessionCheckpointFile(paths, latest.session_key), '');
-  const pendingCommitments = (sessionState?.commitments || []).filter(
-    (entry) => entry.status === 'pending'
-  );
+  const pendingCommitments = Array.isArray(runtimeState?.pending_commitments)
+    ? runtimeState.pending_commitments
+    : (sessionState?.commitments || []).filter((entry) => entry.status === 'pending');
+  const closedAt =
+    Object.prototype.hasOwnProperty.call(runtimeState || {}, 'closed_at')
+      ? runtimeState?.closed_at || null
+      : sessionState?.closed_at || null;
+  const activeTask =
+    pendingCommitments.length > 0 || !closedAt
+      ? runtimeState?.active_task || sessionState?.active_task || null
+      : null;
   const resumeMessage = [
     '我回来了。',
     `上次会话: ${latest.session_key}`,
-    sessionState?.active_task ? `当前任务: ${sessionState.active_task}` : null,
+    activeTask ? `当前任务: ${activeTask}` : null,
     pendingCommitments.length > 0
       ? `待处理承诺: ${pendingCommitments.map((entry) => entry.what).join('；')}`
       : null,

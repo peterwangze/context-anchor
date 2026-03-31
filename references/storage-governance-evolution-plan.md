@@ -13,7 +13,7 @@
 但当前体系还没有真正解决“长期积累导致的无限膨胀”问题：
 
 - `archived: true` 只是逻辑标记，还没有形成稳定的 active / archive 双层容量治理
-- `active_task / pending_commitments` 仍然部分依赖普通 session state，而不是完全独立的 runtime state
+- `runtime_state` 已独立，但 active / archive 治理尚未接管 live 集合边界
 - 长期记忆虽然已经不再预加载进 bootstrap，但 live 集合本身仍会持续增长
 - `memory-search` 还没有明确区分 active 检索与 archive 检索的优先级和代价
 - 没有统一的治理任务、配额策略、治理结果统计和压缩回收策略
@@ -42,10 +42,15 @@
 - 已完成 mirror-aware status / diagnose / report 基础能力：
   - `status-report` 已能优先读取镜像
   - `sessions-status / sessions-diagnose` 已显示 mirror summary
+- 本轮（2026-04-01，Phase 1）已完成：
+  - 为每个 session 新增独立 `runtime-state.json`
+  - 新增 `scripts/runtime-state-update.js`
+  - `session-start / session-close / command:new / command:reset / command:stop / session:compact:after` 已刷新 runtime state
+  - bootstrap / gateway startup / continuity restore / status-report 已优先读取 runtime state
+  - 已补 runtime-state 优先级与 compact 刷新测试，并跑通全量测试
 
 当前仍未完成的核心目标：
 
-- `runtime_state` 尚未独立成单独平面
 - active / archive 双层治理尚未正式落地
 - archive-aware 检索尚未完整打通
 - 治理任务、治理统计、blob 分离尚未落地
@@ -53,7 +58,7 @@
 因此，本方案当前状态应认定为：
 
 - `Phase 0`：已完成
-- `Phase 1`：未开始正式实现，但已完成部分连续性 bugfix 铺垫
+- `Phase 1`：已完成
 - `Phase 2`：仅完成 archive 路径和 mirror 识别的底层准备，未完成治理逻辑
 - `Phase 3`：仅完成“长期记忆不预载”的基础行为，未完成 archive-aware search
 - `Phase 4`：仅完成部分 mirror-aware report 能力，未完成治理统计
@@ -311,6 +316,7 @@ retention_score =
 
 实现：
 
+- 为每个 session 新增 `runtime-state.json`
 - 新增 `scripts/runtime-state-update.js`
 - 在以下路径更新 runtime state：
   - `session-start`
@@ -318,19 +324,29 @@ retention_score =
   - `command:new/reset/stop`
   - `session:compact:after`
 - 在 bootstrap 中优先读取 runtime state
+- `gateway:startup` 和 `status-report` 也优先读取 runtime state
 
 关键文件：
 
 - `scripts/lib/context-anchor.js`
+- `scripts/runtime-state-update.js`
 - `scripts/session-start.js`
 - `scripts/session-close.js`
 - `scripts/session-compact.js`
+- `scripts/status-report.js`
+- `scripts/lib/bootstrap-cache.js`
 - `hooks/context-anchor-hook/handler.js`
 
 完成标准：
 
 - reset/new/stop/compact 之后连续状态来自 runtime state
 - closed 且无 pending 的 session 不再错误恢复旧任务
+
+当前结果（2026-04-01）：
+
+- 已完成
+- runtime state 已成为 continuity / bootstrap / startup resume / status-report 的优先来源
+- 兼容保留 `state.json`，但连续性恢复不再依赖 summary / compact packet 作为主状态来源
 
 ## Phase 2：active / archive 治理
 
@@ -547,6 +563,14 @@ retention_score =
 - compact 后 runtime state 刷新
 - reset/new/stop 后 continuity source 正确
 
+已覆盖（2026-04-01）：
+
+- `session-start prefers runtime state over stale session state for the current session`
+- `session-compact after refreshes runtime state metadata`
+- `session-start does not carry forward stale active task from a closed session without pending commitments`
+- `command stop hook runs unified session close lifecycle`
+- `real OpenClaw runtime loads managed hooks and closes the prior session on command:new rollover`
+
 ## B. 集成测试
 
 ### B1. session lifecycle
@@ -562,6 +586,13 @@ retention_score =
 - runtime state 连续
 - 过期 active_task 不错误恢复
 - pending commitments 保留
+
+当前覆盖（2026-04-01）：
+
+- `gateway startup hook emits a resume message for the latest active session`
+- `managed bootstrap injects recovered continuity for an unfinished prior session`
+- `real installed host hook wrapper returns resume guidance on gateway startup`
+- `real OpenClaw runtime loads managed hooks and closes a session through the internal command stop hook`
 
 ### B2. governance 执行
 
