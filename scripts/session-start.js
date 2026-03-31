@@ -12,6 +12,7 @@ const {
   getRepoRoot,
   getRecentSessions,
   loadCompactPacket,
+  loadCollection,
   loadProjectDecisions,
   loadProjectExperiences,
   loadProjectFacts,
@@ -30,7 +31,6 @@ const {
   projectDecisionsFile,
   projectExperiencesFile,
   projectFactsFile,
-  readJson,
   readText,
   recordHeatEntry,
   recordUserHeatEntry,
@@ -93,8 +93,7 @@ function collectPendingCommitments(sessionState = {}, summary = {}, compactPacke
 }
 
 function loadContinuationSource(paths, currentSessionKey, projectId) {
-  const index = readJson(paths.sessionIndexFile, { sessions: [] });
-  const candidates = Array.isArray(index.sessions) ? index.sessions : [];
+  const candidates = loadCollection(paths.sessionIndexFile, 'sessions');
   const previous = candidates
     .filter((entry) => entry.session_key !== currentSessionKey && entry.project_id === projectId)
     .sort((left, right) => new Date(right.last_active || 0).getTime() - new Date(left.last_active || 0).getTime())[0];

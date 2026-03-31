@@ -6,8 +6,11 @@ const path = require('path');
 const {
   isDbEnabled,
   loadRankedMirrorCollection,
+  loadRecentSessionIndexEntries,
+  readMirrorDocument,
   readMirrorCollection,
-  syncCollectionMirror
+  syncCollectionMirror,
+  syncDocumentMirror
 } = require('./context-anchor-db');
 
 const DEFAULTS = {
@@ -127,6 +130,26 @@ function writeText(file, content) {
 function writeJson(file, data) {
   ensureDir(path.dirname(file));
   fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+}
+
+function readMirroredDocument(file, defaultValue = {}) {
+  const mirror = readMirrorDocument(file);
+  if (mirror.status === 'available') {
+    return mirror.data;
+  }
+
+  const data = readJson(file, defaultValue);
+  if (isDbEnabled() && fs.existsSync(file)) {
+    syncDocumentMirror(file, data);
+  }
+  return data;
+}
+
+function writeMirroredDocument(file, data) {
+  writeJson(file, data);
+  if (isDbEnabled()) {
+    syncDocumentMirror(file, data);
+  }
 }
 
 function resolveWorkspace(workspaceArg) {
@@ -385,7 +408,7 @@ function createSessionState(sessionKey, projectId, existing = {}, options = {}) 
 function loadSessionState(paths, sessionKey, projectId = DEFAULTS.projectId, options = {}) {
   const normalizedKey = sanitizeKey(sessionKey);
   const file = sessionStateFile(paths, normalizedKey);
-  const existing = readJson(file, null);
+  const existing = fs.existsSync(file) ? readMirroredDocument(file, null) : null;
 
   if (!existing && options.createIfMissing === false) {
     return null;
@@ -397,14 +420,14 @@ function loadSessionState(paths, sessionKey, projectId = DEFAULTS.projectId, opt
   }
 
   if (options.touch !== false || !existing) {
-    writeJson(file, state);
+    writeMirroredDocument(file, state);
   }
 
   return state;
 }
 
 function writeSessionState(paths, sessionKey, state) {
-  writeJson(sessionStateFile(paths, sessionKey), state);
+  writeMirroredDocument(sessionStateFile(paths, sessionKey), state);
 }
 
 function loadSessionMemory(paths, sessionKey) {
@@ -452,8 +475,8 @@ function ensureProjectArtifacts(paths, projectId = DEFAULTS.projectId) {
   ensureDir(dir);
 
   const stateFile = projectStateFile(paths, projectId);
-  const state = createProjectState(projectId, readJson(stateFile, {}));
-  writeJson(stateFile, state);
+  const state = createProjectState(projectId, readMirroredDocument(stateFile, {}));
+  writeMirroredDocument(stateFile, state);
 
   if (!fs.existsSync(projectDecisionsFile(paths, projectId))) {
     writeCollection(projectDecisionsFile(paths, projectId), 'decisions', []);
@@ -468,7 +491,7 @@ function ensureProjectArtifacts(paths, projectId = DEFAULTS.projectId) {
   }
 
   if (!fs.existsSync(projectHeatIndexFile(paths, projectId))) {
-    writeJson(projectHeatIndexFile(paths, projectId), {
+    writeMirroredDocument(projectHeatIndexFile(paths, projectId), {
       project_id: projectId,
       last_updated: nowIso(),
       entries: []
@@ -476,7 +499,7 @@ function ensureProjectArtifacts(paths, projectId = DEFAULTS.projectId) {
   }
 
   if (!fs.existsSync(paths.globalStateFile)) {
-    writeJson(paths.globalStateFile, {
+    writeMirroredDocument(paths.globalStateFile, {
       user_preferences: {},
       important_facts: [],
       global_experiences: []
@@ -495,11 +518,11 @@ function ensureUserArtifacts(paths, userId = DEFAULTS.userId) {
   ensureDir(dir);
 
   const legacyGlobal = loadGlobalState(paths);
-  const state = createUserState(normalizedUserId, readJson(userStateFile(paths, normalizedUserId), {
+  const state = createUserState(normalizedUserId, readMirroredDocument(userStateFile(paths, normalizedUserId), {
     user_id: normalizedUserId,
     preferences: legacyGlobal.user_preferences || {}
   }));
-  writeJson(userStateFile(paths, normalizedUserId), state);
+  writeMirroredDocument(userStateFile(paths, normalizedUserId), state);
 
   if (!fs.existsSync(userMemoriesFile(paths, normalizedUserId))) {
     writeCollection(
@@ -542,7 +565,7 @@ function ensureUserArtifacts(paths, userId = DEFAULTS.userId) {
   }
 
   if (!fs.existsSync(userHeatIndexFile(paths, normalizedUserId))) {
-    writeJson(userHeatIndexFile(paths, normalizedUserId), {
+    writeMirroredDocument(userHeatIndexFile(paths, normalizedUserId), {
       user_id: normalizedUserId,
       last_updated: nowIso(),
       entries: []
@@ -552,11 +575,11 @@ function ensureUserArtifacts(paths, userId = DEFAULTS.userId) {
 
 function loadProjectState(paths, projectId = DEFAULTS.projectId) {
   ensureProjectArtifacts(paths, projectId);
-  return createProjectState(projectId, readJson(projectStateFile(paths, projectId), {}));
+  return createProjectState(projectId, readMirroredDocument(projectStateFile(paths, projectId), {}));
 }
 
 function writeProjectState(paths, projectId, state) {
-  writeJson(projectStateFile(paths, projectId), state);
+  writeMirroredDocument(projectStateFile(paths, projectId), state);
 }
 
 function loadProjectDecisions(paths, projectId = DEFAULTS.projectId) {
@@ -610,11 +633,11 @@ function writeSessionSkills(paths, sessionKey, skills) {
 
 function loadUserState(paths, userId = DEFAULTS.userId) {
   ensureUserArtifacts(paths, userId);
-  return createUserState(userId, readJson(userStateFile(paths, userId), {}));
+  return createUserState(userId, readMirroredDocument(userStateFile(paths, userId), {}));
 }
 
 function writeUserState(paths, userId, state) {
-  writeJson(userStateFile(paths, userId), state);
+  writeMirroredDocument(userStateFile(paths, userId), state);
 }
 
 function loadUserMemories(paths, userId = DEFAULTS.userId) {
@@ -666,7 +689,7 @@ function writeProjectFacts(paths, projectId, facts) {
 
 function loadGlobalState(paths) {
   ensureAnchorDirs(paths);
-  return readJson(paths.globalStateFile, {
+  return readMirroredDocument(paths.globalStateFile, {
     user_preferences: {},
     important_facts: [],
     global_experiences: []
@@ -674,12 +697,12 @@ function loadGlobalState(paths) {
 }
 
 function writeGlobalState(paths, state) {
-  writeJson(paths.globalStateFile, state);
+  writeMirroredDocument(paths.globalStateFile, state);
 }
 
 function loadHeatIndex(paths, projectId = DEFAULTS.projectId) {
   ensureProjectArtifacts(paths, projectId);
-  return readJson(projectHeatIndexFile(paths, projectId), {
+  return readMirroredDocument(projectHeatIndexFile(paths, projectId), {
     project_id: projectId,
     last_updated: nowIso(),
     entries: []
@@ -687,7 +710,7 @@ function loadHeatIndex(paths, projectId = DEFAULTS.projectId) {
 }
 
 function writeHeatIndex(paths, projectId, heatIndex) {
-  writeJson(projectHeatIndexFile(paths, projectId), heatIndex);
+  writeMirroredDocument(projectHeatIndexFile(paths, projectId), heatIndex);
 }
 
 function uniqueList(values) {
@@ -785,7 +808,7 @@ function recordHeatEntry(paths, projectId, entry) {
 
 function recordUserHeatEntry(paths, userId, entry) {
   ensureUserArtifacts(paths, userId);
-  const heatIndex = readJson(userHeatIndexFile(paths, userId), {
+  const heatIndex = readMirroredDocument(userHeatIndexFile(paths, userId), {
     user_id: resolveUserId(userId),
     last_updated: nowIso(),
     entries: []
@@ -811,13 +834,12 @@ function recordUserHeatEntry(paths, userId, entry) {
 
   heatIndex.entries = entries.sort((left, right) => right.heat - left.heat);
   heatIndex.last_updated = nowIso();
-  writeJson(userHeatIndexFile(paths, userId), heatIndex);
+  writeMirroredDocument(userHeatIndexFile(paths, userId), heatIndex);
   return heatIndex;
 }
 
 function touchSessionIndex(paths, sessionState) {
-  const index = readJson(paths.sessionIndexFile, { sessions: [] });
-  const sessions = Array.isArray(index.sessions) ? index.sessions : [];
+  const sessions = loadCollection(paths.sessionIndexFile, 'sessions');
   const idx = sessions.findIndex((entry) => entry.session_key === sessionState.session_key);
   const next = {
     session_key: sessionState.session_key,
@@ -833,15 +855,17 @@ function touchSessionIndex(paths, sessionState) {
     sessions.push(next);
   }
 
-  writeJson(paths.sessionIndexFile, {
-    sessions: sessions.sort((left, right) => {
+  writeCollection(
+    paths.sessionIndexFile,
+    'sessions',
+    sessions.sort((left, right) => {
       return new Date(right.last_active).getTime() - new Date(left.last_active).getTime();
     })
-  });
+  );
 }
 
 function touchGlobalIndex(paths) {
-  const sessionIndex = readJson(paths.sessionIndexFile, { sessions: [] });
+  const sessionIndex = loadCollection(paths.sessionIndexFile, 'sessions');
   const projectIds = fs.existsSync(paths.projectsDir)
     ? fs
         .readdirSync(paths.projectsDir, { withFileTypes: true })
@@ -857,18 +881,22 @@ function touchGlobalIndex(paths) {
     totalExperiences += loadProjectExperiences(paths, projectId).length;
   });
 
-  writeJson(paths.indexFile, {
+  const existingIndex = fs.existsSync(paths.indexFile)
+    ? readMirroredDocument(paths.indexFile, { created_at: nowIso() })
+    : { created_at: nowIso() };
+
+  writeMirroredDocument(paths.indexFile, {
     version: '0.2.0',
-    created_at: readJson(paths.indexFile, { created_at: nowIso() }).created_at || nowIso(),
+    created_at: existingIndex.created_at || nowIso(),
     last_updated: nowIso(),
     projects: projectIds,
-    active_sessions: (sessionIndex.sessions || [])
+    active_sessions: sessionIndex
       .filter((session) => {
         return Date.now() - new Date(session.last_active).getTime() <= DEFAULTS.recentSessionWindowMs;
       })
       .map((session) => session.session_key),
     stats: {
-      total_sessions: (sessionIndex.sessions || []).length,
+      total_sessions: sessionIndex.length,
       total_decisions: totalDecisions,
       total_experiences: totalExperiences
     }
@@ -879,9 +907,9 @@ function syncProjectStateMetadata(paths, projectId) {
   const state = loadProjectState(paths, projectId);
   const decisions = loadProjectDecisions(paths, projectId).filter((entry) => !entry.archived);
   const experiences = loadProjectExperiences(paths, projectId).filter((entry) => !entry.archived);
-  const sessionIndex = readJson(paths.sessionIndexFile, { sessions: [] });
+  const sessionIndex = loadCollection(paths.sessionIndexFile, 'sessions');
 
-  state.sessions_count = (sessionIndex.sessions || []).filter((entry) => entry.project_id === projectId).length;
+  state.sessions_count = sessionIndex.filter((entry) => entry.project_id === projectId).length;
   state.key_decisions = decisions
     .filter((entry) => Number(entry.heat || 0) >= DEFAULTS.hotMemoryHeat)
     .map((entry) => entry.id)
@@ -902,8 +930,13 @@ function sortByHeat(items) {
 }
 
 function getRecentSessions(paths, windowMs = DEFAULTS.recentSessionWindowMs) {
-  const index = readJson(paths.sessionIndexFile, { sessions: [] });
-  return (index.sessions || []).filter((entry) => {
+  const mirrored = loadRecentSessionIndexEntries(paths.sessionIndexFile, windowMs);
+  if (Array.isArray(mirrored)) {
+    return mirrored;
+  }
+
+  const sessions = loadCollection(paths.sessionIndexFile, 'sessions');
+  return sessions.filter((entry) => {
     return Date.now() - new Date(entry.last_active).getTime() <= windowMs;
   });
 }

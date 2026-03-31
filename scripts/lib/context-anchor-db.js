@@ -75,6 +75,17 @@ function describeCollectionFile(file, key) {
   const parent = normalized[normalized.length - 2] || null;
   const anchorIndex = normalized.lastIndexOf('.context-anchor');
 
+  if (anchorIndex >= 0 && fileName === '_index.json' && normalized[anchorIndex + 1] === 'sessions' && key === 'sessions') {
+    return {
+      dbFile: buildWorkspaceDbFile(parts, anchorIndex),
+      scope: 'workspace',
+      ownerId: 'workspace',
+      source: 'session_index',
+      collectionType: 'session_index',
+      filePath: path.resolve(file)
+    };
+  }
+
   if (anchorIndex >= 0 && normalized[anchorIndex + 1] === 'sessions' && parts.length > anchorIndex + 3) {
     const ownerId = parts[anchorIndex + 2];
     const dbFile = buildWorkspaceDbFile(parts, anchorIndex);
@@ -204,6 +215,86 @@ function describeCollectionFile(file, key) {
   return null;
 }
 
+function describeDocumentFile(file) {
+  const parts = splitPath(file);
+  const normalized = parts.map((entry) => entry.toLowerCase());
+  const fileName = normalized[normalized.length - 1];
+  const parent = normalized[normalized.length - 2] || null;
+  const anchorIndex = normalized.lastIndexOf('.context-anchor');
+  const usersIndex = normalized.lastIndexOf('users');
+
+  if (anchorIndex >= 0) {
+    const dbFile = buildWorkspaceDbFile(parts, anchorIndex);
+
+    if (fileName === 'index.json' && parent === '.context-anchor') {
+      return {
+        dbFile,
+        scope: 'workspace',
+        ownerId: 'workspace',
+        docType: 'workspace_index',
+        filePath: path.resolve(file)
+      };
+    }
+
+    if (fileName === 'state.json' && normalized[anchorIndex + 1] === 'sessions' && parts.length > anchorIndex + 3) {
+      return {
+        dbFile,
+        scope: 'session',
+        ownerId: parts[anchorIndex + 2],
+        docType: 'session_state',
+        filePath: path.resolve(file)
+      };
+    }
+
+    if (fileName === 'state.json' && normalized[anchorIndex + 1] === 'projects' && parts.length > anchorIndex + 3) {
+      return {
+        dbFile,
+        scope: 'project',
+        ownerId: parts[anchorIndex + 2],
+        docType: parts[anchorIndex + 2] === '_global' ? 'global_state' : 'project_state',
+        filePath: path.resolve(file)
+      };
+    }
+
+    if (fileName === 'heat-index.json' && normalized[anchorIndex + 1] === 'projects' && parts.length > anchorIndex + 3) {
+      return {
+        dbFile,
+        scope: 'project',
+        ownerId: parts[anchorIndex + 2],
+        docType: 'project_heat_index',
+        filePath: path.resolve(file)
+      };
+    }
+  }
+
+  if (usersIndex >= 0 && parts.length > usersIndex + 2) {
+    const dbFile = buildUserDbFile(parts, usersIndex);
+    const ownerId = parts[usersIndex + 1];
+
+    if (fileName === 'state.json') {
+      return {
+        dbFile,
+        scope: 'user',
+        ownerId,
+        docType: 'user_state',
+        filePath: path.resolve(file)
+      };
+    }
+
+    if (fileName === 'heat-index.json') {
+      return {
+        dbFile,
+        scope: 'user',
+        ownerId,
+        docType: 'user_heat_index',
+        filePath: path.resolve(file)
+      };
+    }
+  }
+
+  return null;
+}
+
 function openDatabase(dbFile) {
   if (!isDbEnabled()) {
     return null;
@@ -250,6 +341,18 @@ function openDatabase(dbFile) {
       ON catalog_items (scope, owner_id, source, archived, heat DESC, sort_order ASC);
     CREATE INDEX IF NOT EXISTS idx_catalog_items_access
       ON catalog_items (scope, owner_id, source, last_accessed DESC);
+    CREATE TABLE IF NOT EXISTS catalog_documents (
+      doc_key TEXT PRIMARY KEY,
+      scope TEXT NOT NULL,
+      owner_id TEXT NOT NULL,
+      doc_type TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      json_mtime_ms INTEGER NOT NULL DEFAULT 0,
+      last_synced_at TEXT NOT NULL,
+      payload_json TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_catalog_documents_scope
+      ON catalog_documents (scope, doc_type, owner_id);
     CREATE VIRTUAL TABLE IF NOT EXISTS catalog_items_fts
       USING fts5(item_key UNINDEXED, search_text);
   `);
@@ -259,6 +362,7 @@ function openDatabase(dbFile) {
 function buildItemId(item = {}, descriptor, index) {
   return String(
     item.id ||
+      item.session_key ||
       item.key ||
       item.name ||
       `${descriptor.source}-${descriptor.ownerId}-${index}`
@@ -277,6 +381,9 @@ function buildSearchText(item = {}, descriptor) {
     item.notes,
     item.source,
     item.type,
+    item.session_key,
+    item.project_id,
+    item.user_id,
     descriptor.source,
     descriptor.scope,
     ...(Array.isArray(item.tags) ? item.tags : [])
@@ -306,12 +413,103 @@ function toRow(descriptor, item, index) {
     status: item.status || null,
     validation_status: item.validation?.status || item.validation_status || null,
     access_count: Number(item.access_count || item.applied_count || 0),
-    last_accessed: item.last_accessed || item.updated_at || item.created_at || null,
+    last_accessed: item.last_accessed || item.last_active || item.updated_at || item.created_at || null,
     created_at: item.created_at || null,
     search_text: buildSearchText(item, descriptor),
     file_path: descriptor.filePath,
     payload_json: JSON.stringify(item)
   };
+}
+
+function syncDocumentMirror(file, data) {
+  const descriptor = describeDocumentFile(file);
+  if (!descriptor || !isDbEnabled()) {
+    return false;
+  }
+
+  const db = openDatabase(descriptor.dbFile);
+  if (!db) {
+    return false;
+  }
+
+  try {
+    db.prepare(
+      `
+        INSERT INTO catalog_documents (
+          doc_key, scope, owner_id, doc_type, file_path, json_mtime_ms, last_synced_at, payload_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(doc_key) DO UPDATE SET
+          scope = excluded.scope,
+          owner_id = excluded.owner_id,
+          doc_type = excluded.doc_type,
+          file_path = excluded.file_path,
+          json_mtime_ms = excluded.json_mtime_ms,
+          last_synced_at = excluded.last_synced_at,
+          payload_json = excluded.payload_json
+      `
+    ).run(
+      `${descriptor.scope}:${descriptor.ownerId}:${descriptor.docType}`,
+      descriptor.scope,
+      descriptor.ownerId,
+      descriptor.docType,
+      descriptor.filePath,
+      normalizeMtime(descriptor.filePath),
+      new Date().toISOString(),
+      JSON.stringify(data)
+    );
+    return true;
+  } finally {
+    db.close();
+  }
+}
+
+function readMirrorDocument(file) {
+  const descriptor = describeDocumentFile(file);
+  if (!descriptor || !isDbEnabled() || !fs.existsSync(descriptor.dbFile)) {
+    return {
+      status: 'missing',
+      data: null
+    };
+  }
+
+  const db = openDatabase(descriptor.dbFile);
+  if (!db) {
+    return {
+      status: 'missing',
+      data: null
+    };
+  }
+
+  try {
+    const row = db.prepare(
+      `
+        SELECT json_mtime_ms, payload_json
+        FROM catalog_documents
+        WHERE doc_key = ?
+      `
+    ).get(`${descriptor.scope}:${descriptor.ownerId}:${descriptor.docType}`);
+
+    if (!row) {
+      return {
+        status: 'missing',
+        data: null
+      };
+    }
+
+    if (Number(row.json_mtime_ms || 0) !== normalizeMtime(descriptor.filePath)) {
+      return {
+        status: 'stale',
+        data: null
+      };
+    }
+
+    return {
+      status: 'available',
+      data: JSON.parse(row.payload_json)
+    };
+  } finally {
+    db.close();
+  }
 }
 
 function syncCollectionMirror(file, key, items) {
@@ -518,6 +716,45 @@ function loadRankedMirrorCollection(file, key, options = {}) {
   }
 }
 
+function loadRecentSessionIndexEntries(file, windowMs, options = {}) {
+  const descriptor = describeCollectionFile(file, 'sessions');
+  if (!descriptor || descriptor.source !== 'session_index' || !isDbEnabled() || !fs.existsSync(descriptor.dbFile)) {
+    return null;
+  }
+
+  const mirror = readMirrorCollection(file, 'sessions');
+  if (mirror.status !== 'available') {
+    return null;
+  }
+
+  const db = openDatabase(descriptor.dbFile);
+  if (!db) {
+    return null;
+  }
+
+  try {
+    const sinceIso = new Date(Date.now() - Number(windowMs || 0)).toISOString();
+    const limit = Number(options.limit || 0);
+    let sql = `
+      SELECT payload_json
+      FROM catalog_items
+      WHERE scope = ? AND owner_id = ? AND source = ? AND archived = 0
+        AND last_accessed >= ?
+      ORDER BY last_accessed DESC, sort_order ASC
+    `;
+    const parameters = [descriptor.scope, descriptor.ownerId, descriptor.source, sinceIso];
+
+    if (limit > 0) {
+      sql += ' LIMIT ?';
+      parameters.push(limit);
+    }
+
+    return db.prepare(sql).all(...parameters).map((row) => JSON.parse(row.payload_json));
+  } finally {
+    db.close();
+  }
+}
+
 function searchCatalogItems(dbFile, filters, query, limit) {
   if (!isDbEnabled() || !fs.existsSync(dbFile) || !Array.isArray(filters) || filters.length === 0) {
     return [];
@@ -674,10 +911,14 @@ function readCatalogCollectionSummaries(dbFile, filters) {
 
 module.exports = {
   describeCollectionFile,
+  describeDocumentFile,
   isDbEnabled,
   loadRankedMirrorCollection,
+  loadRecentSessionIndexEntries,
+  readMirrorDocument,
   readMirrorCollection,
   readCatalogCollectionSummaries,
   searchCatalogItems,
-  syncCollectionMirror
+  syncCollectionMirror,
+  syncDocumentMirror
 };

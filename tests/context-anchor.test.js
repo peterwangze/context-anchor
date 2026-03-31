@@ -9,15 +9,24 @@ const assert = require('node:assert/strict');
 const {
   DEFAULTS,
   createPaths,
+  getRecentSessions,
   loadCompactPacket,
   loadRankedCollection,
+  loadSessionState,
   loadUserMemories,
   readJson,
+  sessionStateFile,
   sessionMemoryFile,
   writeJson
 } = require('../scripts/lib/context-anchor');
 const { buildBootstrapCacheContent } = require('../scripts/lib/bootstrap-cache');
-const { describeCollectionFile, readMirrorCollection } = require('../scripts/lib/context-anchor-db');
+const {
+  describeCollectionFile,
+  describeDocumentFile,
+  loadRecentSessionIndexEntries,
+  readMirrorCollection,
+  readMirrorDocument
+} = require('../scripts/lib/context-anchor-db');
 const { findSessionByKey, getHostConfigFile, resolveOwnership } = require('../scripts/lib/host-config');
 const { runCheckpointCreate } = require('../scripts/checkpoint-create');
 const { runConfigureHost } = require('../scripts/configure-host');
@@ -423,6 +432,41 @@ test('session memory writes sync a SQLite mirror and ranked reads use the mirror
       assert.equal(ranked.length, 2);
       assert.match(ranked[0].summary || ranked[0].content, /highest heat checkout retry playbook/);
       assert.match(ranked[1].summary || ranked[1].content, /high heat cache verification note/);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('session state and session index sync to SQLite metadata mirrors', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'sqlite-meta-a', 'demo');
+      runSessionStart(workspace, 'sqlite-meta-b', 'demo');
+
+      const paths = createPaths(workspace);
+      const stateFile = sessionStateFile(paths, 'sqlite-meta-a');
+      const stateDescriptor = describeDocumentFile(stateFile);
+      const stateMirror = readMirrorDocument(stateFile);
+      const indexMirror = readMirrorCollection(paths.sessionIndexFile, 'sessions');
+      const recentFromDb = loadRecentSessionIndexEntries(paths.sessionIndexFile, DEFAULTS.recentSessionWindowMs);
+      const recent = getRecentSessions(paths, DEFAULTS.recentSessionWindowMs);
+      const loadedState = loadSessionState(paths, 'sqlite-meta-a', 'demo', {
+        createIfMissing: false,
+        touch: false
+      });
+
+      assert.ok(stateDescriptor?.dbFile);
+      assert.ok(fs.existsSync(stateDescriptor.dbFile));
+      assert.equal(stateMirror.status, 'available');
+      assert.equal(stateMirror.data.session_key, 'sqlite-meta-a');
+      assert.equal(indexMirror.status, 'available');
+      assert.ok(Array.isArray(recentFromDb));
+      assert.ok(recentFromDb.some((entry) => entry.session_key === 'sqlite-meta-a'));
+      assert.ok(recent.some((entry) => entry.session_key === 'sqlite-meta-b'));
+      assert.equal(loadedState.session_key, 'sqlite-meta-a');
     });
   } finally {
     cleanupWorkspace(workspace);
