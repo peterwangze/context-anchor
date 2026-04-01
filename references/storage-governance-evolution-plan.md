@@ -10,11 +10,17 @@
 - session / project / user 多层记忆
 - mirror rebuild 能力
 
-但当前体系还没有真正解决“长期积累导致的无限膨胀”问题：
+本轮之后，前述“长期积累导致的无限膨胀”主链路已经全部补齐：
 
-- active / archive 双层存储、archive-aware 检索和治理观测已经落地
-- `runtime_state` 已独立，长期检索与治理运行也已经进入可观测状态
-- 当前剩余核心缺口主要在 blob 分离与压缩，而不是检索或治理控制面
+- active / archive 双层存储已落地
+- archive-aware 检索已落地
+- governance runs 与 status-report 观测已落地
+- SQLite `content_blobs` 已承担长文本分离与压缩
+
+当前剩余工作主要是：
+
+- 性能与规模压测继续补齐
+- 如后续需要，再继续推进更细粒度 blob 策略和迁移优化
 
 这个文档把后续方案落成“可执行的实施计划”，并明确测试设计。  
 在本方案全部实现完成之前，暂停引入与该主题无关的新功能。
@@ -63,10 +69,17 @@
   - `status-report` 已新增 active/archive item count、last governance run、bytes before/after、prune count
   - `workspace-monitor` 触发的治理运行已带明确 reason
   - 已补 governance run 持久化、status-report 观测和 monitor reason 测试
+- 本轮（2026-04-01，Phase 5）已完成：
+  - SQLite 新增 `content_blobs`
+  - `catalog_items.payload_json` 不再内联长 `summary/content/details/solution/raw_context`
+  - 读取、排序、检索、mirror-rebuild 已自动回填 blob 内容
+  - archive blob 已优先压缩
+  - 已补 blob 分离、archive 压缩、mirror 回填与 rebuild 测试
 
 当前仍未完成的核心目标：
 
-- blob 分离与压缩尚未落地
+- 无阻塞性阶段目标
+- 剩余为性能与规模验证、以及后续可能的实现细化
 
 因此，本方案当前状态应认定为：
 
@@ -75,7 +88,7 @@
 - `Phase 2`：已完成
 - `Phase 3`：已完成
 - `Phase 4`：已完成
-- `Phase 5`：未开始
+- `Phase 5`：已完成
 
 ## 文档维护规则
 
@@ -494,6 +507,29 @@ retention_score =
 - 正文进入 `content_blobs`
 - archive 优先压缩长 details / solution / raw context
 
+关键文件：
+
+- `scripts/lib/context-anchor-db.js`
+- `scripts/lib/openclaw-session-status.js`
+- `scripts/memory-search.js`
+- `scripts/mirror-rebuild.js`
+- `tests/context-anchor.test.js`
+
+完成标准：
+
+- catalog 主表不再内联长正文
+- 读取、排序、检索仍能回填完整内容
+- archive blob 优先压缩
+- mirror rebuild 后 blob 仍可重建和读取
+
+当前结果（2026-04-01）：
+
+- 已完成
+- `content_blobs` 已承担长 `summary/content/details/solution/raw_context`
+- `catalog_items.payload_json` 只保留短摘要和 metadata
+- `readMirrorCollection / loadRankedMirrorCollection / searchCatalogItems` 已自动回填 blob
+- archive blob 已默认优先压缩
+
 说明：
 
 - 这一阶段可以在 Phase 2~4 完成后再做
@@ -620,6 +656,27 @@ retention_score =
 - `command stop hook runs unified session close lifecycle`
 - `real OpenClaw runtime loads managed hooks and closes the prior session on command:new rollover`
 
+### A5. blob separation
+
+覆盖：
+
+- 长 `details / solution / content` 从主表分离
+- archive blob 优先压缩
+- mirror 读取与排序自动回填 blob
+- mirror rebuild 后 blob 仍可恢复
+
+断言：
+
+- `catalog_items.payload_json` 不再内联长正文
+- `content_blobs` 计数增长
+- archive blob 的存储字节数小于原始字节数
+- 读取和检索结果保持完整内容
+
+已覆盖（2026-04-01）：
+
+- `sqlite mirror externalizes long fields into content blobs while rehydrating reads`
+- `archive blobs are compressed and rehydrated after mirror rebuild`
+
 ## B. 集成测试
 
 ### B1. session lifecycle
@@ -704,6 +761,7 @@ retention_score =
 - `heartbeat runs storage governance and syncs active and archive mirrors`
 - `mirror-rebuild backfills archive collections into sqlite mirrors`
 - `archive items are searchable through the sqlite mirror FTS path`
+- `archive blobs are compressed and rehydrated after mirror rebuild`
 
 ## C. 回归测试
 

@@ -1,7 +1,26 @@
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 
 let sqliteRuntime = null;
+
+const BLOB_FIELDS = ['summary', 'content', 'details', 'solution', 'raw_context'];
+const BLOB_STORAGE_LIMITS = {
+  active: {
+    summary: 240,
+    content: 240,
+    details: 240,
+    solution: 240,
+    raw_context: 240
+  },
+  archive: {
+    summary: 120,
+    content: 120,
+    details: 80,
+    solution: 80,
+    raw_context: 80
+  }
+};
 
 const SEARCHABLE_SOURCES = new Set([
   'session_memories',
@@ -23,6 +42,43 @@ function ensureDir(dir) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
+}
+
+function utf8Bytes(value) {
+  return Buffer.byteLength(String(value || ''), 'utf8');
+}
+
+function truncateUtf8Text(value, maxBytes) {
+  const text = String(value || '');
+  if (!maxBytes || utf8Bytes(text) <= maxBytes) {
+    return text;
+  }
+
+  let next = '';
+  for (const chunk of text) {
+    if (utf8Bytes(`${next}${chunk}...`) > maxBytes) {
+      break;
+    }
+    next += chunk;
+  }
+
+  return `${next}...`;
+}
+
+function isArchiveSource(source = '') {
+  return /_archive$/u.test(String(source));
+}
+
+function decodeBlobValue(blob = {}) {
+  if (!blob || typeof blob.blob_text !== 'string') {
+    return null;
+  }
+
+  if (blob.encoding === 'gzip-base64') {
+    return zlib.gunzipSync(Buffer.from(blob.blob_text, 'base64')).toString('utf8');
+  }
+
+  return blob.blob_text;
 }
 
 function getSqliteRuntime() {
@@ -495,6 +551,20 @@ function openDatabase(dbFile) {
     );
     CREATE INDEX IF NOT EXISTS idx_catalog_documents_scope
       ON catalog_documents (scope, doc_type, owner_id);
+    CREATE TABLE IF NOT EXISTS content_blobs (
+      item_key TEXT NOT NULL,
+      scope TEXT NOT NULL,
+      owner_id TEXT NOT NULL,
+      source TEXT NOT NULL,
+      field_name TEXT NOT NULL,
+      encoding TEXT NOT NULL,
+      blob_text TEXT NOT NULL,
+      original_bytes INTEGER NOT NULL DEFAULT 0,
+      stored_bytes INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (item_key, field_name)
+    );
+    CREATE INDEX IF NOT EXISTS idx_content_blobs_collection
+      ON content_blobs (scope, owner_id, source);
     CREATE TABLE IF NOT EXISTS governance_runs (
       run_id TEXT PRIMARY KEY,
       workspace TEXT NOT NULL,
@@ -702,11 +772,118 @@ function buildSearchText(item = {}, descriptor) {
     .join(' ');
 }
 
-function toRow(descriptor, item, index) {
-  const itemId = buildItemId(item, descriptor, index);
+function buildBlobEntries(descriptor, itemKey, item = {}) {
+  const storedItem = { ...item };
+  const blobFields = [];
+  const blobRows = [];
+  const limits = isArchiveSource(descriptor.source) || Boolean(item.archived)
+    ? BLOB_STORAGE_LIMITS.archive
+    : BLOB_STORAGE_LIMITS.active;
+
+  BLOB_FIELDS.forEach((fieldName) => {
+    const value = storedItem[fieldName];
+    if (typeof value !== 'string' || !value) {
+      return;
+    }
+
+    const inlineLimit = Number(limits[fieldName] || limits.details || 0);
+    if (!inlineLimit || utf8Bytes(value) <= inlineLimit) {
+      return;
+    }
+
+    const shouldCompress = isArchiveSource(descriptor.source) || Boolean(item.archived) || utf8Bytes(value) > 512;
+    const encodedText = shouldCompress
+      ? zlib.gzipSync(Buffer.from(value, 'utf8')).toString('base64')
+      : value;
+
+    blobFields.push(fieldName);
+    if (fieldName === 'summary') {
+      storedItem.summary = truncateUtf8Text(value, inlineLimit);
+    } else if (fieldName === 'content' && !storedItem.summary) {
+      storedItem.content = truncateUtf8Text(value, inlineLimit);
+    } else {
+      storedItem[fieldName] = null;
+    }
+
+    blobRows.push({
+      item_key: itemKey,
+      scope: descriptor.scope,
+      owner_id: descriptor.ownerId,
+      source: descriptor.source,
+      field_name: fieldName,
+      encoding: shouldCompress ? 'gzip-base64' : 'plain',
+      blob_text: encodedText,
+      original_bytes: utf8Bytes(value),
+      stored_bytes: shouldCompress ? Buffer.byteLength(encodedText, 'utf8') : utf8Bytes(value)
+    });
+  });
+
+  if (blobFields.length > 0) {
+    storedItem.blob_fields = blobFields;
+  } else {
+    delete storedItem.blob_fields;
+  }
 
   return {
-    item_key: `${descriptor.scope}:${descriptor.ownerId}:${descriptor.source}:${itemId}`,
+    storedItem,
+    blobRows
+  };
+}
+
+function hydrateRowPayloads(db, rows = []) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return rows;
+  }
+
+  const itemKeys = rows.map((row) => row.item_key).filter(Boolean);
+  if (itemKeys.length === 0) {
+    return rows;
+  }
+
+  const placeholders = itemKeys.map(() => '?').join(', ');
+  const blobRows = db.prepare(
+    `
+      SELECT item_key, field_name, encoding, blob_text
+      FROM content_blobs
+      WHERE item_key IN (${placeholders})
+    `
+  ).all(...itemKeys);
+
+  const blobsByKey = new Map();
+  blobRows.forEach((blob) => {
+    if (!blobsByKey.has(blob.item_key)) {
+      blobsByKey.set(blob.item_key, new Map());
+    }
+    blobsByKey.get(blob.item_key).set(blob.field_name, decodeBlobValue(blob));
+  });
+
+  return rows.map((row) => {
+    const payload = JSON.parse(row.payload_json);
+    const blobFields = Array.isArray(payload.blob_fields) ? payload.blob_fields : [];
+    const fieldMap = blobsByKey.get(row.item_key);
+
+    blobFields.forEach((fieldName) => {
+      if (fieldMap && fieldMap.has(fieldName)) {
+        payload[fieldName] = fieldMap.get(fieldName);
+      }
+    });
+    delete payload.blob_fields;
+
+    return {
+      ...row,
+      payload_json: JSON.stringify(payload)
+    };
+  });
+}
+
+function toRow(descriptor, item, index) {
+  const itemId = buildItemId(item, descriptor, index);
+  const itemKey = `${descriptor.scope}:${descriptor.ownerId}:${descriptor.source}:${itemId}`;
+  const searchText = buildSearchText(item, descriptor);
+  const prepared = buildBlobEntries(descriptor, itemKey, item);
+
+  return {
+    item_key: itemKey,
     scope: descriptor.scope,
     owner_id: descriptor.ownerId,
     source: descriptor.source,
@@ -721,9 +898,10 @@ function toRow(descriptor, item, index) {
     access_count: Number(item.access_count || item.applied_count || 0),
     last_accessed: item.last_accessed || item.last_active || item.updated_at || item.created_at || null,
     created_at: item.created_at || null,
-    search_text: buildSearchText(item, descriptor),
+    search_text: searchText,
     file_path: descriptor.filePath,
-    payload_json: JSON.stringify(item)
+    payload_json: JSON.stringify(prepared.storedItem),
+    blob_rows: prepared.blobRows
   };
 }
 
@@ -845,6 +1023,12 @@ function syncCollectionMirror(file, key, items) {
       WHERE scope = ? AND owner_id = ? AND source = ?
     `
   );
+  const removeBlobs = db.prepare(
+    `
+      DELETE FROM content_blobs
+      WHERE scope = ? AND owner_id = ? AND source = ?
+    `
+  );
   const upsertCollection = db.prepare(
     `
       INSERT INTO catalog_collections (
@@ -877,6 +1061,15 @@ function syncCollectionMirror(file, key, items) {
       VALUES (?, ?)
     `
   );
+  const insertBlob = db.prepare(
+    `
+      INSERT INTO content_blobs (
+        item_key, scope, owner_id, source, field_name, encoding, blob_text, original_bytes, stored_bytes
+      ) VALUES (
+        @item_key, @scope, @owner_id, @source, @field_name, @encoding, @blob_text, @original_bytes, @stored_bytes
+      )
+    `
+  );
 
   db.exec('BEGIN');
   try {
@@ -884,13 +1077,18 @@ function syncCollectionMirror(file, key, items) {
       removeFts.run(row.item_key);
     });
     removeItems.run(descriptor.scope, descriptor.ownerId, descriptor.source);
+    removeBlobs.run(descriptor.scope, descriptor.ownerId, descriptor.source);
 
     (Array.isArray(items) ? items : []).forEach((item, index) => {
       const row = toRow(descriptor, item, index);
-      insertItem.run(row);
+      const { blob_rows: blobRows, ...itemRow } = row;
+      insertItem.run(itemRow);
       if (SEARCHABLE_SOURCES.has(descriptor.source) && row.search_text) {
         insertFts.run(row.item_key, row.search_text);
       }
+      (blobRows || []).forEach((blobRow) => {
+        insertBlob.run(blobRow);
+      });
     });
 
     upsertCollection.run(
@@ -958,17 +1156,18 @@ function readMirrorCollection(file, key) {
     const rows = db
       .prepare(
         `
-          SELECT payload_json
+          SELECT item_key, payload_json
           FROM catalog_items
           WHERE scope = ? AND owner_id = ? AND source = ?
           ORDER BY sort_order ASC
         `
       )
       .all(descriptor.scope, descriptor.ownerId, descriptor.source);
+    const hydratedRows = hydrateRowPayloads(db, rows);
 
     return {
       status: 'available',
-      items: rows.map((row) => JSON.parse(row.payload_json))
+      items: hydratedRows.map((row) => JSON.parse(row.payload_json))
     };
   } finally {
     db.close();
@@ -1067,7 +1266,8 @@ function loadRankedMirrorCollection(file, key, options = {}) {
       parameters.push(limit);
     }
 
-    return db.prepare(sql).all(...parameters).map((row) => JSON.parse(row.payload_json));
+    const rows = db.prepare(sql.replace('SELECT payload_json', 'SELECT item_key, payload_json')).all(...parameters);
+    return hydrateRowPayloads(db, rows).map((row) => JSON.parse(row.payload_json));
   } finally {
     db.close();
   }
@@ -1112,6 +1312,62 @@ function loadRecentSessionIndexEntries(file, windowMs, options = {}) {
   }
 }
 
+function readContentBlobRows(dbFile, filters = {}) {
+  if (!isDbEnabled() || !dbFile || !fs.existsSync(dbFile)) {
+    return [];
+  }
+
+  const db = openDatabase(dbFile);
+  if (!db) {
+    return [];
+  }
+
+  try {
+    return db.prepare(
+      `
+        SELECT item_key, scope, owner_id, source, field_name, encoding, original_bytes, stored_bytes
+        FROM content_blobs
+        WHERE (@source IS NULL OR source = @source)
+          AND (@item_key IS NULL OR item_key = @item_key)
+        ORDER BY item_key ASC, field_name ASC
+      `
+    ).all({
+      source: filters.source || null,
+      item_key: filters.item_key || null
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function readCatalogItemRows(dbFile, filters = {}) {
+  if (!isDbEnabled() || !dbFile || !fs.existsSync(dbFile)) {
+    return [];
+  }
+
+  const db = openDatabase(dbFile);
+  if (!db) {
+    return [];
+  }
+
+  try {
+    return db.prepare(
+      `
+        SELECT item_key, source, payload_json
+        FROM catalog_items
+        WHERE (@source IS NULL OR source = @source)
+          AND (@item_key IS NULL OR item_key = @item_key)
+        ORDER BY item_key ASC
+      `
+    ).all({
+      source: filters.source || null,
+      item_key: filters.item_key || null
+    });
+  } finally {
+    db.close();
+  }
+}
+
 function summarizeCatalogDatabase(dbFile) {
   if (!isDbEnabled() || !dbFile || !fs.existsSync(dbFile)) {
     return {
@@ -1124,7 +1380,10 @@ function summarizeCatalogDatabase(dbFile) {
       session_states: 0,
       session_summaries: 0,
       compact_packets: 0,
-      projects: 0
+      projects: 0,
+      content_blobs: 0,
+      content_blob_bytes: 0,
+      content_blob_stored_bytes: 0
     };
   }
 
@@ -1140,7 +1399,10 @@ function summarizeCatalogDatabase(dbFile) {
       session_states: 0,
       session_summaries: 0,
       compact_packets: 0,
-      projects: 0
+      projects: 0,
+      content_blobs: 0,
+      content_blob_bytes: 0,
+      content_blob_stored_bytes: 0
     };
   }
 
@@ -1165,6 +1427,15 @@ function summarizeCatalogDatabase(dbFile) {
         FROM catalog_documents
       `
     ).get();
+    const blobSummary = db.prepare(
+      `
+        SELECT
+          COUNT(*) AS content_blobs,
+          COALESCE(SUM(original_bytes), 0) AS content_blob_bytes,
+          COALESCE(SUM(stored_bytes), 0) AS content_blob_stored_bytes
+        FROM content_blobs
+      `
+    ).get();
 
     return {
       available: true,
@@ -1176,7 +1447,10 @@ function summarizeCatalogDatabase(dbFile) {
       session_states: Number(documentSummary?.session_states || 0),
       session_summaries: Number(documentSummary?.session_summaries || 0),
       compact_packets: Number(documentSummary?.compact_packets || 0),
-      projects: Number(collectionSummary?.projects || 0)
+      projects: Number(collectionSummary?.projects || 0),
+      content_blobs: Number(blobSummary?.content_blobs || 0),
+      content_blob_bytes: Number(blobSummary?.content_blob_bytes || 0),
+      content_blob_stored_bytes: Number(blobSummary?.content_blob_stored_bytes || 0)
     };
   } finally {
     db.close();
@@ -1210,6 +1484,7 @@ function searchCatalogItems(dbFile, filters, query, limit) {
               .prepare(
                 `
                   SELECT
+                    i.item_key,
                     i.scope,
                     i.owner_id,
                     i.source,
@@ -1243,6 +1518,7 @@ function searchCatalogItems(dbFile, filters, query, limit) {
               .prepare(
                 `
                   SELECT
+                    item_key,
                     scope,
                     owner_id,
                     source,
@@ -1277,6 +1553,7 @@ function searchCatalogItems(dbFile, filters, query, limit) {
           .prepare(
             `
               SELECT
+                item_key,
                 scope,
                 owner_id,
                 source,
@@ -1303,7 +1580,7 @@ function searchCatalogItems(dbFile, filters, query, limit) {
       );
     });
 
-    return rows;
+    return hydrateRowPayloads(db, rows);
   } finally {
     db.close();
   }
@@ -1348,6 +1625,8 @@ module.exports = {
   isDbEnabled,
   loadRankedMirrorCollection,
   loadRecentSessionIndexEntries,
+  readCatalogItemRows,
+  readContentBlobRows,
   readLatestGovernanceRun,
   readMirrorCollectionCount,
   readMirrorDocument,

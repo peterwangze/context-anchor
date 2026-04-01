@@ -138,7 +138,10 @@ function buildWorkspaceMirrorSummary(workspace) {
       session_states: 0,
       session_summaries: 0,
       compact_packets: 0,
-      projects: 0
+      projects: 0,
+      content_blobs: 0,
+      content_blob_bytes: 0,
+      content_blob_stored_bytes: 0
     };
   }
 

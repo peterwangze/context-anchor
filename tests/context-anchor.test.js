@@ -32,12 +32,15 @@ const { buildBootstrapCacheContent } = require('../scripts/lib/bootstrap-cache')
 const {
   describeCollectionFile,
   describeDocumentFile,
+  readCatalogItemRows,
+  readContentBlobRows,
   loadRecentSessionIndexEntries,
   readLatestGovernanceRun,
   readMirrorCollection,
   readMirrorCollectionCount,
   readMirrorDocument,
-  searchCatalogItems
+  searchCatalogItems,
+  summarizeCatalogDatabase
 } = require('../scripts/lib/context-anchor-db');
 const { findSessionByKey, getHostConfigFile, resolveOwnership } = require('../scripts/lib/host-config');
 const { runCheckpointCreate } = require('../scripts/checkpoint-create');
@@ -920,6 +923,127 @@ test('session memory writes sync a SQLite mirror and ranked reads use the mirror
       assert.equal(ranked.length, 2);
       assert.match(ranked[0].summary || ranked[0].content, /highest heat checkout retry playbook/);
       assert.match(ranked[1].summary || ranked[1].content, /high heat cache verification note/);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('sqlite mirror externalizes long fields into content blobs while rehydrating reads', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      const longContent = 'blob backed content '.repeat(80);
+      const longDetails = 'blob backed details '.repeat(120);
+      const longSolution = 'blob backed solution '.repeat(120);
+
+      runSessionStart(workspace, 'blob-mirror', 'demo');
+      runMemorySave(
+        workspace,
+        'blob-mirror',
+        'session',
+        'best_practice',
+        longContent,
+        JSON.stringify({
+          heat: 96,
+          details: longDetails,
+          solution: longSolution
+        })
+      );
+
+      const paths = createPaths(workspace);
+      const memoryFile = sessionMemoryFile(paths, 'blob-mirror');
+      const descriptor = describeCollectionFile(memoryFile, 'entries');
+      const mirror = readMirrorCollection(memoryFile, 'entries');
+      const ranked = loadRankedCollection(memoryFile, 'entries', {
+        minHeat: 90,
+        limit: 1
+      });
+      const dbSummary = summarizeCatalogDatabase(descriptor.dbFile);
+      const blobRows = readContentBlobRows(descriptor.dbFile, {
+        source: 'session_memories'
+      });
+      const catalogRows = readCatalogItemRows(descriptor.dbFile, {
+        source: 'session_memories'
+      });
+
+      assert.equal(mirror.status, 'available');
+      assert.equal(mirror.items[0].content, longContent);
+      assert.equal(mirror.items[0].details, longDetails);
+      assert.equal(mirror.items[0].solution, longSolution);
+      assert.equal(ranked[0].details, longDetails);
+      assert.ok(dbSummary.content_blobs >= 2);
+      assert.ok(dbSummary.content_blob_bytes > 0);
+      assert.ok(blobRows.some((row) => row.field_name === 'details'));
+      assert.ok(blobRows.some((row) => row.field_name === 'solution'));
+      assert.doesNotMatch(catalogRows[0].payload_json, /blob backed details blob backed details/);
+      assert.doesNotMatch(catalogRows[0].payload_json, /blob backed solution blob backed solution/);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('archive blobs are compressed and rehydrated after mirror rebuild', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      const longArchiveDetails = 'archive compression candidate '.repeat(180);
+
+      runSessionStart(workspace, 'blob-archive', 'demo');
+      const paths = createPaths(workspace);
+      writeJson(projectExperiencesArchiveFile(paths, 'demo'), {
+        experiences: [
+          makeGovernanceEntry('blob-archive', 1, {
+            type: 'best_practice',
+            summary: 'Archive blob record',
+            details: longArchiveDetails,
+            solution: 'archive compressed solution '.repeat(120),
+            project_id: 'demo',
+            session_key: 'blob-archive',
+            archived: true,
+            archived_at: '2026-04-01T00:00:00.000Z',
+            archive_reason: 'retention_budget',
+            validation: { status: 'validated' }
+          })
+        ]
+      });
+
+      const dbFile = path.join(workspace, '.context-anchor', 'catalog.sqlite');
+      if (fs.existsSync(dbFile)) {
+        fs.rmSync(dbFile, { force: true });
+      }
+
+      const rebuild = runMirrorRebuild(workspace, path.join(workspace, 'openclaw-home'));
+      const descriptor = describeCollectionFile(projectExperiencesArchiveFile(paths, 'demo'), 'experiences');
+      const blobRows = readContentBlobRows(descriptor.dbFile, {
+        source: 'project_experiences_archive'
+      });
+      const mirror = readMirrorCollection(projectExperiencesArchiveFile(paths, 'demo'), 'experiences');
+      const archiveSearchRows = searchCatalogItems(
+        descriptor.dbFile,
+        [
+          {
+            scope: 'project',
+            ownerId: 'demo',
+            source: 'project_experiences_archive',
+            archived: true
+          }
+        ],
+        'compression candidate',
+        5
+      );
+
+      assert.equal(rebuild.status, 'ok');
+      assert.ok(blobRows.length >= 1);
+      assert.ok(blobRows.every((row) => row.encoding === 'gzip-base64'));
+      assert.ok(blobRows.some((row) => Number(row.stored_bytes || 0) < Number(row.original_bytes || 0)));
+      assert.equal(mirror.status, 'available');
+      assert.equal(mirror.items[0].details, longArchiveDetails);
+      assert.equal(archiveSearchRows.length, 1);
+      assert.match(JSON.parse(archiveSearchRows[0].payload_json).details, /compression candidate/);
     });
   } finally {
     cleanupWorkspace(workspace);
