@@ -12,10 +12,10 @@
 
 但当前体系还没有真正解决“长期积累导致的无限膨胀”问题：
 
-- active / archive 双层存储已经落地，但 archive-aware 检索尚未接管 archive 层
+- active / archive 双层存储和 archive-aware 检索已经落地，但治理观测控制面还不完整
 - `runtime_state` 已独立，但治理统计与观测还没有形成完整控制面
-- 长期记忆虽然已经分流到 archive，但 archive-aware retrieval 还没有接管第二层检索
-- `memory-search` 还没有明确区分 active 检索与 archive 检索的优先级和代价
+- 长期记忆虽然已经分流到 archive，但 status-report 还没有显示完整的 active/archive 治理体积
+- `memory-search` 已区分 active 和 archive 检索，但治理结果统计还没有统一沉淀
 - 治理触发已接入，但缺少统一的治理统计、配额观测和压缩回收指标
 
 这个文档把后续方案落成“可执行的实施计划”，并明确测试设计。  
@@ -54,10 +54,14 @@
   - SQLite mirror 已识别 archive collection，`mirror-rebuild` 已可回填 archive 集合
   - `heartbeat / session-close / workspace-monitor` 已执行 storage governance
   - 已补 retention score、去重、active/archive 切分、lifecycle 触发和 archive mirror 测试，并跑通全量测试
+- 本轮（2026-04-01，Phase 3）已完成：
+  - `memory-search` 已实现 active 优先、archive 按需回退
+  - 检索结果已显式返回 `tier / from_archive / retrieval_cost`
+  - archive mirror FTS 查询路径已可命中 archive 集合
+  - 已补 active/archive 优先级、archive-only fallback、bootstrap 不预载 archive、archive FTS 检索测试
 
 当前仍未完成的核心目标：
 
-- archive-aware 检索尚未完整打通
 - 治理统计与观测、blob 分离尚未落地
 
 因此，本方案当前状态应认定为：
@@ -65,7 +69,7 @@
 - `Phase 0`：已完成
 - `Phase 1`：已完成
 - `Phase 2`：已完成
-- `Phase 3`：仅完成“长期记忆不预载”的基础行为，未完成 archive-aware search
+- `Phase 3`：已完成
 - `Phase 4`：已接入治理触发，但 `governance_runs` 和 status-report 治理统计未完成
 - `Phase 5`：未开始
 
@@ -427,6 +431,13 @@ retention_score =
 - bootstrap 不读取 archive 正文
 - archive 仍可按需找回
 
+当前结果（2026-04-01）：
+
+- 已完成
+- `memory-search` 会先返回 active 结果，仅在 active 结果不足时补 archive 结果
+- archive 结果会显式标记 `tier=archive`、`from_archive=true`、`retrieval_cost=archive_lookup`
+- bootstrap 仍只暴露检索指针，不预载 archive 正文
+
 ## Phase 4：治理任务与观测
 
 目标：
@@ -659,6 +670,13 @@ retention_score =
 - archive 结果带 tier 标记
 - archive 不自动进入 bootstrap
 
+当前覆盖（2026-04-01）：
+
+- `memory-search retrieves persisted long-term memory on demand`
+- `memory-search falls back to archive when active has no matching hits`
+- `memory-search prefers active hits over archive hits for the same query`
+- `archive content stays out of bootstrap while remaining retrievable on demand`
+
 ### B4. mirror 同步
 
 场景：
@@ -676,7 +694,7 @@ retention_score =
 
 - `heartbeat runs storage governance and syncs active and archive mirrors`
 - `mirror-rebuild backfills archive collections into sqlite mirrors`
-- 仍待补：archive FTS 查询路径的显式断言，将在 Phase 3 archive-aware search 中完成
+- `archive items are searchable through the sqlite mirror FTS path`
 
 ## C. 回归测试
 

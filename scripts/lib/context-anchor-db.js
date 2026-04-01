@@ -1034,6 +1034,11 @@ function searchCatalogItems(dbFile, filters, query, limit) {
     const rows = [];
 
     filters.forEach((filter) => {
+      const archivedClause =
+        typeof filter.archived === 'boolean' ? ` AND ${filter.archived ? 'i.archived = 1' : 'i.archived = 0'}` : '';
+      const archivedClausePlain =
+        typeof filter.archived === 'boolean' ? ` AND ${filter.archived ? 'archived = 1' : 'archived = 0'}` : '';
+
       if (queryText) {
         try {
           rows.push(
@@ -1059,7 +1064,7 @@ function searchCatalogItems(dbFile, filters, query, limit) {
                     bm25(catalog_items_fts) AS fts_rank
                   FROM catalog_items_fts
                   JOIN catalog_items i ON i.item_key = catalog_items_fts.item_key
-                  WHERE i.scope = ? AND i.owner_id = ? AND i.source = ? AND i.archived = 0
+                  WHERE i.scope = ? AND i.owner_id = ? AND i.source = ?${archivedClause}
                     AND catalog_items_fts.search_text MATCH ?
                   ORDER BY bm25(catalog_items_fts), i.heat DESC, i.access_count DESC
                   LIMIT ?
@@ -1091,7 +1096,7 @@ function searchCatalogItems(dbFile, filters, query, limit) {
                     payload_json,
                     0 AS fts_rank
                   FROM catalog_items
-                  WHERE scope = ? AND owner_id = ? AND source = ? AND archived = 0
+                  WHERE scope = ? AND owner_id = ? AND source = ?${archivedClausePlain}
                     AND lower(search_text) LIKE ?
                   ORDER BY heat DESC, access_count DESC, sort_order ASC
                   LIMIT ?
@@ -1125,7 +1130,7 @@ function searchCatalogItems(dbFile, filters, query, limit) {
                 payload_json,
                 0 AS fts_rank
               FROM catalog_items
-              WHERE scope = ? AND owner_id = ? AND source = ? AND archived = 0
+              WHERE scope = ? AND owner_id = ? AND source = ?${archivedClausePlain}
               ORDER BY heat DESC, access_count DESC, sort_order ASC
               LIMIT ?
             `

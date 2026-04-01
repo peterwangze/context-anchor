@@ -4,21 +4,33 @@ const {
   DEFAULTS,
   classifyHeatTier,
   createPaths,
+  loadProjectDecisionArchive,
   loadProjectDecisions,
+  loadProjectExperienceArchive,
   loadProjectExperiences,
+  loadProjectFactArchive,
   loadProjectFacts,
   loadSessionMemory,
+  loadSessionMemoryArchive,
   loadSessionState,
+  loadUserExperienceArchive,
   loadUserExperiences,
   loadUserMemories,
+  loadUserMemoryArchive,
+  projectDecisionsArchiveFile,
   projectDecisionsFile,
+  projectExperiencesArchiveFile,
   projectExperiencesFile,
+  projectFactsArchiveFile,
   projectFactsFile,
   resolveUserId,
   sanitizeKey,
+  sessionMemoryArchiveFile,
   sessionMemoryFile,
   sortByHeat,
+  userExperiencesArchiveFile,
   userExperiencesFile,
+  userMemoriesArchiveFile,
   userMemoriesFile
 } = require('./lib/context-anchor');
 const {
@@ -45,7 +57,19 @@ function countTokenOverlap(queryTokens, ...parts) {
   return queryTokens.filter((token) => candidateTokens.has(token)).length;
 }
 
-function buildCandidate(source, scope, entry, file, summaryParts = []) {
+function canonicalSource(source = '') {
+  return String(source).replace(/_archive$/u, '');
+}
+
+function isArchiveSource(source = '') {
+  return /_archive$/u.test(String(source));
+}
+
+function candidateKey(source, id) {
+  return `${canonicalSource(source)}:${id}`;
+}
+
+function buildCandidate(source, scope, entry, file, summaryParts = [], options = {}) {
   const summary =
     entry.summary ||
     entry.content ||
@@ -54,18 +78,25 @@ function buildCandidate(source, scope, entry, file, summaryParts = []) {
     entry.key ||
     entry.name ||
     entry.id;
+  const tier = options.tier || (isArchiveSource(source) ? 'archive' : 'active');
+  const heat = Number(entry.heat || 0);
 
   return {
-    source,
+    source: canonicalSource(source),
+    storage_source: source,
     scope,
     file,
     id: entry.id,
-    type: entry.type || (source === 'project_decisions' ? 'decision' : 'memory'),
+    type: entry.type || (canonicalSource(source) === 'project_decisions' ? 'decision' : 'memory'),
     summary,
     details: entry.details || null,
     solution: entry.solution || null,
-    heat: Number(entry.heat || 0),
-    validation_status: entry.validation?.status || null,
+    heat,
+    heat_tier: classifyHeatTier(heat),
+    tier,
+    from_archive: tier === 'archive',
+    retrieval_cost: tier === 'archive' ? 'archive_lookup' : 'active_lookup',
+    validation_status: entry.validation?.status || entry.validation_status || null,
     access_count: Number(entry.access_count || entry.applied_count || 0),
     last_accessed: entry.last_accessed || entry.created_at || null,
     tags: Array.isArray(entry.tags) ? entry.tags : [],
@@ -73,39 +104,43 @@ function buildCandidate(source, scope, entry, file, summaryParts = []) {
   };
 }
 
-function buildCandidateFromMirrorRow(row) {
-  const entry = JSON.parse(row.payload_json);
+function buildCandidateForSource(source, scope, entry, file, options = {}) {
+  const logicalSource = canonicalSource(source);
 
-  if (row.source === 'project_decisions') {
+  if (logicalSource === 'project_decisions') {
     return buildCandidate(
-      row.source,
-      row.scope,
+      source,
+      scope,
       {
         ...entry,
         summary: entry.decision
       },
-      row.file_path,
-      [entry.rationale, entry.impact]
+      file,
+      [entry.rationale, entry.impact],
+      options
     );
   }
 
-  if (row.source === 'project_experiences') {
-    return buildCandidate(row.source, row.scope, entry, row.file_path, [entry.source]);
+  if (logicalSource === 'project_experiences' || logicalSource === 'user_experiences') {
+    return buildCandidate(source, scope, entry, file, [entry.source], options);
   }
 
-  if (row.source === 'user_memories') {
-    return buildCandidate(row.source, row.scope, entry, row.file_path, [entry.scope]);
+  if (logicalSource === 'user_memories') {
+    return buildCandidate(source, scope, entry, file, [entry.scope], options);
   }
 
-  if (row.source === 'user_experiences') {
-    return buildCandidate(row.source, row.scope, entry, row.file_path, [entry.source]);
+  if (logicalSource === 'session_memories') {
+    return buildCandidate(source, scope, entry, file, [entry.session_key], options);
   }
 
-  if (row.source === 'session_memories') {
-    return buildCandidate(row.source, row.scope, entry, row.file_path, [entry.session_key]);
-  }
+  return buildCandidate(source, scope, entry, file, [], options);
+}
 
-  return buildCandidate(row.source, row.scope, entry, row.file_path);
+function buildCandidateFromMirrorRow(row) {
+  const entry = JSON.parse(row.payload_json);
+  return buildCandidateForSource(row.source, row.scope, entry, row.file_path, {
+    tier: isArchiveSource(row.source) ? 'archive' : 'active'
+  });
 }
 
 function scoreCandidate(candidate, queryTokens) {
@@ -121,130 +156,257 @@ function scoreCandidate(candidate, queryTokens) {
   return overlap * 25 + candidate.heat + Math.min(10, candidate.access_count) + recencyBonus + validatedBonus;
 }
 
-function collectFallbackCandidates(paths, sessionState, userId) {
-  return [
-    ...sortByHeat(loadSessionMemory(paths, sessionState.session_key))
-      .filter((entry) => !entry.archived)
-      .map((entry) =>
-        buildCandidate(
-          'session_memories',
-          'session',
-          entry,
-          sessionMemoryFile(paths, sessionState.session_key),
-          [entry.session_key]
-        )
-      ),
-    ...sortByHeat(loadProjectDecisions(paths, sessionState.project_id))
-      .filter((entry) => !entry.archived)
-      .map((entry) =>
-        buildCandidate(
-          'project_decisions',
-          'project',
-          {
-            ...entry,
-            summary: entry.decision
-          },
-          projectDecisionsFile(paths, sessionState.project_id),
-          [entry.rationale, entry.impact]
-        )
-      ),
-    ...sortByHeat(loadProjectExperiences(paths, sessionState.project_id))
-      .filter((entry) => !entry.archived)
-      .map((entry) =>
-        buildCandidate(
-          'project_experiences',
-          'project',
-          entry,
-          projectExperiencesFile(paths, sessionState.project_id),
-          [entry.source]
-        )
-      ),
-    ...sortByHeat(loadProjectFacts(paths, sessionState.project_id))
-      .filter((entry) => !entry.archived)
-      .map((entry) =>
-        buildCandidate('project_facts', 'project', entry, projectFactsFile(paths, sessionState.project_id))
-      ),
-    ...sortByHeat(loadUserMemories(paths, userId))
-      .filter((entry) => !entry.archived)
-      .map((entry) =>
-        buildCandidate('user_memories', 'user', entry, userMemoriesFile(paths, userId), [entry.scope])
-      ),
-    ...sortByHeat(loadUserExperiences(paths, userId))
-      .filter((entry) => !entry.archived)
-      .map((entry) =>
-        buildCandidate('user_experiences', 'user', entry, userExperiencesFile(paths, userId), [entry.source])
-      )
-  ];
-}
-
-function buildMirrorConfig(paths, sessionState, userId) {
-  const workspaceFilters = [
+function buildSearchConfig(paths, sessionState, userId) {
+  const workspaceActiveFilters = [
     {
       scope: 'session',
       ownerId: sessionState.session_key,
-      source: 'session_memories'
+      source: 'session_memories',
+      archived: false
     },
     {
       scope: 'project',
       ownerId: sessionState.project_id,
-      source: 'project_decisions'
+      source: 'project_decisions',
+      archived: false
     },
     {
       scope: 'project',
       ownerId: sessionState.project_id,
-      source: 'project_experiences'
+      source: 'project_experiences',
+      archived: false
     },
     {
       scope: 'project',
       ownerId: sessionState.project_id,
-      source: 'project_facts'
+      source: 'project_facts',
+      archived: false
     }
   ];
-  const userFilters = [
+  const workspaceArchiveFilters = [
+    {
+      scope: 'session',
+      ownerId: sessionState.session_key,
+      source: 'session_memories_archive',
+      archived: true
+    },
+    {
+      scope: 'project',
+      ownerId: sessionState.project_id,
+      source: 'project_decisions_archive',
+      archived: true
+    },
+    {
+      scope: 'project',
+      ownerId: sessionState.project_id,
+      source: 'project_experiences_archive',
+      archived: true
+    },
+    {
+      scope: 'project',
+      ownerId: sessionState.project_id,
+      source: 'project_facts_archive',
+      archived: true
+    }
+  ];
+  const userActiveFilters = [
     {
       scope: 'user',
       ownerId: userId,
-      source: 'user_memories'
+      source: 'user_memories',
+      archived: false
     },
     {
       scope: 'user',
       ownerId: userId,
-      source: 'user_experiences'
+      source: 'user_experiences',
+      archived: false
     }
   ];
-  const workspaceDescriptor = describeCollectionFile(sessionMemoryFile(paths, sessionState.session_key), 'entries');
-  const userDescriptor = describeCollectionFile(userMemoriesFile(paths, userId), 'memories');
+  const userArchiveFilters = [
+    {
+      scope: 'user',
+      ownerId: userId,
+      source: 'user_memories_archive',
+      archived: true
+    },
+    {
+      scope: 'user',
+      ownerId: userId,
+      source: 'user_experiences_archive',
+      archived: true
+    }
+  ];
+
+  const workspaceDescriptor =
+    describeCollectionFile(sessionMemoryFile(paths, sessionState.session_key), 'entries') ||
+    describeCollectionFile(sessionMemoryArchiveFile(paths, sessionState.session_key), 'entries');
+  const userDescriptor =
+    describeCollectionFile(userMemoriesFile(paths, userId), 'memories') ||
+    describeCollectionFile(userMemoriesArchiveFile(paths, userId), 'memories');
 
   return {
     workspaceDbFile: workspaceDescriptor?.dbFile || null,
-    workspaceFilters,
+    workspaceActiveFilters,
+    workspaceArchiveFilters,
     userDbFile: userDescriptor?.dbFile || null,
-    userFilters
+    userActiveFilters,
+    userArchiveFilters
   };
 }
 
-function collectMirrorCandidates(paths, sessionState, userId, queryText, limit) {
-  const config = buildMirrorConfig(paths, sessionState, userId);
+function collectMirrorScopeSummary(config) {
+  return {
+    ...readCatalogCollectionSummaries(config.workspaceDbFile, [
+      ...config.workspaceActiveFilters,
+      ...config.workspaceArchiveFilters
+    ]),
+    ...readCatalogCollectionSummaries(config.userDbFile, [...config.userActiveFilters, ...config.userArchiveFilters])
+  };
+}
+
+function dedupeMirrorRows(rows, seenKeys = new Set()) {
+  const candidates = [];
+  rows.forEach((row) => {
+    const key = candidateKey(row.source, row.item_id);
+    if (seenKeys.has(key)) {
+      return;
+    }
+    seenKeys.add(key);
+    candidates.push(buildCandidateFromMirrorRow(row));
+  });
+  return candidates;
+}
+
+function collectMirrorCandidatesForTier(config, queryText, limit, tier, seenKeys = new Set()) {
+  const workspaceFilters = tier === 'archive' ? config.workspaceArchiveFilters : config.workspaceActiveFilters;
+  const userFilters = tier === 'archive' ? config.userArchiveFilters : config.userActiveFilters;
   const rows = [
-    ...searchCatalogItems(config.workspaceDbFile, config.workspaceFilters, queryText, Math.max(limit * 4, 12)),
-    ...searchCatalogItems(config.userDbFile, config.userFilters, queryText, Math.max(limit * 4, 12))
+    ...searchCatalogItems(config.workspaceDbFile, workspaceFilters, queryText, Math.max(limit * 4, 12)),
+    ...searchCatalogItems(config.userDbFile, userFilters, queryText, Math.max(limit * 4, 12))
   ];
 
-  const deduped = new Map();
-  rows.forEach((row) => {
-    const key = `${row.source}:${row.item_id}`;
-    if (!deduped.has(key)) {
-      deduped.set(key, buildCandidateFromMirrorRow(row));
-    }
+  return dedupeMirrorRows(rows, seenKeys);
+}
+
+function collectFallbackCandidatesForTier(paths, sessionState, userId, tier, seenKeys = new Set()) {
+  const specs =
+    tier === 'archive'
+      ? [
+          {
+            source: 'session_memories_archive',
+            scope: 'session',
+            file: sessionMemoryArchiveFile(paths, sessionState.session_key),
+            load: () => sortByHeat(loadSessionMemoryArchive(paths, sessionState.session_key))
+          },
+          {
+            source: 'project_decisions_archive',
+            scope: 'project',
+            file: projectDecisionsArchiveFile(paths, sessionState.project_id),
+            load: () => sortByHeat(loadProjectDecisionArchive(paths, sessionState.project_id))
+          },
+          {
+            source: 'project_experiences_archive',
+            scope: 'project',
+            file: projectExperiencesArchiveFile(paths, sessionState.project_id),
+            load: () => sortByHeat(loadProjectExperienceArchive(paths, sessionState.project_id))
+          },
+          {
+            source: 'project_facts_archive',
+            scope: 'project',
+            file: projectFactsArchiveFile(paths, sessionState.project_id),
+            load: () => sortByHeat(loadProjectFactArchive(paths, sessionState.project_id))
+          },
+          {
+            source: 'user_memories_archive',
+            scope: 'user',
+            file: userMemoriesArchiveFile(paths, userId),
+            load: () => sortByHeat(loadUserMemoryArchive(paths, userId))
+          },
+          {
+            source: 'user_experiences_archive',
+            scope: 'user',
+            file: userExperiencesArchiveFile(paths, userId),
+            load: () => sortByHeat(loadUserExperienceArchive(paths, userId))
+          }
+        ]
+      : [
+          {
+            source: 'session_memories',
+            scope: 'session',
+            file: sessionMemoryFile(paths, sessionState.session_key),
+            load: () => sortByHeat(loadSessionMemory(paths, sessionState.session_key)).filter((entry) => !entry.archived)
+          },
+          {
+            source: 'project_decisions',
+            scope: 'project',
+            file: projectDecisionsFile(paths, sessionState.project_id),
+            load: () => sortByHeat(loadProjectDecisions(paths, sessionState.project_id)).filter((entry) => !entry.archived)
+          },
+          {
+            source: 'project_experiences',
+            scope: 'project',
+            file: projectExperiencesFile(paths, sessionState.project_id),
+            load: () => sortByHeat(loadProjectExperiences(paths, sessionState.project_id)).filter((entry) => !entry.archived)
+          },
+          {
+            source: 'project_facts',
+            scope: 'project',
+            file: projectFactsFile(paths, sessionState.project_id),
+            load: () => sortByHeat(loadProjectFacts(paths, sessionState.project_id)).filter((entry) => !entry.archived)
+          },
+          {
+            source: 'user_memories',
+            scope: 'user',
+            file: userMemoriesFile(paths, userId),
+            load: () => sortByHeat(loadUserMemories(paths, userId)).filter((entry) => !entry.archived)
+          },
+          {
+            source: 'user_experiences',
+            scope: 'user',
+            file: userExperiencesFile(paths, userId),
+            load: () => sortByHeat(loadUserExperiences(paths, userId)).filter((entry) => !entry.archived)
+          }
+        ];
+
+  const scopeSummary = {};
+  const candidates = [];
+
+  specs.forEach((spec) => {
+    const items = spec.load();
+    scopeSummary[spec.source] = {
+      scope: spec.scope,
+      count: items.length
+    };
+
+    items.forEach((entry) => {
+      const key = candidateKey(spec.source, entry.id);
+      if (seenKeys.has(key)) {
+        return;
+      }
+      seenKeys.add(key);
+      candidates.push(
+        buildCandidateForSource(spec.source, spec.scope, entry, spec.file, {
+          tier
+        })
+      );
+    });
   });
 
   return {
-    candidates: [...deduped.values()],
-    scopeSummary: {
-      ...readCatalogCollectionSummaries(config.workspaceDbFile, config.workspaceFilters),
-      ...readCatalogCollectionSummaries(config.userDbFile, config.userFilters)
-    }
+    candidates,
+    scopeSummary
   };
+}
+
+function scoreAndSortCandidates(candidates, queryTokens) {
+  return candidates
+    .map((candidate) => ({
+      ...candidate,
+      score: scoreCandidate(candidate, queryTokens)
+    }))
+    .filter((candidate) => queryTokens.length === 0 || candidate.score > candidate.heat)
+    .sort((left, right) => right.score - left.score);
 }
 
 function runMemorySearch(workspaceArg, sessionKeyArg, queryArg, options = {}) {
@@ -260,43 +422,56 @@ function runMemorySearch(workspaceArg, sessionKeyArg, queryArg, options = {}) {
   const queryTokens = tokenizeSearchText(query, options.context || '');
   const limit = Number(options.limit || DEFAULTS.memorySearchResultLimit);
   const queryText = queryTokens.join(' ');
-  const mirrorResult = collectMirrorCandidates(paths, sessionState, userId, queryText, limit);
-  const candidates =
-    mirrorResult.candidates.length > 0 ? mirrorResult.candidates : collectFallbackCandidates(paths, sessionState, userId);
-  const scored = candidates
-    .map((candidate) => ({
-      ...candidate,
-      tier: classifyHeatTier(candidate.heat),
-      score: scoreCandidate(candidate, queryTokens)
-    }))
-    .filter((candidate) => queryTokens.length === 0 || candidate.score > candidate.heat)
-    .sort((left, right) => right.score - left.score)
-    .slice(0, limit)
-    .map((candidate) => ({
-      source: candidate.source,
-      scope: candidate.scope,
-      tier: candidate.tier,
-      id: candidate.id,
-      type: candidate.type,
-      summary: candidate.summary,
-      heat: candidate.heat,
-      score: candidate.score,
-      validation_status: candidate.validation_status,
-      file: candidate.file
-    }));
+  const config = buildSearchConfig(paths, sessionState, userId);
+  const scopeSummary = collectMirrorScopeSummary(config);
 
-  const scopeSummary =
-    Object.keys(mirrorResult.scopeSummary).length > 0
-      ? mirrorResult.scopeSummary
-      : candidates.reduce((acc, candidate) => {
-          const summary = acc[candidate.source] || {
-            scope: candidate.scope,
-            count: 0
-          };
-          summary.count += 1;
-          acc[candidate.source] = summary;
-          return acc;
-        }, {});
+  const activeMirrorCandidates = collectMirrorCandidatesForTier(config, queryText, limit, 'active');
+  const activeFallback =
+    activeMirrorCandidates.length === 0
+      ? collectFallbackCandidatesForTier(paths, sessionState, userId, 'active')
+      : {
+          candidates: [],
+          scopeSummary: {}
+        };
+  const activeCandidates = activeMirrorCandidates.length > 0 ? activeMirrorCandidates : activeFallback.candidates;
+  const activeResults = scoreAndSortCandidates(activeCandidates, queryTokens).slice(0, limit);
+
+  const seenKeys = new Set(activeResults.map((entry) => candidateKey(entry.storage_source, entry.id)));
+  let archiveCandidates = [];
+  let archiveFallback = {
+    candidates: [],
+    scopeSummary: {}
+  };
+
+  if (activeResults.length < limit) {
+    const archiveMirrorCandidates = collectMirrorCandidatesForTier(config, queryText, limit, 'archive', seenKeys);
+    archiveFallback =
+      archiveMirrorCandidates.length === 0
+        ? collectFallbackCandidatesForTier(paths, sessionState, userId, 'archive', seenKeys)
+        : archiveFallback;
+    archiveCandidates = archiveMirrorCandidates.length > 0 ? archiveMirrorCandidates : archiveFallback.candidates;
+  }
+
+  const archiveResults = scoreAndSortCandidates(archiveCandidates, queryTokens).slice(
+    0,
+    Math.max(0, limit - activeResults.length)
+  );
+  const scored = [...activeResults, ...archiveResults].map((candidate) => ({
+    source: candidate.source,
+    storage_source: candidate.storage_source,
+    scope: candidate.scope,
+    tier: candidate.tier,
+    heat_tier: candidate.heat_tier,
+    from_archive: candidate.from_archive,
+    retrieval_cost: candidate.retrieval_cost,
+    id: candidate.id,
+    type: candidate.type,
+    summary: candidate.summary,
+    heat: candidate.heat,
+    score: candidate.score,
+    validation_status: candidate.validation_status,
+    file: candidate.file
+  }));
 
   return {
     status: 'ok',
@@ -306,9 +481,14 @@ function runMemorySearch(workspaceArg, sessionKeyArg, queryArg, options = {}) {
     user_id: userId,
     query,
     query_tokens: queryTokens,
-    total_candidates: candidates.length,
+    tiers_searched: archiveResults.length > 0 ? ['active', 'archive'] : ['active'],
+    total_candidates: activeCandidates.length + archiveCandidates.length,
     returned: scored.length,
-    scope_summary: scopeSummary,
+    scope_summary: {
+      ...scopeSummary,
+      ...activeFallback.scopeSummary,
+      ...archiveFallback.scopeSummary
+    },
     results: scored
   };
 }

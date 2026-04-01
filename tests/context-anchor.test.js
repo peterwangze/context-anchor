@@ -12,6 +12,7 @@ const {
   createPaths,
   getRecentSessions,
   loadCompactPacket,
+  projectExperiencesArchiveFile,
   projectFactsArchiveFile,
   projectFactsFile,
   loadRankedCollection,
@@ -34,7 +35,8 @@ const {
   loadRecentSessionIndexEntries,
   readMirrorCollection,
   readMirrorCollectionCount,
-  readMirrorDocument
+  readMirrorDocument,
+  searchCatalogItems
 } = require('../scripts/lib/context-anchor-db');
 const { findSessionByKey, getHostConfigFile, resolveOwnership } = require('../scripts/lib/host-config');
 const { runCheckpointCreate } = require('../scripts/checkpoint-create');
@@ -3037,9 +3039,186 @@ test('memory-search retrieves persisted long-term memory on demand', () => {
       assert.equal(result.status, 'ok');
       assert.ok(result.returned > 0);
       assert.equal(result.results[0].source, 'project_experiences');
+      assert.equal(result.results[0].tier, 'active');
+      assert.equal(result.results[0].from_archive, false);
+      assert.equal(result.results[0].retrieval_cost, 'active_lookup');
       assert.match(result.results[0].summary, /retry budget/);
       assert.ok(result.results.some((entry) => entry.source === 'project_facts'));
       assert.ok(result.scope_summary.project_experiences.count >= 1);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('memory-search falls back to archive when active has no matching hits', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'archive-lookup', 'demo');
+      const paths = createPaths(workspace);
+      writeJson(projectExperiencesArchiveFile(paths, 'demo'), {
+        experiences: [
+          makeGovernanceEntry('archive-search', 1, {
+            type: 'best_practice',
+            summary: 'Recover archived checkout policy',
+            details: 'Use archive fallback when the active layer has no checkout evidence.',
+            project_id: 'demo',
+            session_key: 'archive-lookup',
+            archived: true,
+            archived_at: '2026-04-01T00:00:00.000Z',
+            archive_reason: 'retention_budget',
+            validation: { status: 'validated' }
+          })
+        ]
+      });
+      runMirrorRebuild(workspace, path.join(workspace, 'openclaw-home'));
+
+      const result = runMemorySearch(workspace, 'archive-lookup', 'archived checkout policy');
+
+      assert.equal(result.status, 'ok');
+      assert.ok(result.returned > 0);
+      assert.equal(result.results[0].source, 'project_experiences');
+      assert.equal(result.results[0].tier, 'archive');
+      assert.equal(result.results[0].from_archive, true);
+      assert.equal(result.results[0].retrieval_cost, 'archive_lookup');
+      assert.ok(result.scope_summary.project_experiences_archive.count >= 1);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('memory-search prefers active hits over archive hits for the same query', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'mixed-lookup', 'demo');
+      runMemorySave(
+        workspace,
+        'mixed-lookup',
+        'project',
+        'best_practice',
+        'Use active retries before the archived fallback playbook',
+        JSON.stringify({
+          summary: 'Active checkout policy',
+          heat: 70,
+          validation_status: 'validated'
+        })
+      );
+      const paths = createPaths(workspace);
+      writeJson(projectExperiencesArchiveFile(paths, 'demo'), {
+        experiences: [
+          makeGovernanceEntry('archive-priority', 1, {
+            type: 'best_practice',
+            summary: 'Archived checkout policy',
+            details: 'Archived fallback playbook for checkout retries.',
+            project_id: 'demo',
+            session_key: 'mixed-lookup',
+            archived: true,
+            archived_at: '2026-04-01T00:00:00.000Z',
+            archive_reason: 'retention_budget',
+            validation: { status: 'validated' }
+          })
+        ]
+      });
+      runMirrorRebuild(workspace, path.join(workspace, 'openclaw-home'));
+
+      const result = runMemorySearch(workspace, 'mixed-lookup', 'checkout policy');
+
+      assert.equal(result.status, 'ok');
+      assert.ok(result.returned >= 2);
+      assert.equal(result.results[0].tier, 'active');
+      assert.equal(result.results[0].from_archive, false);
+      assert.ok(result.results.some((entry) => entry.tier === 'archive'));
+      assert.deepEqual(result.tiers_searched, ['active', 'archive']);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('archive content stays out of bootstrap while remaining retrievable on demand', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'bootstrap-archive-source', 'demo');
+      const paths = createPaths(workspace);
+      writeJson(projectExperiencesArchiveFile(paths, 'demo'), {
+        experiences: [
+          makeGovernanceEntry('bootstrap-archive', 1, {
+            type: 'best_practice',
+            summary: 'Archived deployment rollback note',
+            details: 'ARCHIVE ONLY rollback detail should never be preloaded into bootstrap content.',
+            project_id: 'demo',
+            session_key: 'bootstrap-archive-source',
+            archived: true,
+            archived_at: '2026-04-01T00:00:00.000Z',
+            archive_reason: 'retention_budget',
+            validation: { status: 'validated' }
+          })
+        ]
+      });
+      runMirrorRebuild(workspace, path.join(workspace, 'openclaw-home'));
+
+      const summary = runSessionStart(workspace, 'bootstrap-archive-target', 'demo');
+      const bootstrap = buildBootstrapCacheContent(summary);
+      const lookup = runMemorySearch(workspace, 'bootstrap-archive-target', 'deployment rollback note');
+
+      assert.doesNotMatch(bootstrap, /ARCHIVE ONLY rollback detail/);
+      assert.equal(lookup.results[0].tier, 'archive');
+      assert.equal(lookup.results[0].from_archive, true);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('archive items are searchable through the sqlite mirror FTS path', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'archive-fts', 'demo');
+      const paths = createPaths(workspace);
+      writeJson(projectExperiencesArchiveFile(paths, 'demo'), {
+        experiences: [
+          makeGovernanceEntry('archive-fts', 1, {
+            type: 'best_practice',
+            summary: 'Mirror archive retrieval playbook',
+            details: 'Mirror FTS archive search should find this retrieval playbook.',
+            project_id: 'demo',
+            session_key: 'archive-fts',
+            archived: true,
+            archived_at: '2026-04-01T00:00:00.000Z',
+            archive_reason: 'retention_budget',
+            validation: { status: 'validated' }
+          })
+        ]
+      });
+      runMirrorRebuild(workspace, path.join(workspace, 'openclaw-home'));
+
+      const descriptor = describeCollectionFile(projectExperiencesArchiveFile(paths, 'demo'), 'experiences');
+      const rows = searchCatalogItems(
+        descriptor.dbFile,
+        [
+          {
+            scope: 'project',
+            ownerId: 'demo',
+            source: 'project_experiences_archive',
+            archived: true
+          }
+        ],
+        'retrieval playbook',
+        5
+      );
+
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].source, 'project_experiences_archive');
+      assert.equal(rows[0].archived, 1);
     });
   } finally {
     cleanupWorkspace(workspace);
