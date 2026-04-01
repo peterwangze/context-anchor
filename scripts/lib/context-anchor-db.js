@@ -3,6 +3,7 @@ const path = require('path');
 const zlib = require('zlib');
 
 let sqliteRuntime = null;
+const initializedDbFiles = new Set();
 
 const BLOB_FIELDS = ['summary', 'content', 'details', 'solution', 'raw_context'];
 const BLOB_STORAGE_LIMITS = {
@@ -21,6 +22,99 @@ const BLOB_STORAGE_LIMITS = {
     raw_context: 80
   }
 };
+
+const SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS catalog_collections (
+    scope TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    collection_type TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    item_count INTEGER NOT NULL DEFAULT 0,
+    json_mtime_ms INTEGER NOT NULL DEFAULT 0,
+    last_synced_at TEXT NOT NULL,
+    PRIMARY KEY (scope, owner_id, source)
+  );
+  CREATE TABLE IF NOT EXISTS catalog_items (
+    item_key TEXT PRIMARY KEY,
+    scope TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    collection_type TEXT NOT NULL,
+    sort_order INTEGER NOT NULL,
+    item_id TEXT NOT NULL,
+    item_type TEXT,
+    heat REAL NOT NULL DEFAULT 0,
+    archived INTEGER NOT NULL DEFAULT 0,
+    status TEXT,
+    validation_status TEXT,
+    access_count REAL NOT NULL DEFAULT 0,
+    last_accessed TEXT,
+    created_at TEXT,
+    search_text TEXT NOT NULL DEFAULT '',
+    file_path TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_catalog_items_collection
+    ON catalog_items (scope, owner_id, source, archived, heat DESC, sort_order ASC);
+  CREATE INDEX IF NOT EXISTS idx_catalog_items_access
+    ON catalog_items (scope, owner_id, source, last_accessed DESC);
+  CREATE TABLE IF NOT EXISTS catalog_documents (
+    doc_key TEXT PRIMARY KEY,
+    scope TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    doc_type TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    json_mtime_ms INTEGER NOT NULL DEFAULT 0,
+    last_synced_at TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_catalog_documents_scope
+    ON catalog_documents (scope, doc_type, owner_id);
+  CREATE TABLE IF NOT EXISTS content_blobs (
+    item_key TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    field_name TEXT NOT NULL,
+    encoding TEXT NOT NULL,
+    blob_text TEXT NOT NULL,
+    original_bytes INTEGER NOT NULL DEFAULT 0,
+    stored_bytes INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (item_key, field_name)
+  );
+  CREATE INDEX IF NOT EXISTS idx_content_blobs_collection
+    ON content_blobs (scope, owner_id, source);
+  CREATE TABLE IF NOT EXISTS governance_runs (
+    run_id TEXT PRIMARY KEY,
+    workspace TEXT NOT NULL,
+    session_key TEXT,
+    project_id TEXT,
+    user_id TEXT,
+    reason TEXT,
+    mode TEXT NOT NULL,
+    prune_archive INTEGER NOT NULL DEFAULT 0,
+    applied INTEGER NOT NULL DEFAULT 0,
+    governed_at TEXT NOT NULL,
+    active_before INTEGER NOT NULL DEFAULT 0,
+    archive_before INTEGER NOT NULL DEFAULT 0,
+    active_after INTEGER NOT NULL DEFAULT 0,
+    archive_after INTEGER NOT NULL DEFAULT 0,
+    deduped INTEGER NOT NULL DEFAULT 0,
+    archived INTEGER NOT NULL DEFAULT 0,
+    restored INTEGER NOT NULL DEFAULT 0,
+    pruned INTEGER NOT NULL DEFAULT 0,
+    bytes_before INTEGER NOT NULL DEFAULT 0,
+    bytes_after INTEGER NOT NULL DEFAULT 0,
+    collections_json TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_governance_runs_context
+    ON governance_runs (workspace, project_id, user_id, governed_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_governance_runs_session
+    ON governance_runs (workspace, session_key, governed_at DESC);
+  CREATE VIRTUAL TABLE IF NOT EXISTS catalog_items_fts
+    USING fts5(item_key UNINDEXED, search_text);
+`;
 
 const SEARCHABLE_SOURCES = new Set([
   'session_memories',
@@ -498,103 +592,19 @@ function openDatabase(dbFile) {
     return null;
   }
 
+  const resolvedDbFile = path.resolve(dbFile);
+  const existedBeforeOpen = fs.existsSync(resolvedDbFile);
   ensureDir(path.dirname(dbFile));
   const runtime = getSqliteRuntime();
   const db = new runtime.DatabaseSync(dbFile);
   db.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA synchronous = NORMAL;
-    CREATE TABLE IF NOT EXISTS catalog_collections (
-      scope TEXT NOT NULL,
-      owner_id TEXT NOT NULL,
-      source TEXT NOT NULL,
-      collection_type TEXT NOT NULL,
-      file_path TEXT NOT NULL,
-      item_count INTEGER NOT NULL DEFAULT 0,
-      json_mtime_ms INTEGER NOT NULL DEFAULT 0,
-      last_synced_at TEXT NOT NULL,
-      PRIMARY KEY (scope, owner_id, source)
-    );
-    CREATE TABLE IF NOT EXISTS catalog_items (
-      item_key TEXT PRIMARY KEY,
-      scope TEXT NOT NULL,
-      owner_id TEXT NOT NULL,
-      source TEXT NOT NULL,
-      collection_type TEXT NOT NULL,
-      sort_order INTEGER NOT NULL,
-      item_id TEXT NOT NULL,
-      item_type TEXT,
-      heat REAL NOT NULL DEFAULT 0,
-      archived INTEGER NOT NULL DEFAULT 0,
-      status TEXT,
-      validation_status TEXT,
-      access_count REAL NOT NULL DEFAULT 0,
-      last_accessed TEXT,
-      created_at TEXT,
-      search_text TEXT NOT NULL DEFAULT '',
-      file_path TEXT NOT NULL,
-      payload_json TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_catalog_items_collection
-      ON catalog_items (scope, owner_id, source, archived, heat DESC, sort_order ASC);
-    CREATE INDEX IF NOT EXISTS idx_catalog_items_access
-      ON catalog_items (scope, owner_id, source, last_accessed DESC);
-    CREATE TABLE IF NOT EXISTS catalog_documents (
-      doc_key TEXT PRIMARY KEY,
-      scope TEXT NOT NULL,
-      owner_id TEXT NOT NULL,
-      doc_type TEXT NOT NULL,
-      file_path TEXT NOT NULL,
-      json_mtime_ms INTEGER NOT NULL DEFAULT 0,
-      last_synced_at TEXT NOT NULL,
-      payload_json TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_catalog_documents_scope
-      ON catalog_documents (scope, doc_type, owner_id);
-    CREATE TABLE IF NOT EXISTS content_blobs (
-      item_key TEXT NOT NULL,
-      scope TEXT NOT NULL,
-      owner_id TEXT NOT NULL,
-      source TEXT NOT NULL,
-      field_name TEXT NOT NULL,
-      encoding TEXT NOT NULL,
-      blob_text TEXT NOT NULL,
-      original_bytes INTEGER NOT NULL DEFAULT 0,
-      stored_bytes INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (item_key, field_name)
-    );
-    CREATE INDEX IF NOT EXISTS idx_content_blobs_collection
-      ON content_blobs (scope, owner_id, source);
-    CREATE TABLE IF NOT EXISTS governance_runs (
-      run_id TEXT PRIMARY KEY,
-      workspace TEXT NOT NULL,
-      session_key TEXT,
-      project_id TEXT,
-      user_id TEXT,
-      reason TEXT,
-      mode TEXT NOT NULL,
-      prune_archive INTEGER NOT NULL DEFAULT 0,
-      applied INTEGER NOT NULL DEFAULT 0,
-      governed_at TEXT NOT NULL,
-      active_before INTEGER NOT NULL DEFAULT 0,
-      archive_before INTEGER NOT NULL DEFAULT 0,
-      active_after INTEGER NOT NULL DEFAULT 0,
-      archive_after INTEGER NOT NULL DEFAULT 0,
-      deduped INTEGER NOT NULL DEFAULT 0,
-      archived INTEGER NOT NULL DEFAULT 0,
-      restored INTEGER NOT NULL DEFAULT 0,
-      pruned INTEGER NOT NULL DEFAULT 0,
-      bytes_before INTEGER NOT NULL DEFAULT 0,
-      bytes_after INTEGER NOT NULL DEFAULT 0,
-      collections_json TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_governance_runs_context
-      ON governance_runs (workspace, project_id, user_id, governed_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_governance_runs_session
-      ON governance_runs (workspace, session_key, governed_at DESC);
-    CREATE VIRTUAL TABLE IF NOT EXISTS catalog_items_fts
-      USING fts5(item_key UNINDEXED, search_text);
   `);
+  if (!existedBeforeOpen || !initializedDbFiles.has(resolvedDbFile)) {
+    db.exec(SCHEMA_SQL);
+    initializedDbFiles.add(resolvedDbFile);
+  }
   return db;
 }
 
@@ -1469,116 +1479,108 @@ function searchCatalogItems(dbFile, filters, query, limit) {
 
   try {
     const queryText = String(query || '').trim();
-    const rows = [];
+    const limitPerFilter = Math.max(1, Number(limit || 0));
+    const totalLimit = limitPerFilter * filters.length;
+    const predicates = [];
+    const predicateParameters = [];
 
     filters.forEach((filter) => {
-      const archivedClause =
-        typeof filter.archived === 'boolean' ? ` AND ${filter.archived ? 'i.archived = 1' : 'i.archived = 0'}` : '';
-      const archivedClausePlain =
-        typeof filter.archived === 'boolean' ? ` AND ${filter.archived ? 'archived = 1' : 'archived = 0'}` : '';
-
-      if (queryText) {
-        try {
-          rows.push(
-            ...db
-              .prepare(
-                `
-                  SELECT
-                    i.item_key,
-                    i.scope,
-                    i.owner_id,
-                    i.source,
-                    i.collection_type,
-                    i.item_id,
-                    i.item_type,
-                    i.heat,
-                    i.archived,
-                    i.status,
-                    i.validation_status,
-                    i.access_count,
-                    i.last_accessed,
-                    i.created_at,
-                    i.file_path,
-                    i.payload_json,
-                    bm25(catalog_items_fts) AS fts_rank
-                  FROM catalog_items_fts
-                  JOIN catalog_items i ON i.item_key = catalog_items_fts.item_key
-                  WHERE i.scope = ? AND i.owner_id = ? AND i.source = ?${archivedClause}
-                    AND catalog_items_fts.search_text MATCH ?
-                  ORDER BY bm25(catalog_items_fts), i.heat DESC, i.access_count DESC
-                  LIMIT ?
-                `
-              )
-              .all(filter.scope, filter.ownerId, filter.source, queryText, limit)
-          );
-          return;
-        } catch {
-          rows.push(
-            ...db
-              .prepare(
-                `
-                  SELECT
-                    item_key,
-                    scope,
-                    owner_id,
-                    source,
-                    collection_type,
-                    item_id,
-                    item_type,
-                    heat,
-                    archived,
-                    status,
-                    validation_status,
-                    access_count,
-                    last_accessed,
-                    created_at,
-                    file_path,
-                    payload_json,
-                    0 AS fts_rank
-                  FROM catalog_items
-                  WHERE scope = ? AND owner_id = ? AND source = ?${archivedClausePlain}
-                    AND lower(search_text) LIKE ?
-                  ORDER BY heat DESC, access_count DESC, sort_order ASC
-                  LIMIT ?
-                `
-              )
-              .all(filter.scope, filter.ownerId, filter.source, `%${queryText.toLowerCase()}%`, limit)
-          );
-          return;
-        }
-      }
-
-      rows.push(
-        ...db
-          .prepare(
-            `
-              SELECT
-                item_key,
-                scope,
-                owner_id,
-                source,
-                collection_type,
-                item_id,
-                item_type,
-                heat,
-                archived,
-                status,
-                validation_status,
-                access_count,
-                last_accessed,
-                created_at,
-                file_path,
-                payload_json,
-                0 AS fts_rank
-              FROM catalog_items
-              WHERE scope = ? AND owner_id = ? AND source = ?${archivedClausePlain}
-              ORDER BY heat DESC, access_count DESC, sort_order ASC
-              LIMIT ?
-            `
-          )
-          .all(filter.scope, filter.ownerId, filter.source, limit)
-      );
+      predicates.push('(scope = ? AND owner_id = ? AND source = ? AND (? IS NULL OR archived = ?))');
+      const archived = typeof filter.archived === 'boolean' ? (filter.archived ? 1 : 0) : null;
+      predicateParameters.push(filter.scope, filter.ownerId, filter.source, archived, archived);
     });
+
+    if (queryText) {
+      try {
+        const rows = db.prepare(
+          `
+            SELECT
+              i.item_key,
+              i.scope,
+              i.owner_id,
+              i.source,
+              i.collection_type,
+              i.item_id,
+              i.item_type,
+              i.heat,
+              i.archived,
+              i.status,
+              i.validation_status,
+              i.access_count,
+              i.last_accessed,
+              i.created_at,
+              i.file_path,
+              i.payload_json,
+              bm25(catalog_items_fts) AS fts_rank
+            FROM catalog_items_fts
+            JOIN catalog_items i ON i.item_key = catalog_items_fts.item_key
+            WHERE (${predicates.map((predicate) => predicate.replace(/\bscope\b/g, 'i.scope').replace(/\bowner_id\b/g, 'i.owner_id').replace(/\bsource\b/g, 'i.source').replace(/\barchived\b/g, 'i.archived')).join(' OR ')})
+              AND catalog_items_fts.search_text MATCH ?
+            ORDER BY bm25(catalog_items_fts), i.heat DESC, i.access_count DESC
+            LIMIT ?
+          `
+        ).all(...predicateParameters, queryText, totalLimit);
+
+        return hydrateRowPayloads(db, rows);
+      } catch {
+        const rows = db.prepare(
+          `
+            SELECT
+              item_key,
+              scope,
+              owner_id,
+              source,
+              collection_type,
+              item_id,
+              item_type,
+              heat,
+              archived,
+              status,
+              validation_status,
+              access_count,
+              last_accessed,
+              created_at,
+              file_path,
+              payload_json,
+              0 AS fts_rank
+            FROM catalog_items
+            WHERE (${predicates.join(' OR ')})
+              AND lower(search_text) LIKE ?
+            ORDER BY heat DESC, access_count DESC, sort_order ASC
+            LIMIT ?
+          `
+        ).all(...predicateParameters, `%${queryText.toLowerCase()}%`, totalLimit);
+
+        return hydrateRowPayloads(db, rows);
+      }
+    }
+
+    const rows = db.prepare(
+      `
+        SELECT
+          item_key,
+          scope,
+          owner_id,
+          source,
+          collection_type,
+          item_id,
+          item_type,
+          heat,
+          archived,
+          status,
+          validation_status,
+          access_count,
+          last_accessed,
+          created_at,
+          file_path,
+          payload_json,
+          0 AS fts_rank
+        FROM catalog_items
+        WHERE (${predicates.join(' OR ')})
+        ORDER BY heat DESC, access_count DESC, sort_order ASC
+        LIMIT ?
+      `
+    ).all(...predicateParameters, totalLimit);
 
     return hydrateRowPayloads(db, rows);
   } finally {
@@ -1597,21 +1599,32 @@ function readCatalogCollectionSummaries(dbFile, filters) {
   }
 
   try {
-    const query = db.prepare(
-      `
-        SELECT source, item_count
-        FROM catalog_collections
-        WHERE scope = ? AND owner_id = ? AND source = ?
-      `
-    );
-    return filters.reduce((acc, filter) => {
-      const row = query.get(filter.scope, filter.ownerId, filter.source);
-      if (row) {
-        acc[filter.source] = {
-          scope: filter.scope,
-          count: Number(row.item_count || 0)
-        };
+    const uniqueFilters = [];
+    const seen = new Set();
+    filters.forEach((filter) => {
+      const key = `${filter.scope}:${filter.ownerId}:${filter.source}`;
+      if (seen.has(key)) {
+        return;
       }
+      seen.add(key);
+      uniqueFilters.push(filter);
+    });
+
+    const predicates = uniqueFilters.map(() => '(scope = ? AND owner_id = ? AND source = ?)').join(' OR ');
+    const parameters = uniqueFilters.flatMap((filter) => [filter.scope, filter.ownerId, filter.source]);
+    const rows = db.prepare(
+      `
+        SELECT scope, owner_id, source, item_count
+        FROM catalog_collections
+        WHERE ${predicates}
+      `
+    ).all(...parameters);
+
+    return rows.reduce((acc, row) => {
+      acc[row.source] = {
+        scope: row.scope,
+        count: Number(row.item_count || 0)
+      };
       return acc;
     }, {});
   } finally {

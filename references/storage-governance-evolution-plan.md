@@ -86,11 +86,16 @@
   - 已把真实性能结果沉淀到本文档
   - 已确认 archive fallback 与 mirror rebuild 达到建议目标范围
   - 已确认 active 检索冷路径仍高于建议目标，后续如要继续优化应以此为起点
+- 本轮（2026-04-02，Perf Follow-up）已完成：
+  - 已对 SQLite 冷路径做一轮低风险优化
+  - 已完成 10k / 100k 复测
+  - 已确认 active 检索冷路径仍未达到 `<100ms` 建议目标
+  - 已确认 archive fallback、governance 和 mirror rebuild 指标保持稳定
 
 当前仍未完成的核心目标：
 
 - 无阻塞性阶段目标
-- 剩余为更大规模实测数据的持续积累，以及按需继续优化 active 检索冷路径
+- 剩余为更大规模实测数据的持续积累，以及如有必要再做更深层的 active 检索优化
 
 因此，本方案当前状态应认定为：
 
@@ -875,6 +880,26 @@ retention_score =
 - `memory-search` active `< 100ms`：未满足
 - governance 单次执行耗时：已完成观测，但当前没有独立硬门槛
 
+优化后复测（2026-04-02，同机同类 cold-run）：
+
+- 10k 级样本
+  - active search：`249.674ms`
+  - archive fallback search：`162.188ms`
+  - governance：`55369.848ms`
+  - mirror rebuild：`577.310ms`
+- 100k 级样本
+  - active search：`223.099ms`
+  - archive fallback search：`227.370ms`
+  - governance：`60518.539ms`
+  - mirror rebuild：`10206.631ms`
+
+优化后判断（2026-04-02）：
+
+- active 检索冷路径仍未达到 `<100ms` 建议目标
+- archive fallback 仍在 `<300ms` 范围内
+- mirror rebuild 仍保持分钟级以内
+- 当前这类低风险优化收益有限；若继续优化，应进入更深层的搜索路径与状态读取裁剪
+
 ## F. 真实链路测试
 
 保留并扩展 `openclaw-real.test.js`：
@@ -908,12 +933,11 @@ retention_score =
 
 ## 当前推荐执行顺序
 
-下一步只做：
+主链路阶段已经全部完成。  
+如果后续还要继续推进，当前只建议按下面顺序做收尾和优化：
 
-1. `runtime_state` 独立
-2. `storage-governance.js`
-3. archive-aware `memory-search`
-4. 治理结果接入 `heartbeat/session-close/workspace-monitor`
-5. status-report 加治理统计
+1. 持续补 10k / 100k 以上规模的真实性能结果
+2. 仅在有明确性能证据时，再优化 active 检索冷路径
+3. 继续同步 README / doctor / benchmark 结果等用户侧说明
 
-完成前不做其他新功能。
+在没有新的性能或迁移证据之前，不再继续扩展这条演进链上的主功能。
