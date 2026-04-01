@@ -27,7 +27,7 @@
 
 ## 当前进展
 
-截至 2026-04-01，当前已经完成的基础工作如下：
+截至 2026-04-02，当前已经完成的基础工作如下：
 
 - 已完成 SQLite mirror 基础设施：
   - collection mirror
@@ -80,11 +80,17 @@
   - 新增 `npm run benchmark:storage`
   - README 已补 status-report / memory-search / benchmark 说明
   - 已补 benchmark harness smoke test，保证输出结构稳定
+- 本轮（2026-04-02，Performance Validation）已完成：
+  - 已实际执行单 workspace 10k 级 benchmark
+  - 已实际执行多 workspace 100k 级 benchmark
+  - 已把真实性能结果沉淀到本文档
+  - 已确认 archive fallback 与 mirror rebuild 达到建议目标范围
+  - 已确认 active 检索冷路径仍高于建议目标，后续如要继续优化应以此为起点
 
 当前仍未完成的核心目标：
 
 - 无阻塞性阶段目标
-- 剩余为实际大规模实测数据的持续积累，以及后续可能的实现细化
+- 剩余为更大规模实测数据的持续积累，以及按需继续优化 active 检索冷路径
 
 因此，本方案当前状态应认定为：
 
@@ -846,7 +852,28 @@ retention_score =
   - mirror rebuild 耗时
 - 已补 smoke test：
   - `perf benchmark emits storage scale metrics for a small generated dataset`
-- 仍待补：基于真实 10k / 100k 数据规模的基准结果沉淀
+
+真实性能结果（2026-04-02，本机 cold-run，Windows 开发机）：
+
+- 10k 级样本
+  - 配置：`1` 个 workspace，`8000 active + 2000 archive`，另含 `2000 archive probe`
+  - active search：`234.110ms`
+  - archive fallback search：`182.791ms`
+  - governance：`70201.612ms`
+  - mirror rebuild：`613.084ms`
+- 100k 级样本
+  - 配置：`10` 个 workspace，每个 `8000 active + 2000 archive`，总计 `102000`（含 archive probe）
+  - active search：`236.801ms`
+  - archive fallback search：`151.645ms`
+  - governance：`58070.080ms`
+  - mirror rebuild：`10261.117ms`
+
+结果判断（2026-04-02）：
+
+- `memory-search` archive fallback `< 300ms`：已满足
+- `mirror-rebuild` 分钟级完成：已满足
+- `memory-search` active `< 100ms`：未满足
+- governance 单次执行耗时：已完成观测，但当前没有独立硬门槛
 
 ## F. 真实链路测试
 
