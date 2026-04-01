@@ -18,6 +18,7 @@ const {
 const { discoverOpenClawSessions } = require('./lib/openclaw-session-discovery');
 const { runMirrorRebuild } = require('./mirror-rebuild');
 const { runSessionStart } = require('./session-start');
+const { runStorageGovernance } = require('./storage-governance');
 
 function parseArgs(argv) {
   const options = {
@@ -26,7 +27,10 @@ function parseArgs(argv) {
     workspace: null,
     sessionKey: null,
     includeClosed: false,
-    rebuildMirror: false
+    rebuildMirror: false,
+    runGovernance: false,
+    governanceMode: null,
+    governancePrune: undefined
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -63,6 +67,25 @@ function parseArgs(argv) {
 
     if (arg === '--rebuild-mirror') {
       options.rebuildMirror = true;
+      continue;
+    }
+
+    if (arg === '--run-governance') {
+      options.runGovernance = true;
+      continue;
+    }
+
+    if (arg === '--governance-mode') {
+      options.governanceMode = argv[index + 1] || null;
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--governance-prune') {
+      const rawValue = String(argv[index + 1] || '').trim();
+      options.governancePrune = !(rawValue === '0' || /^false$/i.test(rawValue));
+      index += 1;
+      continue;
     }
   }
 
@@ -271,6 +294,20 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
   const mirrorRebuild = options.rebuildMirror
     ? runMirrorRebuild(rebuildWorkspace, openClawHome, {})
     : null;
+  const governanceTargets = [...new Map(
+    results
+      .filter((entry) => entry.action === 'upgraded' && entry.workspace)
+      .map((entry) => [`${normalizeWorkspaceKey(entry.workspace)}::${sanitizeKey(entry.session_key)}`, entry])
+  ).values()];
+  const governanceRuns = options.runGovernance
+    ? governanceTargets.map((entry) =>
+        runStorageGovernance(entry.workspace, entry.session_key, {
+          reason: 'upgrade-sessions',
+          mode: options.governanceMode || undefined,
+          pruneArchive: options.governancePrune
+        })
+      )
+    : [];
 
   return {
     status: 'ok',
@@ -281,6 +318,7 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
     unresolved_sessions: results.filter((entry) => entry.reason === 'workspace_unresolved').length,
     configuration_required_sessions: results.filter((entry) => entry.reason === 'workspace_needs_configuration').length,
     mirror_rebuild: mirrorRebuild,
+    governance_runs: governanceRuns,
     results
   };
 }

@@ -28,7 +28,10 @@ function parseArgs(argv) {
     upgradeSessions: false,
     upgradeWorkspace: null,
     upgradeSessionKey: null,
-    includeClosedSessions: false
+    includeClosedSessions: false,
+    runGovernance: undefined,
+    governanceMode: null,
+    governancePrune: undefined
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -148,6 +151,29 @@ function parseArgs(argv) {
 
     if (arg === '--include-closed-sessions') {
       options.includeClosedSessions = true;
+      continue;
+    }
+
+    if (arg === '--run-governance') {
+      options.runGovernance = true;
+      continue;
+    }
+
+    if (arg === '--skip-governance') {
+      options.runGovernance = false;
+      continue;
+    }
+
+    if (arg === '--governance-mode') {
+      options.governanceMode = argv[index + 1] || null;
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--governance-prune') {
+      const rawValue = String(argv[index + 1] || '').trim();
+      options.governancePrune = !(rawValue === '0' || /^false$/i.test(rawValue));
+      index += 1;
       continue;
     }
 
@@ -312,12 +338,17 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
     askText: options.askText,
     schedulerRegistrar: options.schedulerRegistrar
   });
+  const upgradeRunGovernance =
+    typeof options.runGovernance === 'boolean' ? options.runGovernance : options.upgradeSessions && preserveMemories !== false;
   const sessionUpgrade = options.upgradeSessions
     ? runUpgradeSessions(openClawHome, skillsRoot, {
         workspace: options.upgradeWorkspace,
         sessionKey: options.upgradeSessionKey,
         includeClosed: options.includeClosedSessions,
-        rebuildMirror: preserveMemories !== false
+        rebuildMirror: preserveMemories !== false,
+        runGovernance: upgradeRunGovernance,
+        governanceMode: options.governanceMode,
+        governancePrune: options.governancePrune
       })
     : null;
   const mirrorRebuild =

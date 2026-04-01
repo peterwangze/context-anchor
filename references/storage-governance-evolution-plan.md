@@ -91,6 +91,11 @@
   - 已完成 10k / 100k 复测
   - 已确认 active 检索冷路径仍未达到 `<100ms` 建议目标
   - 已确认 archive fallback、governance 和 mirror rebuild 指标保持稳定
+- 本轮（2026-04-02，Upgrade UX）已完成：
+  - `upgrade-sessions` 已支持可选 `--run-governance`
+  - `install-one-click --upgrade-sessions` 默认会串起 governance
+  - 升级链路现在可直接覆盖：runtime 刷新、mirror 回填、governance 落盘
+  - README 与迁移策略说明已同步
 
 当前仍未完成的核心目标：
 
@@ -565,6 +570,11 @@ retention_score =
 2. 执行 `mirror-rebuild`
 3. 执行第一次治理
 4. 之后由 heartbeat / maintenance 自动接管
+
+当前实现（2026-04-02）：
+
+- `install-one-click --upgrade-sessions` 默认会在升级后执行 mirror rebuild，并继续触发 governance
+- `upgrade-sessions --rebuild-mirror --run-governance` 可手工完成同一条迁移链
 
 ### 3. 灰度策略
 

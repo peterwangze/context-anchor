@@ -2031,6 +2031,7 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
       assert.equal(result.status, 'ok');
       assert.equal(result.upgraded_sessions, 1);
       assert.equal(result.mirror_rebuild.status, 'ok');
+      assert.deepEqual(result.governance_runs, []);
       assert.ok(result.mirror_rebuild.workspaces_processed.some((entry) => entry === activeWorkspace));
       assert.equal(activeResult.action, 'upgraded');
       assert.equal(closedResult.action, 'skipped');
@@ -2043,6 +2044,64 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
         ),
         false
       );
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('upgrade-sessions can run storage governance after rebuilding mirror data', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const activeWorkspace = path.join(workspace, 'active-project');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'peter',
+        defaultWorkspace: activeWorkspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      runSessionStart(activeWorkspace, 'active-session', 'active-project', {
+        userId: 'peter'
+      });
+      const paths = createPaths(activeWorkspace);
+      writeJson(sessionMemoryFile(paths, 'active-session'), {
+        entries: Array.from({ length: 85 }, (_, index) =>
+          makeGovernanceEntry('upgrade-govern', index, {
+            type: 'fact',
+            session_key: 'active-session',
+            project_id: 'active-project',
+            scope: 'session'
+          })
+        )
+      });
+
+      const result = runUpgradeSessions(openClawHome, path.join(openClawHome, 'skills'), {
+        rebuildMirror: true,
+        runGovernance: true,
+        governanceMode: 'enforce'
+      });
+      const archiveEntries = readJson(sessionMemoryArchiveFile(paths, 'active-session'), { entries: [] }).entries;
+      const dbFile = describeCollectionFile(sessionMemoryFile(paths, 'active-session'), 'entries').dbFile;
+      const latestRun = readLatestGovernanceRun(dbFile, {
+        workspace: activeWorkspace,
+        session_key: 'active-session',
+        project_id: 'active-project',
+        user_id: 'peter'
+      });
+
+      assert.equal(result.status, 'ok');
+      assert.equal(result.governance_runs.length, 1);
+      assert.equal(result.governance_runs[0].reason, 'upgrade-sessions');
+      assert.equal(archiveEntries.length, 5);
+      assert.equal(latestRun.reason, 'upgrade-sessions');
+      assert.ok(latestRun.totals.archived >= 1);
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -2110,6 +2169,8 @@ test('one-click install can upgrade existing sessions after refreshing runtime a
       assert.equal(result.session_upgrade.status, 'ok');
       assert.equal(result.session_upgrade.upgraded_sessions, 1);
       assert.equal(result.session_upgrade.mirror_rebuild.status, 'ok');
+      assert.equal(result.session_upgrade.governance_runs.length, 1);
+      assert.equal(result.session_upgrade.governance_runs[0].reason, 'upgrade-sessions');
       assert.ok(result.session_upgrade.mirror_rebuild.workspaces_processed.some((entry) => entry === sessionWorkspace));
       assert.equal(result.mirror_rebuild, null);
       assert.ok(fs.existsSync(bootstrapFile));
