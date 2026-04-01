@@ -46,7 +46,9 @@ function runWorkspaceMonitor(workspaceArg, options = {}) {
   }
 
   const results = recentSessions.map((entry) =>
-    runSessionMaintenance(paths.workspace, entry.session_key, entry.project_id, options.usagePercent)
+    runSessionMaintenance(paths.workspace, entry.session_key, entry.project_id, options.usagePercent, {
+      reason: 'workspace-monitor'
+    })
   );
 
   return {

@@ -10,7 +10,7 @@ const {
 } = require('./lib/context-anchor');
 const { runHeartbeat } = require('./heartbeat');
 
-function runSessionMaintenance(workspaceArg, sessionKeyArg, projectIdArg, usagePercentArg) {
+function runSessionMaintenance(workspaceArg, sessionKeyArg, projectIdArg, usagePercentArg, options = {}) {
   const paths = createPaths(workspaceArg);
   const sessionKey = sanitizeKey(sessionKeyArg);
   const stateFile = sessionStateFile(paths, sessionKey);
@@ -31,7 +31,10 @@ function runSessionMaintenance(workspaceArg, sessionKeyArg, projectIdArg, usageP
     paths.workspace,
     sessionKey,
     projectIdArg || previousState.project_id,
-    usagePercentArg
+    usagePercentArg,
+    {
+      governanceReason: options.reason || 'session-maintenance'
+    }
   );
   const nextState = readMirroredDocumentSnapshot(stateFile, previousState);
 

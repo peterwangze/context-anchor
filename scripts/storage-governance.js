@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
+const path = require('path');
 const {
   DEFAULTS,
   clamp,
@@ -55,6 +56,7 @@ const {
   projectFactsFile
 } = require('./lib/context-anchor');
 const { resolveOwnership } = require('./lib/host-config');
+const { recordGovernanceRun } = require('./lib/context-anchor-db');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -520,7 +522,7 @@ function runStorageGovernance(workspaceArg, sessionKeyArg, options = {}) {
     syncProjectStateMetadata(paths, projectId);
   }
 
-  return {
+  const result = {
     status: 'ok',
     workspace: paths.workspace,
     session_key: sessionKey,
@@ -560,6 +562,11 @@ function runStorageGovernance(workspaceArg, sessionKeyArg, options = {}) {
       }
     )
   };
+
+  result.run_id = `gov-${timestamp.replace(/[-:.TZ]/g, '').slice(0, 14)}-${Math.random().toString(36).slice(2, 8)}`;
+  result.recorded = recordGovernanceRun(path.join(paths.anchorDir, 'catalog.sqlite'), result);
+
+  return result;
 }
 
 function main() {

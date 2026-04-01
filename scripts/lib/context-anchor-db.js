@@ -495,10 +495,174 @@ function openDatabase(dbFile) {
     );
     CREATE INDEX IF NOT EXISTS idx_catalog_documents_scope
       ON catalog_documents (scope, doc_type, owner_id);
+    CREATE TABLE IF NOT EXISTS governance_runs (
+      run_id TEXT PRIMARY KEY,
+      workspace TEXT NOT NULL,
+      session_key TEXT,
+      project_id TEXT,
+      user_id TEXT,
+      reason TEXT,
+      mode TEXT NOT NULL,
+      prune_archive INTEGER NOT NULL DEFAULT 0,
+      applied INTEGER NOT NULL DEFAULT 0,
+      governed_at TEXT NOT NULL,
+      active_before INTEGER NOT NULL DEFAULT 0,
+      archive_before INTEGER NOT NULL DEFAULT 0,
+      active_after INTEGER NOT NULL DEFAULT 0,
+      archive_after INTEGER NOT NULL DEFAULT 0,
+      deduped INTEGER NOT NULL DEFAULT 0,
+      archived INTEGER NOT NULL DEFAULT 0,
+      restored INTEGER NOT NULL DEFAULT 0,
+      pruned INTEGER NOT NULL DEFAULT 0,
+      bytes_before INTEGER NOT NULL DEFAULT 0,
+      bytes_after INTEGER NOT NULL DEFAULT 0,
+      collections_json TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_governance_runs_context
+      ON governance_runs (workspace, project_id, user_id, governed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_governance_runs_session
+      ON governance_runs (workspace, session_key, governed_at DESC);
     CREATE VIRTUAL TABLE IF NOT EXISTS catalog_items_fts
       USING fts5(item_key UNINDEXED, search_text);
   `);
   return db;
+}
+
+function recordGovernanceRun(dbFile, run = {}) {
+  if (!isDbEnabled()) {
+    return false;
+  }
+
+  const db = openDatabase(dbFile);
+  if (!db) {
+    return false;
+  }
+
+  try {
+    db.prepare(
+      `
+        INSERT INTO governance_runs (
+          run_id, workspace, session_key, project_id, user_id, reason, mode, prune_archive, applied,
+          governed_at, active_before, archive_before, active_after, archive_after, deduped, archived,
+          restored, pruned, bytes_before, bytes_after, collections_json
+        ) VALUES (
+          @run_id, @workspace, @session_key, @project_id, @user_id, @reason, @mode, @prune_archive, @applied,
+          @governed_at, @active_before, @archive_before, @active_after, @archive_after, @deduped, @archived,
+          @restored, @pruned, @bytes_before, @bytes_after, @collections_json
+        )
+      `
+    ).run({
+      run_id: run.run_id,
+      workspace: run.workspace || null,
+      session_key: run.session_key || null,
+      project_id: run.project_id || null,
+      user_id: run.user_id || null,
+      reason: run.reason || null,
+      mode: run.mode || 'enforce',
+      prune_archive: run.prune_archive ? 1 : 0,
+      applied: run.applied ? 1 : 0,
+      governed_at: run.governed_at || new Date().toISOString(),
+      active_before: Number(run.totals?.active_before || 0),
+      archive_before: Number(run.totals?.archive_before || 0),
+      active_after: Number(run.totals?.active_after || 0),
+      archive_after: Number(run.totals?.archive_after || 0),
+      deduped: Number(run.totals?.deduped || 0),
+      archived: Number(run.totals?.archived || 0),
+      restored: Number(run.totals?.restored || 0),
+      pruned: Number(run.totals?.pruned || 0),
+      bytes_before: Number(run.totals?.bytes_before || 0),
+      bytes_after: Number(run.totals?.bytes_after || 0),
+      collections_json: JSON.stringify(run.collections || [])
+    });
+    return true;
+  } finally {
+    db.close();
+  }
+}
+
+function readLatestGovernanceRun(dbFile, filters = {}) {
+  if (!isDbEnabled() || !dbFile || !fs.existsSync(dbFile)) {
+    return null;
+  }
+
+  const db = openDatabase(dbFile);
+  if (!db) {
+    return null;
+  }
+
+  try {
+    const row = db.prepare(
+      `
+        SELECT
+          run_id,
+          workspace,
+          session_key,
+          project_id,
+          user_id,
+          reason,
+          mode,
+          prune_archive,
+          applied,
+          governed_at,
+          active_before,
+          archive_before,
+          active_after,
+          archive_after,
+          deduped,
+          archived,
+          restored,
+          pruned,
+          bytes_before,
+          bytes_after,
+          collections_json
+        FROM governance_runs
+        WHERE workspace = @workspace
+          AND (@project_id IS NULL OR project_id = @project_id)
+          AND (@user_id IS NULL OR user_id = @user_id)
+        ORDER BY
+          CASE WHEN @session_key IS NOT NULL AND session_key = @session_key THEN 0 ELSE 1 END,
+          governed_at DESC
+        LIMIT 1
+      `
+    ).get({
+      workspace: filters.workspace || null,
+      project_id: filters.project_id || null,
+      user_id: filters.user_id || null,
+      session_key: filters.session_key || null
+    });
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      run_id: row.run_id,
+      workspace: row.workspace,
+      session_key: row.session_key,
+      project_id: row.project_id,
+      user_id: row.user_id,
+      reason: row.reason,
+      mode: row.mode,
+      prune_archive: Boolean(row.prune_archive),
+      applied: Boolean(row.applied),
+      governed_at: row.governed_at,
+      totals: {
+        active_before: Number(row.active_before || 0),
+        archive_before: Number(row.archive_before || 0),
+        active_after: Number(row.active_after || 0),
+        archive_after: Number(row.archive_after || 0),
+        deduped: Number(row.deduped || 0),
+        archived: Number(row.archived || 0),
+        restored: Number(row.restored || 0),
+        pruned: Number(row.pruned || 0),
+        bytes_before: Number(row.bytes_before || 0),
+        bytes_after: Number(row.bytes_after || 0)
+      },
+      collections: JSON.parse(row.collections_json || '[]')
+    };
+  } finally {
+    db.close();
+  }
 }
 
 function buildItemId(item = {}, descriptor, index) {
@@ -1184,10 +1348,12 @@ module.exports = {
   isDbEnabled,
   loadRankedMirrorCollection,
   loadRecentSessionIndexEntries,
+  readLatestGovernanceRun,
   readMirrorCollectionCount,
   readMirrorDocument,
   readMirrorCollection,
   readCatalogCollectionSummaries,
+  recordGovernanceRun,
   searchCatalogItems,
   summarizeCatalogDatabase,
   syncCollectionMirror,

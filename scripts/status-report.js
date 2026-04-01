@@ -9,8 +9,11 @@ const {
   createPaths,
   loadCollectionCountSnapshot,
   loadCollectionSnapshot,
+  projectDecisionsArchiveFile,
   readRuntimeStateSnapshot,
   loadSessionState,
+  projectExperiencesArchiveFile,
+  projectFactsArchiveFile,
   projectDecisionsFile,
   projectExperiencesFile,
   projectFactsFile,
@@ -20,17 +23,22 @@ const {
   resolveProjectId,
   resolveUserId,
   sanitizeKey,
+  sessionExperiencesArchiveFile,
   sessionExperiencesFile,
+  sessionMemoryArchiveFile,
   sessionMemoryFile,
   sessionSkillsIndexFile,
   sessionSummaryFile,
   summarizeEvidence,
+  userExperiencesArchiveFile,
   userExperiencesFile,
+  userMemoriesArchiveFile,
   userMemoriesFile,
   userSkillsIndexFile,
   userStateFile,
   writeStatusSnapshot
 } = require('./lib/context-anchor');
+const { describeCollectionFile, readLatestGovernanceRun } = require('./lib/context-anchor-db');
 const { resolveOwnership } = require('./lib/host-config');
 
 function summarizeSkillEvidence(skills = []) {
@@ -54,6 +62,66 @@ function summarizeSkillEvidence(skills = []) {
       skill_name: event.skill_name,
       scope: event.skill_scope
     }))
+  };
+}
+
+function summarizeStorageGovernance(paths, sessionKey, projectId, userId) {
+  const activeItems = {
+    session_memories: loadCollectionCountSnapshot(sessionMemoryFile(paths, sessionKey), 'entries'),
+    session_experiences: loadCollectionCountSnapshot(sessionExperiencesFile(paths, sessionKey), 'experiences'),
+    project_decisions: loadCollectionCountSnapshot(projectDecisionsFile(paths, projectId), 'decisions'),
+    project_experiences: loadCollectionCountSnapshot(projectExperiencesFile(paths, projectId), 'experiences'),
+    project_facts: loadCollectionCountSnapshot(projectFactsFile(paths, projectId), 'facts'),
+    user_memories: loadCollectionCountSnapshot(userMemoriesFile(paths, userId), 'memories'),
+    user_experiences: loadCollectionCountSnapshot(userExperiencesFile(paths, userId), 'experiences')
+  };
+  const archiveItems = {
+    session_memories: loadCollectionCountSnapshot(sessionMemoryArchiveFile(paths, sessionKey), 'entries'),
+    session_experiences: loadCollectionCountSnapshot(sessionExperiencesArchiveFile(paths, sessionKey), 'experiences'),
+    project_decisions: loadCollectionCountSnapshot(projectDecisionsArchiveFile(paths, projectId), 'decisions'),
+    project_experiences: loadCollectionCountSnapshot(projectExperiencesArchiveFile(paths, projectId), 'experiences'),
+    project_facts: loadCollectionCountSnapshot(projectFactsArchiveFile(paths, projectId), 'facts'),
+    user_memories: loadCollectionCountSnapshot(userMemoriesArchiveFile(paths, userId), 'memories'),
+    user_experiences: loadCollectionCountSnapshot(userExperiencesArchiveFile(paths, userId), 'experiences')
+  };
+  const workspaceDbFile =
+    describeCollectionFile(sessionMemoryFile(paths, sessionKey), 'entries')?.dbFile || null;
+  const lastRun = readLatestGovernanceRun(workspaceDbFile, {
+    workspace: paths.workspace,
+    session_key: sessionKey,
+    project_id: projectId,
+    user_id: userId
+  });
+
+  return {
+    active_item_count: Object.values(activeItems).reduce((sum, count) => sum + Number(count || 0), 0),
+    archive_item_count: Object.values(archiveItems).reduce((sum, count) => sum + Number(count || 0), 0),
+    active_items: activeItems,
+    archive_items: archiveItems,
+    last_run: lastRun
+      ? {
+          run_id: lastRun.run_id,
+          session_key: lastRun.session_key,
+          project_id: lastRun.project_id,
+          user_id: lastRun.user_id,
+          reason: lastRun.reason,
+          mode: lastRun.mode,
+          prune_archive: lastRun.prune_archive,
+          applied: lastRun.applied,
+          governed_at: lastRun.governed_at,
+          active_before: lastRun.totals.active_before,
+          archive_before: lastRun.totals.archive_before,
+          active_after: lastRun.totals.active_after,
+          archive_after: lastRun.totals.archive_after,
+          deduped: lastRun.totals.deduped,
+          archived: lastRun.totals.archived,
+          restored: lastRun.totals.restored,
+          prune_count: lastRun.totals.pruned,
+          bytes_before: lastRun.totals.bytes_before,
+          bytes_after: lastRun.totals.bytes_after,
+          collection_count: Array.isArray(lastRun.collections) ? lastRun.collections.length : 0
+        }
+      : null
   };
 }
 
@@ -178,6 +246,7 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
       superseded: diagnostics.superseded.length,
       budgeted_out: diagnostics.budgeted_out.length
     },
+    storage_governance: summarizeStorageGovernance(paths, sessionKey, projectId, userId),
     skills: skillStatusCounts
   };
 

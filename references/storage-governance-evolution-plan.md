@@ -12,11 +12,9 @@
 
 但当前体系还没有真正解决“长期积累导致的无限膨胀”问题：
 
-- active / archive 双层存储和 archive-aware 检索已经落地，但治理观测控制面还不完整
-- `runtime_state` 已独立，但治理统计与观测还没有形成完整控制面
-- 长期记忆虽然已经分流到 archive，但 status-report 还没有显示完整的 active/archive 治理体积
-- `memory-search` 已区分 active 和 archive 检索，但治理结果统计还没有统一沉淀
-- 治理触发已接入，但缺少统一的治理统计、配额观测和压缩回收指标
+- active / archive 双层存储、archive-aware 检索和治理观测已经落地
+- `runtime_state` 已独立，长期检索与治理运行也已经进入可观测状态
+- 当前剩余核心缺口主要在 blob 分离与压缩，而不是检索或治理控制面
 
 这个文档把后续方案落成“可执行的实施计划”，并明确测试设计。  
 在本方案全部实现完成之前，暂停引入与该主题无关的新功能。
@@ -59,10 +57,16 @@
   - 检索结果已显式返回 `tier / from_archive / retrieval_cost`
   - archive mirror FTS 查询路径已可命中 archive 集合
   - 已补 active/archive 优先级、archive-only fallback、bootstrap 不预载 archive、archive FTS 检索测试
+- 本轮（2026-04-01，Phase 4）已完成：
+  - SQLite 新增 `governance_runs` 统计表
+  - `storage-governance` 每次执行都会记录治理 totals 和 per-collection 摘要
+  - `status-report` 已新增 active/archive item count、last governance run、bytes before/after、prune count
+  - `workspace-monitor` 触发的治理运行已带明确 reason
+  - 已补 governance run 持久化、status-report 观测和 monitor reason 测试
 
 当前仍未完成的核心目标：
 
-- 治理统计与观测、blob 分离尚未落地
+- blob 分离与压缩尚未落地
 
 因此，本方案当前状态应认定为：
 
@@ -70,7 +74,7 @@
 - `Phase 1`：已完成
 - `Phase 2`：已完成
 - `Phase 3`：已完成
-- `Phase 4`：已接入治理触发，但 `governance_runs` 和 status-report 治理统计未完成
+- `Phase 4`：已完成
 - `Phase 5`：未开始
 
 ## 文档维护规则
@@ -463,6 +467,8 @@ retention_score =
 - `scripts/workspace-monitor.js`
 - `scripts/status-report.js`
 - `scripts/lib/context-anchor-db.js`
+- `scripts/storage-governance.js`
+- `scripts/session-maintenance.js`
 
 完成标准：
 
@@ -471,9 +477,10 @@ retention_score =
 
 当前结果（2026-04-01）：
 
-- 已部分完成
-- `heartbeat / session-close / workspace-monitor` 已执行 storage governance
-- `governance_runs`、status-report 治理体积统计和 prune 观测仍未落地
+- 已完成
+- `heartbeat / session-close / workspace-monitor` 已执行 storage governance 并记录 `governance_runs`
+- `status-report` 已显示 active/archive item count 和最近一次治理运行摘要
+- 最近一次治理运行已可观察 `bytes_before / bytes_after / prune_count`
 
 ## Phase 5：blob 分离与压缩
 
@@ -655,6 +662,8 @@ retention_score =
 - `heartbeat runs storage governance and syncs active and archive mirrors`
 - `session-close runs storage governance for project collections`
 - `workspace monitor inherits storage governance through maintenance heartbeat`
+- `storage governance persists governance runs into the workspace catalog`
+- `status report summarizes user project session counts and governance`
 
 ### B3. archive-aware search
 

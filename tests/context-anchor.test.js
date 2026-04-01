@@ -33,6 +33,7 @@ const {
   describeCollectionFile,
   describeDocumentFile,
   loadRecentSessionIndexEntries,
+  readLatestGovernanceRun,
   readMirrorCollection,
   readMirrorCollectionCount,
   readMirrorDocument,
@@ -537,8 +538,48 @@ test('workspace monitor inherits storage governance through maintenance heartbea
 
       assert.equal(result.status, 'processed');
       assert.equal(result.results[0].status, 'maintenance_ok');
+      assert.equal(result.results[0].governance.reason, 'workspace-monitor');
       assert.ok(result.results[0].governance.totals.archived >= 2);
       assert.equal(archiveEntries.length, 2);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('storage governance persists governance runs into the workspace catalog', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'govern-record', 'demo');
+      const paths = createPaths(workspace);
+      writeJson(sessionMemoryFile(paths, 'govern-record'), {
+        entries: Array.from({ length: 81 }, (_, index) =>
+          makeGovernanceEntry('record-memory', index, {
+            type: 'fact',
+            session_key: 'govern-record',
+            project_id: 'demo',
+            scope: 'session'
+          })
+        )
+      });
+
+      const result = runHeartbeat(workspace, 'govern-record', 'demo', 50);
+      const dbFile = describeCollectionFile(sessionMemoryFile(paths, 'govern-record'), 'entries').dbFile;
+      const latestRun = readLatestGovernanceRun(dbFile, {
+        workspace,
+        session_key: 'govern-record',
+        project_id: 'demo',
+        user_id: 'default-user'
+      });
+
+      assert.equal(result.governance.recorded, true);
+      assert.ok(result.governance.run_id);
+      assert.equal(latestRun.reason, 'heartbeat');
+      assert.equal(latestRun.session_key, 'govern-record');
+      assert.ok(latestRun.totals.archived >= 1);
+      assert.ok(Array.isArray(latestRun.collections));
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -4650,6 +4691,12 @@ test('status report summarizes user project session counts and governance', () =
       assert.equal(report.session.key, 'report-session');
       assert.ok(report.session.last_summary_snapshot);
       assert.ok(typeof report.governance.active === 'number');
+      assert.ok(report.storage_governance.active_item_count >= 3);
+      assert.ok(typeof report.storage_governance.archive_item_count === 'number');
+      assert.equal(report.storage_governance.last_run.reason, 'session-end');
+      assert.ok(typeof report.storage_governance.last_run.bytes_before === 'number');
+      assert.ok(typeof report.storage_governance.last_run.bytes_after === 'number');
+      assert.ok(typeof report.storage_governance.last_run.prune_count === 'number');
       assert.ok(report.evidence.project_skills);
     });
   } finally {

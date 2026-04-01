@@ -50,7 +50,7 @@ function runHeartbeat(workspaceArg, sessionKeyArg, projectIdArg, usagePercentArg
   const governance = runStorageGovernance(paths.workspace, sessionState.session_key, {
     projectId: sessionState.project_id,
     userId: sessionState.user_id,
-    reason: 'heartbeat'
+    reason: options.governanceReason || options.reason || 'heartbeat'
   });
   const pressure =
     usagePercentArg !== undefined
