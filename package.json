@@ -5,6 +5,7 @@
   "description": "Session memory persistence, validation, and skillification runtime for OpenClaw",
   "scripts": {
     "doctor": "node scripts/doctor.js",
+    "benchmark:storage": "node scripts/perf-benchmark.js",
     "rebuild:mirror": "node scripts/mirror-rebuild.js",
     "configure:host": "node scripts/configure-host.js",
     "configure:sessions": "node scripts/configure-sessions.js",

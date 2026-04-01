@@ -75,11 +75,16 @@
   - 读取、排序、检索、mirror-rebuild 已自动回填 blob 内容
   - archive blob 已优先压缩
   - 已补 blob 分离、archive 压缩、mirror 回填与 rebuild 测试
+- 本轮（2026-04-01，Post-Phase）已完成：
+  - 新增 `scripts/perf-benchmark.js`
+  - 新增 `npm run benchmark:storage`
+  - README 已补 status-report / memory-search / benchmark 说明
+  - 已补 benchmark harness smoke test，保证输出结构稳定
 
 当前仍未完成的核心目标：
 
 - 无阻塞性阶段目标
-- 剩余为性能与规模验证、以及后续可能的实现细化
+- 剩余为实际大规模实测数据的持续积累，以及后续可能的实现细化
 
 因此，本方案当前状态应认定为：
 
@@ -830,6 +835,18 @@ retention_score =
 - `memory-search` 活跃集检索 < 100ms
 - `memory-search` archive fallback 检索 < 300ms
 - `mirror-rebuild` 对常规本地规模可在分钟级内完成
+
+当前覆盖（2026-04-01）：
+
+- 已新增 `scripts/perf-benchmark.js`
+- 已支持通过 `npm run benchmark:storage` 生成临时数据集并输出：
+  - active 检索耗时
+  - archive fallback 检索耗时
+  - governance 单次执行耗时
+  - mirror rebuild 耗时
+- 已补 smoke test：
+  - `perf benchmark emits storage scale metrics for a small generated dataset`
+- 仍待补：基于真实 10k / 100k 数据规模的基准结果沉淀
 
 ## F. 真实链路测试
 

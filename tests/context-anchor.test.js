@@ -69,6 +69,7 @@ const {
 } = require('../scripts/lib/openclaw-session-status');
 const { runSkillDiagnose } = require('../scripts/skill-diagnose');
 const { runScopePromote } = require('../scripts/scope-promote');
+const { runPerfBenchmark } = require('../scripts/perf-benchmark');
 const { runSkillReconcile } = require('../scripts/skill-reconcile');
 const { runStatusReport } = require('../scripts/status-report');
 const { calculateRetentionScore, compareGovernanceEntries, governCollection } = require('../scripts/storage-governance');
@@ -1048,6 +1049,26 @@ test('archive blobs are compressed and rehydrated after mirror rebuild', () => {
   } finally {
     cleanupWorkspace(workspace);
   }
+});
+
+test('perf benchmark emits storage scale metrics for a small generated dataset', () => {
+  const result = runPerfBenchmark(undefined, {
+    workspaceCount: 1,
+    activeItems: 24,
+    archiveItems: 16
+  });
+
+  assert.equal(result.status, 'ok');
+  assert.equal(result.generated.workspace_count, 1);
+  assert.equal(result.generated.archive_probe_items, 16);
+  assert.equal(result.generated.total_items, 56);
+  assert.ok(typeof result.metrics.active_search_ms === 'number');
+  assert.ok(typeof result.metrics.archive_fallback_search_ms === 'number');
+  assert.ok(typeof result.metrics.governance_ms === 'number');
+  assert.ok(typeof result.metrics.mirror_rebuild_ms === 'number');
+  assert.equal(result.samples.active_search_tier, 'active');
+  assert.equal(result.samples.archive_search_tier, 'archive');
+  assert.equal(fs.existsSync(result.workspace_root), false);
 });
 
 test('session state and session index sync to SQLite metadata mirrors', () => {

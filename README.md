@@ -740,6 +740,12 @@ node "<installed-skill-dir>/scripts/status-report.js" "<workspace>" [session-key
 
 - user/project/session 的 memory/experience/skill 计数
 - governance 统计：`active / shadowed / superseded / budgeted_out`
+- `storage_governance` 摘要：
+  - active item count
+  - archive item count
+  - last governance run
+  - bytes before / after
+  - prune count
 - session 最近一次 summary 摘要
 - health warnings
 - 当前激活预算影响下的治理结果
@@ -814,7 +820,31 @@ node "<installed-skill-dir>/scripts/memory-search.js" "<workspace>" "<session-ke
 
 默认会优先走 SQLite 镜像检索；原始 JSON 仍然保留为兼容格式。
 
+当前检索行为是两层的：
+
+- 先查 active
+- active 命中不足时再补 archive
+- 返回结果会显式带：
+  - `tier`
+  - `from_archive`
+  - `retrieval_cost`
+
 如果你需要临时关闭数据库镜像，可以设置 `CONTEXT_ANCHOR_DISABLE_DB=1`。
+
+#### 运行存储性能基准
+
+```bash
+npm run benchmark:storage -- --workspace-count 1 --active-items 5000 --archive-items 5000
+```
+
+这个 benchmark 会生成临时数据集，并输出：
+
+- active 检索耗时
+- archive fallback 检索耗时
+- governance 单次执行耗时
+- mirror rebuild 耗时
+
+默认会在结束后清理临时数据。需要保留数据集排查时，追加 `--keep-data`。
 
 #### 手动执行 session close
 
