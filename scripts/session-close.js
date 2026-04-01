@@ -21,6 +21,7 @@ const { runSkillReconcile } = require('./skill-reconcile');
 const { runScopePromote } = require('./scope-promote');
 const { runSkillDraftCreate } = require('./skill-draft-create');
 const { runSkillificationScore } = require('./skillification-score');
+const { runStorageGovernance } = require('./storage-governance');
 
 function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
   const paths = createPaths(workspaceArg);
@@ -101,6 +102,11 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
     userId: sessionState.user_id,
     reason: options.reason || 'session-close'
   });
+  const governance = runStorageGovernance(paths.workspace, sessionKey, {
+    projectId: sessionState.project_id,
+    userId: sessionState.user_id,
+    reason: options.reason || 'session-close'
+  });
   recordSessionOwnership(paths.openClawHome, paths.workspace, sessionState, {
     status: 'closed',
     closedAt: sessionState.closed_at
@@ -116,6 +122,7 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
     session_experience_sync: sessionExperiences,
     session_summary_file: require('./lib/context-anchor').sessionSummaryFile(paths, sessionKey),
     runtime_state: runtimeState.runtime_state,
+    governance,
     session_experiences: sessionExperiences.total_experiences,
     skill_draft: skillDraft,
     promotions,

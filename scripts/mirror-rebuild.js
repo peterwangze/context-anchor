@@ -6,22 +6,30 @@ const {
   compactPacketFile,
   createPaths,
   getOpenClawHome,
+  projectDecisionsArchiveFile,
   projectDecisionsFile,
+  projectExperiencesArchiveFile,
   projectExperiencesFile,
+  projectFactsArchiveFile,
   projectFactsFile,
   projectHeatIndexFile,
   projectSkillsIndexFile,
   projectStateFile,
   readJson,
   resolveUserId,
+  runtimeStateFile,
+  sessionExperiencesArchiveFile,
   sessionExperiencesFile,
+  sessionMemoryArchiveFile,
   sessionMemoryFile,
   sessionSkillsIndexFile,
   sessionStateFile,
   sessionSummaryFile,
   userDir,
+  userExperiencesArchiveFile,
   userExperiencesFile,
   userHeatIndexFile,
+  userMemoriesArchiveFile,
   userMemoriesFile,
   userSkillsIndexFile,
   userStateFile
@@ -169,8 +177,11 @@ function rebuildWorkspaceMirror(workspace, result) {
         if (projectId !== '_global') {
           syncDocument(projectStateFile(paths, projectId), result, 'project_state');
           syncCollection(projectDecisionsFile(paths, projectId), 'decisions', result, 'project_decisions');
+          syncCollection(projectDecisionsArchiveFile(paths, projectId), 'decisions', result, 'project_decisions_archive');
           syncCollection(projectExperiencesFile(paths, projectId), 'experiences', result, 'project_experiences');
+          syncCollection(projectExperiencesArchiveFile(paths, projectId), 'experiences', result, 'project_experiences_archive');
           syncCollection(projectFactsFile(paths, projectId), 'facts', result, 'project_facts');
+          syncCollection(projectFactsArchiveFile(paths, projectId), 'facts', result, 'project_facts_archive');
           syncDocument(projectHeatIndexFile(paths, projectId), result, 'project_heat_index');
           syncCollection(projectSkillsIndexFile(paths, projectId), 'skills', result, 'project_skills');
         }
@@ -183,8 +194,11 @@ function rebuildWorkspaceMirror(workspace, result) {
       .forEach((entry) => {
         const sessionKey = entry.name;
         syncDocument(sessionStateFile(paths, sessionKey), result, 'session_state');
+        syncDocument(runtimeStateFile(paths, sessionKey), result, 'session_runtime_state');
         syncCollection(sessionMemoryFile(paths, sessionKey), 'entries', result, 'session_memory');
+        syncCollection(sessionMemoryArchiveFile(paths, sessionKey), 'entries', result, 'session_memory_archive');
         syncCollection(sessionExperiencesFile(paths, sessionKey), 'experiences', result, 'session_experiences');
+        syncCollection(sessionExperiencesArchiveFile(paths, sessionKey), 'experiences', result, 'session_experiences_archive');
         syncCollection(sessionSkillsIndexFile(paths, sessionKey), 'skills', result, 'session_skills');
         syncDocument(compactPacketFile(paths, sessionKey), result, 'session_compact_packet');
         syncDocument(sessionSummaryFile(paths, sessionKey), result, 'session_summary');
@@ -204,7 +218,9 @@ function rebuildUserMirror(userId, result) {
   result.users_processed.push(normalizedUserId);
   syncDocument(userStateFile(paths, normalizedUserId), result, 'user_state');
   syncCollection(userMemoriesFile(paths, normalizedUserId), 'memories', result, 'user_memories');
+  syncCollection(userMemoriesArchiveFile(paths, normalizedUserId), 'memories', result, 'user_memories_archive');
   syncCollection(userExperiencesFile(paths, normalizedUserId), 'experiences', result, 'user_experiences');
+  syncCollection(userExperiencesArchiveFile(paths, normalizedUserId), 'experiences', result, 'user_experiences_archive');
   syncDocument(userHeatIndexFile(paths, normalizedUserId), result, 'user_heat_index');
   syncCollection(userSkillsIndexFile(paths, normalizedUserId), 'skills', result, 'user_skills');
 }

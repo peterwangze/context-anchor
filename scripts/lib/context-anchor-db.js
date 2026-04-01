@@ -5,11 +5,18 @@ let sqliteRuntime = null;
 
 const SEARCHABLE_SOURCES = new Set([
   'session_memories',
+  'session_memories_archive',
+  'session_experiences_archive',
+  'project_decisions_archive',
   'project_decisions',
   'project_experiences',
+  'project_experiences_archive',
   'project_facts',
+  'project_facts_archive',
   'user_memories',
-  'user_experiences'
+  'user_memories_archive',
+  'user_experiences',
+  'user_experiences_archive'
 ]);
 
 function ensureDir(dir) {
@@ -114,8 +121,9 @@ function describeCollectionFile(file, key) {
   if (anchorIndex >= 0 && normalized[anchorIndex + 1] === 'sessions' && parts.length > anchorIndex + 3) {
     const ownerId = parts[anchorIndex + 2];
     const dbFile = buildWorkspaceDbFile(parts, anchorIndex);
+    const inArchive = normalized[anchorIndex + 3] === 'archives';
 
-    if (fileName === 'memory-hot.json' && key === 'entries') {
+    if (!inArchive && fileName === 'memory-hot.json' && key === 'entries') {
       return {
         dbFile,
         scope: 'session',
@@ -126,12 +134,34 @@ function describeCollectionFile(file, key) {
       };
     }
 
-    if (fileName === 'experiences.json' && key === 'experiences') {
+    if (inArchive && fileName === 'memory-hot.json' && key === 'entries') {
+      return {
+        dbFile,
+        scope: 'session',
+        ownerId,
+        source: 'session_memories_archive',
+        collectionType: 'memory',
+        filePath: path.resolve(file)
+      };
+    }
+
+    if (!inArchive && fileName === 'experiences.json' && key === 'experiences') {
       return {
         dbFile,
         scope: 'session',
         ownerId,
         source: 'session_experiences',
+        collectionType: 'experience',
+        filePath: path.resolve(file)
+      };
+    }
+
+    if (inArchive && fileName === 'experiences.json' && key === 'experiences') {
+      return {
+        dbFile,
+        scope: 'session',
+        ownerId,
+        source: 'session_experiences_archive',
         collectionType: 'experience',
         filePath: path.resolve(file)
       };
@@ -152,8 +182,9 @@ function describeCollectionFile(file, key) {
   if (anchorIndex >= 0 && normalized[anchorIndex + 1] === 'projects' && parts.length > anchorIndex + 3) {
     const ownerId = parts[anchorIndex + 2];
     const dbFile = buildWorkspaceDbFile(parts, anchorIndex);
+    const inArchive = normalized[anchorIndex + 3] === 'archives';
 
-    if (fileName === 'decisions.json' && key === 'decisions') {
+    if (!inArchive && fileName === 'decisions.json' && key === 'decisions') {
       return {
         dbFile,
         scope: 'project',
@@ -164,7 +195,18 @@ function describeCollectionFile(file, key) {
       };
     }
 
-    if (fileName === 'experiences.json' && key === 'experiences') {
+    if (inArchive && fileName === 'decisions.json' && key === 'decisions') {
+      return {
+        dbFile,
+        scope: 'project',
+        ownerId,
+        source: 'project_decisions_archive',
+        collectionType: 'decision',
+        filePath: path.resolve(file)
+      };
+    }
+
+    if (!inArchive && fileName === 'experiences.json' && key === 'experiences') {
       return {
         dbFile,
         scope: 'project',
@@ -175,12 +217,34 @@ function describeCollectionFile(file, key) {
       };
     }
 
-    if (fileName === 'facts.json' && key === 'facts') {
+    if (inArchive && fileName === 'experiences.json' && key === 'experiences') {
+      return {
+        dbFile,
+        scope: 'project',
+        ownerId,
+        source: 'project_experiences_archive',
+        collectionType: 'experience',
+        filePath: path.resolve(file)
+      };
+    }
+
+    if (!inArchive && fileName === 'facts.json' && key === 'facts') {
       return {
         dbFile,
         scope: 'project',
         ownerId,
         source: 'project_facts',
+        collectionType: 'fact',
+        filePath: path.resolve(file)
+      };
+    }
+
+    if (inArchive && fileName === 'facts.json' && key === 'facts') {
+      return {
+        dbFile,
+        scope: 'project',
+        ownerId,
+        source: 'project_facts_archive',
         collectionType: 'fact',
         filePath: path.resolve(file)
       };
@@ -202,8 +266,9 @@ function describeCollectionFile(file, key) {
   if (usersIndex >= 0 && parts.length > usersIndex + 2) {
     const ownerId = parts[usersIndex + 1];
     const dbFile = buildUserDbFile(parts, usersIndex);
+    const inArchive = normalized[usersIndex + 2] === 'archives';
 
-    if (fileName === 'memories.json' && key === 'memories') {
+    if (!inArchive && fileName === 'memories.json' && key === 'memories') {
       return {
         dbFile,
         scope: 'user',
@@ -214,12 +279,34 @@ function describeCollectionFile(file, key) {
       };
     }
 
-    if (fileName === 'experiences.json' && key === 'experiences') {
+    if (inArchive && fileName === 'memories.json' && key === 'memories') {
+      return {
+        dbFile,
+        scope: 'user',
+        ownerId,
+        source: 'user_memories_archive',
+        collectionType: 'memory',
+        filePath: path.resolve(file)
+      };
+    }
+
+    if (!inArchive && fileName === 'experiences.json' && key === 'experiences') {
       return {
         dbFile,
         scope: 'user',
         ownerId,
         source: 'user_experiences',
+        collectionType: 'experience',
+        filePath: path.resolve(file)
+      };
+    }
+
+    if (inArchive && fileName === 'experiences.json' && key === 'experiences') {
+      return {
+        dbFile,
+        scope: 'user',
+        ownerId,
+        source: 'user_experiences_archive',
         collectionType: 'experience',
         filePath: path.resolve(file)
       };
@@ -267,6 +354,16 @@ function describeDocumentFile(file) {
         scope: 'session',
         ownerId: parts[anchorIndex + 2],
         docType: 'session_state',
+        filePath: path.resolve(file)
+      };
+    }
+
+    if (fileName === 'runtime-state.json' && normalized[anchorIndex + 1] === 'sessions' && parts.length > anchorIndex + 3) {
+      return {
+        dbFile,
+        scope: 'session',
+        ownerId: parts[anchorIndex + 2],
+        docType: 'session_runtime_state',
         filePath: path.resolve(file)
       };
     }

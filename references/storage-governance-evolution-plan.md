@@ -12,11 +12,11 @@
 
 但当前体系还没有真正解决“长期积累导致的无限膨胀”问题：
 
-- `archived: true` 只是逻辑标记，还没有形成稳定的 active / archive 双层容量治理
-- `runtime_state` 已独立，但 active / archive 治理尚未接管 live 集合边界
-- 长期记忆虽然已经不再预加载进 bootstrap，但 live 集合本身仍会持续增长
+- active / archive 双层存储已经落地，但 archive-aware 检索尚未接管 archive 层
+- `runtime_state` 已独立，但治理统计与观测还没有形成完整控制面
+- 长期记忆虽然已经分流到 archive，但 archive-aware retrieval 还没有接管第二层检索
 - `memory-search` 还没有明确区分 active 检索与 archive 检索的优先级和代价
-- 没有统一的治理任务、配额策略、治理结果统计和压缩回收策略
+- 治理触发已接入，但缺少统一的治理统计、配额观测和压缩回收指标
 
 这个文档把后续方案落成“可执行的实施计划”，并明确测试设计。  
 在本方案全部实现完成之前，暂停引入与该主题无关的新功能。
@@ -48,20 +48,25 @@
   - `session-start / session-close / command:new / command:reset / command:stop / session:compact:after` 已刷新 runtime state
   - bootstrap / gateway startup / continuity restore / status-report 已优先读取 runtime state
   - 已补 runtime-state 优先级与 compact 刷新测试，并跑通全量测试
+- 本轮（2026-04-01，Phase 2）已完成：
+  - 新增 `scripts/storage-governance.js`
+  - session / project / user 已落地 active + archive 双文件层
+  - SQLite mirror 已识别 archive collection，`mirror-rebuild` 已可回填 archive 集合
+  - `heartbeat / session-close / workspace-monitor` 已执行 storage governance
+  - 已补 retention score、去重、active/archive 切分、lifecycle 触发和 archive mirror 测试，并跑通全量测试
 
 当前仍未完成的核心目标：
 
-- active / archive 双层治理尚未正式落地
 - archive-aware 检索尚未完整打通
-- 治理任务、治理统计、blob 分离尚未落地
+- 治理统计与观测、blob 分离尚未落地
 
 因此，本方案当前状态应认定为：
 
 - `Phase 0`：已完成
 - `Phase 1`：已完成
-- `Phase 2`：仅完成 archive 路径和 mirror 识别的底层准备，未完成治理逻辑
+- `Phase 2`：已完成
 - `Phase 3`：仅完成“长期记忆不预载”的基础行为，未完成 archive-aware search
-- `Phase 4`：仅完成部分 mirror-aware report 能力，未完成治理统计
+- `Phase 4`：已接入治理触发，但 `governance_runs` 和 status-report 治理统计未完成
 - `Phase 5`：未开始
 
 ## 文档维护规则
@@ -379,12 +384,20 @@ retention_score =
 - `scripts/session-close.js`
 - `scripts/session-maintenance.js`
 - `scripts/workspace-monitor.js`
+- `scripts/mirror-rebuild.js`
 
 完成标准：
 
 - live 文件不会无限膨胀
 - archive 文件有明确边界
 - SQLite mirror 同步 active 和 archive 集合
+
+当前结果（2026-04-01）：
+
+- 已完成
+- governance 会按 retention score 对 session / project / user 集合做去重、active/archive 切分与 prune
+- active 与 archive 已拆到独立 JSON 文件，并保持 mirror 同步
+- `heartbeat / session-close / workspace-monitor` 已默认执行治理
 
 ## Phase 3：archive-aware 检索
 
@@ -444,6 +457,12 @@ retention_score =
 
 - 用户能看到系统是否在膨胀
 - 治理结果可回归验证
+
+当前结果（2026-04-01）：
+
+- 已部分完成
+- `heartbeat / session-close / workspace-monitor` 已执行 storage governance
+- `governance_runs`、status-report 治理体积统计和 prune 观测仍未落地
 
 ## Phase 5：blob 分离与压缩
 
@@ -527,6 +546,10 @@ retention_score =
 - 排序稳定
 - 同输入多次运行结果一致
 
+已覆盖（2026-04-01）：
+
+- `storage governance retention scores prefer validated and cross-session entries in a stable order`
+
 ### A2. active/archive 配额切分
 
 覆盖：
@@ -541,6 +564,10 @@ retention_score =
 - active / archive 数量符合配额
 - 被迁移项带 `archived_at / archive_reason`
 
+已覆盖（2026-04-01）：
+
+- `storage governance dedupes entries and splits active archive budgets with prune`
+
 ### A3. 去重与版本折叠
 
 覆盖：
@@ -553,6 +580,10 @@ retention_score =
 
 - 不会无限累积重复项
 - 高价值版本保留
+
+已覆盖（2026-04-01）：
+
+- `storage governance dedupes entries and splits active archive budgets with prune`
 
 ### A4. runtime_state
 
@@ -608,6 +639,12 @@ retention_score =
 - archive 增长
 - governance report 正确
 
+当前覆盖（2026-04-01）：
+
+- `heartbeat runs storage governance and syncs active and archive mirrors`
+- `session-close runs storage governance for project collections`
+- `workspace monitor inherits storage governance through maintenance heartbeat`
+
 ### B3. archive-aware search
 
 场景：
@@ -634,6 +671,12 @@ retention_score =
 
 - SQLite 计数正确
 - FTS 能命中 archive 项
+
+当前覆盖（2026-04-01）：
+
+- `heartbeat runs storage governance and syncs active and archive mirrors`
+- `mirror-rebuild backfills archive collections into sqlite mirrors`
+- 仍待补：archive FTS 查询路径的显式断言，将在 Phase 3 archive-aware search 中完成
 
 ## C. 回归测试
 

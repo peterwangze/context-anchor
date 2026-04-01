@@ -12,15 +12,19 @@ const {
   createPaths,
   getRecentSessions,
   loadCompactPacket,
+  projectFactsArchiveFile,
+  projectFactsFile,
   loadRankedCollection,
   loadSessionState,
   loadUserMemories,
   readJson,
   runtimeStateFile,
+  sessionMemoryArchiveFile,
   sessionSummaryFile,
   sessionStateFile,
   sessionMemoryFile,
   syncRuntimeStateFromSessionState,
+  userMemoriesArchiveFile,
   writeJson
 } = require('../scripts/lib/context-anchor');
 const { buildBootstrapCacheContent } = require('../scripts/lib/bootstrap-cache');
@@ -29,6 +33,7 @@ const {
   describeDocumentFile,
   loadRecentSessionIndexEntries,
   readMirrorCollection,
+  readMirrorCollectionCount,
   readMirrorDocument
 } = require('../scripts/lib/context-anchor-db');
 const { findSessionByKey, getHostConfigFile, resolveOwnership } = require('../scripts/lib/host-config');
@@ -60,6 +65,7 @@ const { runSkillDiagnose } = require('../scripts/skill-diagnose');
 const { runScopePromote } = require('../scripts/scope-promote');
 const { runSkillReconcile } = require('../scripts/skill-reconcile');
 const { runStatusReport } = require('../scripts/status-report');
+const { calculateRetentionScore, compareGovernanceEntries, governCollection } = require('../scripts/storage-governance');
 const { runSkillSupersede } = require('../scripts/skill-supersede');
 const { runSessionClose } = require('../scripts/session-close');
 const { runSessionCompact } = require('../scripts/session-compact');
@@ -112,6 +118,22 @@ function syncRuntimeStateFixture(workspace, sessionKey, projectId) {
     touch: false
   });
   return syncRuntimeStateFromSessionState(paths, sessionKey, sessionState);
+}
+
+function makeGovernanceEntry(prefix, index, overrides = {}) {
+  return {
+    id: `${prefix}-${index}`,
+    type: overrides.type || 'fact',
+    summary: overrides.summary || `${prefix} summary ${index}`,
+    content: overrides.content || `${prefix} content ${index}`,
+    heat: overrides.heat === undefined ? Math.max(5, 100 - index) : overrides.heat,
+    access_count: overrides.access_count === undefined ? 1 : overrides.access_count,
+    access_sessions: overrides.access_sessions || [`session-${index}`],
+    created_at: overrides.created_at || `2026-03-${String((index % 28) + 1).padStart(2, '0')}T00:00:00.000Z`,
+    last_accessed: overrides.last_accessed || `2026-03-${String((index % 28) + 1).padStart(2, '0')}T12:00:00.000Z`,
+    archived: Boolean(overrides.archived),
+    ...overrides
+  };
 }
 
 function writeSessionTranscript(sessionFile, workspace, sessionId) {
@@ -257,6 +279,332 @@ test('session-compact after refreshes runtime state metadata', () => {
       assert.equal(runtimeState.metadata.last_compaction_event, 'after');
       assert.ok(runtimeState.metadata.last_compaction_at);
       assert.equal(runtimeState.metadata.runtime_state_reason, 'compact-after');
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('storage governance retention scores prefer validated and cross-session entries in a stable order', () => {
+  const now = Date.parse('2026-04-01T00:00:00.000Z');
+  const pending = makeGovernanceEntry('retention', 1, {
+    type: 'best_practice',
+    summary: 'same experience',
+    heat: 70,
+    access_count: 2,
+    access_sessions: ['s1'],
+    last_accessed: '2026-03-28T00:00:00.000Z',
+    validation: { status: 'pending' }
+  });
+  const validated = {
+    ...pending,
+    id: 'retention-validated',
+    validation: { status: 'validated' }
+  };
+  const crossSession = {
+    ...validated,
+    id: 'retention-cross',
+    access_count: 4,
+    access_sessions: ['s1', 's2', 's3'],
+    last_accessed: '2026-03-31T00:00:00.000Z'
+  };
+  const stale = {
+    ...validated,
+    id: 'retention-stale',
+    access_count: 1,
+    access_sessions: ['s1'],
+    last_accessed: '2026-01-10T00:00:00.000Z'
+  };
+
+  const pendingScore = calculateRetentionScore(pending, 'project_experiences', now);
+  const validatedScore = calculateRetentionScore(validated, 'project_experiences', now);
+  const crossSessionScore = calculateRetentionScore(crossSession, 'project_experiences', now);
+  const staleScore = calculateRetentionScore(stale, 'project_experiences', now);
+
+  assert.ok(validatedScore > pendingScore);
+  assert.ok(crossSessionScore > validatedScore);
+  assert.ok(validatedScore > staleScore);
+
+  const sortOnce = [pending, stale, crossSession, validated]
+    .map((entry) => ({
+      ...entry,
+      retention_score: calculateRetentionScore(entry, 'project_experiences', now)
+    }))
+    .sort(compareGovernanceEntries)
+    .map((entry) => entry.id);
+  const sortTwice = [pending, stale, crossSession, validated]
+    .map((entry) => ({
+      ...entry,
+      retention_score: calculateRetentionScore(entry, 'project_experiences', now)
+    }))
+    .sort(compareGovernanceEntries)
+    .map((entry) => entry.id);
+
+  assert.deepEqual(sortOnce, sortTwice);
+  assert.equal(sortOnce[0], 'retention-cross');
+});
+
+test('storage governance dedupes entries and splits active archive budgets with prune', () => {
+  let writtenActive = [];
+  let writtenArchive = [];
+  const result = governCollection(
+    {
+      source: 'project_experiences',
+      key: 'experiences',
+      budget: {
+        active: 2,
+        archive: 2
+      },
+      activeFile: 'active.json',
+      archiveFile: 'archive.json',
+      loadActive: () => [
+        makeGovernanceEntry('dup', 1, {
+          type: 'best_practice',
+          summary: 'duplicate experience',
+          content: 'duplicate experience',
+          heat: 95,
+          access_sessions: ['s1']
+        }),
+        makeGovernanceEntry('keep', 1, {
+          type: 'best_practice',
+          summary: 'keep active',
+          heat: 88
+        }),
+        makeGovernanceEntry('archive', 1, {
+          type: 'best_practice',
+          summary: 'archive this',
+          heat: 40
+        }),
+        makeGovernanceEntry('prune', 1, {
+          type: 'best_practice',
+          summary: 'prune this',
+          heat: 10,
+          last_accessed: '2025-12-01T00:00:00.000Z'
+        })
+      ],
+      loadArchive: () => [
+        makeGovernanceEntry('dup', 2, {
+          type: 'best_practice',
+          summary: 'duplicate experience',
+          content: 'duplicate experience',
+          heat: 72,
+          access_sessions: ['s2'],
+          archived: true,
+          archived_at: '2026-03-20T00:00:00.000Z',
+          archive_reason: 'retention_budget'
+        }),
+        makeGovernanceEntry('archive', 2, {
+          type: 'best_practice',
+          summary: 'already archived',
+          heat: 25,
+          archived: true,
+          archived_at: '2026-03-10T00:00:00.000Z',
+          archive_reason: 'retention_budget'
+        })
+      ],
+      writeActive: (items) => {
+        writtenActive = items;
+      },
+      writeArchive: (items) => {
+        writtenArchive = items;
+      }
+    },
+    {
+      mode: 'enforce',
+      pruneArchive: true,
+      timestamp: '2026-04-01T00:00:00.000Z'
+    }
+  );
+
+  assert.equal(result.deduped, 1);
+  assert.equal(result.active_after, 2);
+  assert.equal(result.archive_after, 2);
+  assert.equal(result.pruned, 1);
+  assert.equal(writtenActive.length, 2);
+  assert.equal(writtenArchive.length, 2);
+  assert.ok(writtenArchive.every((entry) => entry.archived));
+  assert.ok(writtenArchive.every((entry) => entry.archived_at));
+
+  const mergedDuplicate = [...writtenActive, ...writtenArchive].find((entry) => entry.summary === 'duplicate experience');
+  assert.deepEqual((mergedDuplicate.access_sessions || []).sort(), ['s1', 's2']);
+  assert.ok(mergedDuplicate.content_hash);
+});
+
+test('heartbeat runs storage governance and syncs active and archive mirrors', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'govern-heartbeat', 'demo');
+      const paths = createPaths(workspace);
+      writeJson(sessionMemoryFile(paths, 'govern-heartbeat'), {
+        entries: Array.from({ length: 85 }, (_, index) =>
+          makeGovernanceEntry('heartbeat-memory', index, {
+            type: 'fact',
+            session_key: 'govern-heartbeat',
+            project_id: 'demo',
+            scope: 'session'
+          })
+        )
+      });
+
+      const result = runHeartbeat(workspace, 'govern-heartbeat', 'demo', 50);
+      const activeEntries = readJson(sessionMemoryFile(paths, 'govern-heartbeat'), { entries: [] }).entries;
+      const archiveEntries = readJson(sessionMemoryArchiveFile(paths, 'govern-heartbeat'), { entries: [] }).entries;
+      const activeMirror = readMirrorCollectionCount(sessionMemoryFile(paths, 'govern-heartbeat'), 'entries');
+      const archiveMirror = readMirrorCollectionCount(sessionMemoryArchiveFile(paths, 'govern-heartbeat'), 'entries');
+
+      assert.equal(activeEntries.length, DEFAULTS.storageGovernance.session_memories.active);
+      assert.equal(archiveEntries.length, 5);
+      assert.ok(result.governance.collections.some((entry) => entry.source === 'session_memories' && entry.archive_after === 5));
+      assert.equal(activeMirror.status, 'available');
+      assert.equal(activeMirror.count, DEFAULTS.storageGovernance.session_memories.active);
+      assert.equal(archiveMirror.status, 'available');
+      assert.equal(archiveMirror.count, 5);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('session-close runs storage governance for project collections', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'govern-close', 'demo');
+      const paths = createPaths(workspace);
+      writeJson(projectFactsFile(paths, 'demo'), {
+        facts: Array.from({ length: 402 }, (_, index) =>
+          makeGovernanceEntry('project-fact', index, {
+            type: 'fact',
+            project_id: 'demo',
+            session_key: 'govern-close'
+          })
+        )
+      });
+
+      const result = runSessionClose(workspace, 'govern-close', {
+        reason: 'phase-2-governance'
+      });
+      const activeFacts = readJson(projectFactsFile(paths, 'demo'), { facts: [] }).facts;
+      const archiveFacts = readJson(projectFactsArchiveFile(paths, 'demo'), { facts: [] }).facts;
+
+      assert.equal(activeFacts.length, DEFAULTS.storageGovernance.project_facts.active);
+      assert.equal(archiveFacts.length, 2);
+      assert.ok(result.governance.collections.some((entry) => entry.source === 'project_facts' && entry.archive_after === 2));
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('workspace monitor inherits storage governance through maintenance heartbeat', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: workspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      runSessionStart(workspace, 'govern-monitor', 'demo');
+      const paths = createPaths(workspace);
+      writeJson(sessionMemoryFile(paths, 'govern-monitor'), {
+        entries: Array.from({ length: 82 }, (_, index) =>
+          makeGovernanceEntry('monitor-memory', index, {
+            type: 'fact',
+            session_key: 'govern-monitor',
+            project_id: 'demo',
+            scope: 'session'
+          })
+        )
+      });
+
+      const result = runWorkspaceMonitor(workspace, {
+        windowMs: 7 * 24 * 60 * 60 * 1000
+      });
+      const archiveEntries = readJson(sessionMemoryArchiveFile(paths, 'govern-monitor'), { entries: [] }).entries;
+
+      assert.equal(result.status, 'processed');
+      assert.equal(result.results[0].status, 'maintenance_ok');
+      assert.ok(result.results[0].governance.totals.archived >= 2);
+      assert.equal(archiveEntries.length, 2);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('mirror-rebuild backfills archive collections into sqlite mirrors', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'archive-rebuild', 'demo');
+      const paths = createPaths(workspace);
+      writeJson(sessionMemoryFile(paths, 'archive-rebuild'), {
+        entries: [
+          makeGovernanceEntry('active-mirror', 1, {
+            type: 'fact',
+            session_key: 'archive-rebuild',
+            project_id: 'demo',
+            scope: 'session'
+          })
+        ]
+      });
+      writeJson(sessionMemoryArchiveFile(paths, 'archive-rebuild'), {
+        entries: [
+          makeGovernanceEntry('archive-mirror', 1, {
+            type: 'fact',
+            session_key: 'archive-rebuild',
+            project_id: 'demo',
+            scope: 'session',
+            archived: true,
+            archived_at: '2026-04-01T00:00:00.000Z',
+            archive_reason: 'retention_budget'
+          })
+        ]
+      });
+      writeJson(userMemoriesArchiveFile(paths, 'default-user'), {
+        memories: [
+          makeGovernanceEntry('user-archive-mirror', 1, {
+            scope: 'user',
+            source_user: 'default-user',
+            archived: true,
+            archived_at: '2026-04-01T00:00:00.000Z',
+            archive_reason: 'retention_budget'
+          })
+        ]
+      });
+
+      const workspaceDb = path.join(workspace, '.context-anchor', 'catalog.sqlite');
+      const userDb = path.join(workspace, 'openclaw-home', 'context-anchor', 'users', 'catalog.sqlite');
+      if (fs.existsSync(workspaceDb)) {
+        fs.rmSync(workspaceDb, { force: true });
+      }
+      if (fs.existsSync(userDb)) {
+        fs.rmSync(userDb, { force: true });
+      }
+
+      const rebuild = runMirrorRebuild(workspace, path.join(workspace, 'openclaw-home'));
+      const sessionArchiveMirror = readMirrorCollection(sessionMemoryArchiveFile(paths, 'archive-rebuild'), 'entries');
+      const userArchiveMirror = readMirrorCollection(userMemoriesArchiveFile(paths, 'default-user'), 'memories');
+      const archiveDescriptor = describeCollectionFile(sessionMemoryArchiveFile(paths, 'archive-rebuild'), 'entries');
+
+      assert.equal(rebuild.status, 'ok');
+      assert.equal(archiveDescriptor.source, 'session_memories_archive');
+      assert.equal(sessionArchiveMirror.status, 'available');
+      assert.equal(sessionArchiveMirror.items.length, 1);
+      assert.equal(userArchiveMirror.status, 'available');
+      assert.equal(userArchiveMirror.items.length, 1);
     });
   } finally {
     cleanupWorkspace(workspace);

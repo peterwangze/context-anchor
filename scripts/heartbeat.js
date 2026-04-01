@@ -9,6 +9,7 @@ const { runSessionExperienceSync } = require('./session-experience-sync');
 const { runSkillReconcile } = require('./skill-reconcile');
 const { runScopePromote } = require('./scope-promote');
 const { runSkillificationScore } = require('./skillification-score');
+const { runStorageGovernance } = require('./storage-governance');
 
 function runHeartbeat(workspaceArg, sessionKeyArg, projectIdArg, usagePercentArg, options = {}) {
   const paths = createPaths(workspaceArg);
@@ -46,6 +47,11 @@ function runHeartbeat(workspaceArg, sessionKeyArg, projectIdArg, usagePercentArg
     projectId: sessionState.project_id,
     userId: sessionState.user_id
   });
+  const governance = runStorageGovernance(paths.workspace, sessionState.session_key, {
+    projectId: sessionState.project_id,
+    userId: sessionState.user_id,
+    reason: 'heartbeat'
+  });
   const pressure =
     usagePercentArg !== undefined
       ? runContextPressureHandle(paths.workspace, sessionState.session_key, usagePercentArg)
@@ -61,6 +67,7 @@ function runHeartbeat(workspaceArg, sessionKeyArg, projectIdArg, usagePercentArg
     skillification,
     promotions,
     reconcile,
+    governance,
     pressure
   };
 }

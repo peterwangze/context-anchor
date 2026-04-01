@@ -42,9 +42,38 @@ const DEFAULTS = {
   bootstrapWarmPreviewLimit: 2,
   bootstrapRelatedSessionLimit: 2,
   memorySearchResultLimit: 8,
-  skillArchivePriorityThreshold: 25
-  ,
-  skillArchiveUsageThreshold: 0
+  skillArchivePriorityThreshold: 25,
+  skillArchiveUsageThreshold: 0,
+  storageGovernance: {
+    session_memories: {
+      active: 80,
+      archive: 320
+    },
+    session_experiences: {
+      active: 120,
+      archive: 480
+    },
+    project_decisions: {
+      active: 200,
+      archive: 800
+    },
+    project_experiences: {
+      active: 300,
+      archive: 1200
+    },
+    project_facts: {
+      active: 400,
+      archive: 1600
+    },
+    user_memories: {
+      active: 200,
+      archive: 800
+    },
+    user_experiences: {
+      active: 300,
+      archive: 1200
+    }
+  }
 };
 const VALIDATION_STATUSES = ['pending', 'validated', 'rejected'];
 const SKILL_STATUSES = ['draft', 'active', 'inactive', 'archived'];
@@ -239,6 +268,10 @@ function sessionDir(paths, sessionKey) {
   return path.join(paths.sessionsDir, sanitizeKey(sessionKey));
 }
 
+function sessionArchivesDir(paths, sessionKey) {
+  return path.join(sessionDir(paths, sessionKey), 'archives');
+}
+
 function sessionStateFile(paths, sessionKey) {
   return path.join(sessionDir(paths, sessionKey), 'state.json');
 }
@@ -251,12 +284,20 @@ function sessionMemoryFile(paths, sessionKey) {
   return path.join(sessionDir(paths, sessionKey), 'memory-hot.json');
 }
 
+function sessionMemoryArchiveFile(paths, sessionKey) {
+  return path.join(sessionArchivesDir(paths, sessionKey), 'memory-hot.json');
+}
+
 function sessionCheckpointFile(paths, sessionKey) {
   return path.join(sessionDir(paths, sessionKey), 'checkpoint.md');
 }
 
 function projectDir(paths, projectId = DEFAULTS.projectId) {
   return path.join(paths.projectsDir, projectId);
+}
+
+function projectArchivesDir(paths, projectId = DEFAULTS.projectId) {
+  return path.join(projectDir(paths, projectId), 'archives');
 }
 
 function projectStateFile(paths, projectId = DEFAULTS.projectId) {
@@ -267,8 +308,16 @@ function projectDecisionsFile(paths, projectId = DEFAULTS.projectId) {
   return path.join(projectDir(paths, projectId), 'decisions.json');
 }
 
+function projectDecisionsArchiveFile(paths, projectId = DEFAULTS.projectId) {
+  return path.join(projectArchivesDir(paths, projectId), 'decisions.json');
+}
+
 function projectExperiencesFile(paths, projectId = DEFAULTS.projectId) {
   return path.join(projectDir(paths, projectId), 'experiences.json');
+}
+
+function projectExperiencesArchiveFile(paths, projectId = DEFAULTS.projectId) {
+  return path.join(projectArchivesDir(paths, projectId), 'experiences.json');
 }
 
 function projectHeatIndexFile(paths, projectId = DEFAULTS.projectId) {
@@ -277,6 +326,10 @@ function projectHeatIndexFile(paths, projectId = DEFAULTS.projectId) {
 
 function projectFactsFile(paths, projectId = DEFAULTS.projectId) {
   return path.join(projectDir(paths, projectId), 'facts.json');
+}
+
+function projectFactsArchiveFile(paths, projectId = DEFAULTS.projectId) {
+  return path.join(projectArchivesDir(paths, projectId), 'facts.json');
 }
 
 function projectSkillsDir(paths, projectId = DEFAULTS.projectId) {
@@ -289,6 +342,10 @@ function projectSkillsIndexFile(paths, projectId = DEFAULTS.projectId) {
 
 function sessionExperiencesFile(paths, sessionKey) {
   return path.join(sessionDir(paths, sessionKey), 'experiences.json');
+}
+
+function sessionExperiencesArchiveFile(paths, sessionKey) {
+  return path.join(sessionArchivesDir(paths, sessionKey), 'experiences.json');
 }
 
 function sessionSkillsDir(paths, sessionKey) {
@@ -315,6 +372,10 @@ function userDir(paths, userId = DEFAULTS.userId) {
   return path.join(paths.usersDir, resolveUserId(userId));
 }
 
+function userArchivesDir(paths, userId = DEFAULTS.userId) {
+  return path.join(userDir(paths, userId), 'archives');
+}
+
 function userStateFile(paths, userId = DEFAULTS.userId) {
   return path.join(userDir(paths, userId), 'state.json');
 }
@@ -323,8 +384,16 @@ function userMemoriesFile(paths, userId = DEFAULTS.userId) {
   return path.join(userDir(paths, userId), 'memories.json');
 }
 
+function userMemoriesArchiveFile(paths, userId = DEFAULTS.userId) {
+  return path.join(userArchivesDir(paths, userId), 'memories.json');
+}
+
 function userExperiencesFile(paths, userId = DEFAULTS.userId) {
   return path.join(userDir(paths, userId), 'experiences.json');
+}
+
+function userExperiencesArchiveFile(paths, userId = DEFAULTS.userId) {
+  return path.join(userArchivesDir(paths, userId), 'experiences.json');
 }
 
 function userHeatIndexFile(paths, userId = DEFAULTS.userId) {
@@ -642,8 +711,16 @@ function loadSessionMemory(paths, sessionKey) {
   return loadCollection(sessionMemoryFile(paths, sessionKey), 'entries');
 }
 
+function loadSessionMemoryArchive(paths, sessionKey) {
+  return loadCollection(sessionMemoryArchiveFile(paths, sessionKey), 'entries');
+}
+
 function writeSessionMemory(paths, sessionKey, entries) {
   writeCollection(sessionMemoryFile(paths, sessionKey), 'entries', entries);
+}
+
+function writeSessionMemoryArchive(paths, sessionKey, entries) {
+  writeCollection(sessionMemoryArchiveFile(paths, sessionKey), 'entries', entries);
 }
 
 function createProjectState(projectId, existing = {}) {
@@ -689,13 +766,22 @@ function ensureProjectArtifacts(paths, projectId = DEFAULTS.projectId) {
   if (!fs.existsSync(projectDecisionsFile(paths, projectId))) {
     writeCollection(projectDecisionsFile(paths, projectId), 'decisions', []);
   }
+  if (!fs.existsSync(projectDecisionsArchiveFile(paths, projectId))) {
+    writeCollection(projectDecisionsArchiveFile(paths, projectId), 'decisions', []);
+  }
 
   if (!fs.existsSync(projectExperiencesFile(paths, projectId))) {
     writeCollection(projectExperiencesFile(paths, projectId), 'experiences', []);
   }
+  if (!fs.existsSync(projectExperiencesArchiveFile(paths, projectId))) {
+    writeCollection(projectExperiencesArchiveFile(paths, projectId), 'experiences', []);
+  }
 
   if (!fs.existsSync(projectFactsFile(paths, projectId))) {
     writeCollection(projectFactsFile(paths, projectId), 'facts', []);
+  }
+  if (!fs.existsSync(projectFactsArchiveFile(paths, projectId))) {
+    writeCollection(projectFactsArchiveFile(paths, projectId), 'facts', []);
   }
 
   if (!fs.existsSync(projectHeatIndexFile(paths, projectId))) {
@@ -749,6 +835,9 @@ function ensureUserArtifacts(paths, userId = DEFAULTS.userId) {
       }))
     );
   }
+  if (!fs.existsSync(userMemoriesArchiveFile(paths, normalizedUserId))) {
+    writeCollection(userMemoriesArchiveFile(paths, normalizedUserId), 'memories', []);
+  }
 
   if (!fs.existsSync(userExperiencesFile(paths, normalizedUserId))) {
     writeCollection(
@@ -765,6 +854,9 @@ function ensureUserArtifacts(paths, userId = DEFAULTS.userId) {
         archived: Boolean(entry.archived)
       }))
     );
+  }
+  if (!fs.existsSync(userExperiencesArchiveFile(paths, normalizedUserId))) {
+    writeCollection(userExperiencesArchiveFile(paths, normalizedUserId), 'experiences', []);
   }
 
   ensureDir(userSkillsDir(paths, normalizedUserId));
@@ -795,8 +887,17 @@ function loadProjectDecisions(paths, projectId = DEFAULTS.projectId) {
   return loadCollection(projectDecisionsFile(paths, projectId), 'decisions');
 }
 
+function loadProjectDecisionArchive(paths, projectId = DEFAULTS.projectId) {
+  ensureProjectArtifacts(paths, projectId);
+  return loadCollection(projectDecisionsArchiveFile(paths, projectId), 'decisions');
+}
+
 function writeProjectDecisions(paths, projectId, decisions) {
   writeCollection(projectDecisionsFile(paths, projectId), 'decisions', decisions);
+}
+
+function writeProjectDecisionArchive(paths, projectId, decisions) {
+  writeCollection(projectDecisionsArchiveFile(paths, projectId), 'decisions', decisions);
 }
 
 function loadProjectExperiences(paths, projectId = DEFAULTS.projectId) {
@@ -804,13 +905,27 @@ function loadProjectExperiences(paths, projectId = DEFAULTS.projectId) {
   return loadCollection(projectExperiencesFile(paths, projectId), 'experiences');
 }
 
+function loadProjectExperienceArchive(paths, projectId = DEFAULTS.projectId) {
+  ensureProjectArtifacts(paths, projectId);
+  return loadCollection(projectExperiencesArchiveFile(paths, projectId), 'experiences');
+}
+
 function writeProjectExperiences(paths, projectId, experiences) {
   writeCollection(projectExperiencesFile(paths, projectId), 'experiences', experiences);
+}
+
+function writeProjectExperienceArchive(paths, projectId, experiences) {
+  writeCollection(projectExperiencesArchiveFile(paths, projectId), 'experiences', experiences);
 }
 
 function loadProjectFacts(paths, projectId = DEFAULTS.projectId) {
   ensureProjectArtifacts(paths, projectId);
   return loadCollection(projectFactsFile(paths, projectId), 'facts');
+}
+
+function loadProjectFactArchive(paths, projectId = DEFAULTS.projectId) {
+  ensureProjectArtifacts(paths, projectId);
+  return loadCollection(projectFactsArchiveFile(paths, projectId), 'facts');
 }
 
 function loadProjectSkills(paths, projectId = DEFAULTS.projectId) {
@@ -826,8 +941,16 @@ function loadSessionExperiences(paths, sessionKey) {
   return loadCollection(sessionExperiencesFile(paths, sessionKey), 'experiences');
 }
 
+function loadSessionExperienceArchive(paths, sessionKey) {
+  return loadCollection(sessionExperiencesArchiveFile(paths, sessionKey), 'experiences');
+}
+
 function writeSessionExperiences(paths, sessionKey, experiences) {
   writeCollection(sessionExperiencesFile(paths, sessionKey), 'experiences', experiences);
+}
+
+function writeSessionExperienceArchive(paths, sessionKey, experiences) {
+  writeCollection(sessionExperiencesArchiveFile(paths, sessionKey), 'experiences', experiences);
 }
 
 function loadSessionSkills(paths, sessionKey) {
@@ -853,8 +976,17 @@ function loadUserMemories(paths, userId = DEFAULTS.userId) {
   return loadCollection(userMemoriesFile(paths, userId), 'memories');
 }
 
+function loadUserMemoryArchive(paths, userId = DEFAULTS.userId) {
+  ensureUserArtifacts(paths, userId);
+  return loadCollection(userMemoriesArchiveFile(paths, userId), 'memories');
+}
+
 function writeUserMemories(paths, userId, memories) {
   writeCollection(userMemoriesFile(paths, userId), 'memories', memories);
+}
+
+function writeUserMemoryArchive(paths, userId, memories) {
+  writeCollection(userMemoriesArchiveFile(paths, userId), 'memories', memories);
 }
 
 function loadUserExperiences(paths, userId = DEFAULTS.userId) {
@@ -862,8 +994,17 @@ function loadUserExperiences(paths, userId = DEFAULTS.userId) {
   return loadCollection(userExperiencesFile(paths, userId), 'experiences');
 }
 
+function loadUserExperienceArchive(paths, userId = DEFAULTS.userId) {
+  ensureUserArtifacts(paths, userId);
+  return loadCollection(userExperiencesArchiveFile(paths, userId), 'experiences');
+}
+
 function writeUserExperiences(paths, userId, experiences) {
   writeCollection(userExperiencesFile(paths, userId), 'experiences', experiences);
+}
+
+function writeUserExperienceArchive(paths, userId, experiences) {
+  writeCollection(userExperiencesArchiveFile(paths, userId), 'experiences', experiences);
 }
 
 function loadUserSkills(paths, userId = DEFAULTS.userId) {
@@ -893,6 +1034,10 @@ function loadSessionSummary(paths, sessionKey) {
 
 function writeProjectFacts(paths, projectId, facts) {
   writeCollection(projectFactsFile(paths, projectId), 'facts', facts);
+}
+
+function writeProjectFactArchive(paths, projectId, facts) {
+  writeCollection(projectFactsArchiveFile(paths, projectId), 'facts', facts);
 }
 
 function loadGlobalState(paths) {
@@ -1543,20 +1688,27 @@ module.exports = {
   loadCollectionSnapshot,
   loadGlobalState,
   loadHeatIndex,
+  loadProjectDecisionArchive,
   loadProjectDecisions,
+  loadProjectExperienceArchive,
   loadProjectExperiences,
+  loadProjectFactArchive,
   loadProjectFacts,
   loadRankedCollection,
   loadProjectSkills,
   loadProjectState,
   loadRuntimeState,
+  loadSessionExperienceArchive,
   loadSessionMemory,
+  loadSessionMemoryArchive,
   loadSessionExperiences,
   loadSessionSkills,
   loadSessionState,
   loadSessionSummary,
+  loadUserExperienceArchive,
   loadUserExperiences,
   loadUserMemories,
+  loadUserMemoryArchive,
   loadUserSkills,
   loadUserState,
   mergeAccessMetadata,
@@ -1565,9 +1717,13 @@ module.exports = {
   normalizeSkillRecord,
   nowIso,
   compactPacketFile,
+  projectArchivesDir,
+  projectDecisionsArchiveFile,
   projectDecisionsFile,
   projectDir,
+  projectExperiencesArchiveFile,
   projectExperiencesFile,
+  projectFactsArchiveFile,
   projectFactsFile,
   projectHeatIndexFile,
   projectSkillsDir,
@@ -1584,9 +1740,12 @@ module.exports = {
   resolveUserId,
   runtimeStateFile,
   sanitizeKey,
+  sessionArchivesDir,
+  sessionExperiencesArchiveFile,
   sessionExperiencesFile,
   sessionCheckpointFile,
   sessionDir,
+  sessionMemoryArchiveFile,
   sessionMemoryFile,
   sessionSkillsDir,
   sessionSkillsIndexFile,
@@ -1605,9 +1764,12 @@ module.exports = {
   touchGlobalIndex,
   touchSessionIndex,
   uniqueList,
+  userArchivesDir,
   userDir,
+  userExperiencesArchiveFile,
   userExperiencesFile,
   userHeatIndexFile,
+  userMemoriesArchiveFile,
   userMemoriesFile,
   userSkillsDir,
   userSkillsIndexFile,
@@ -1617,12 +1779,17 @@ module.exports = {
   writeGlobalState,
   writeHeatIndex,
   writeJson,
+  writeProjectDecisionArchive,
   writeProjectDecisions,
+  writeProjectExperienceArchive,
   writeProjectExperiences,
+  writeProjectFactArchive,
   writeProjectFacts,
   writeProjectSkills,
   writeProjectState,
+  writeSessionExperienceArchive,
   writeSessionMemory,
+  writeSessionMemoryArchive,
   writeSessionExperiences,
   writeSessionSkills,
   writeSessionState,
@@ -1630,8 +1797,10 @@ module.exports = {
   writeRuntimeState,
   writeStatusSnapshot,
   writeText,
+  writeUserExperienceArchive,
   writeUserExperiences,
   writeUserMemories,
+  writeUserMemoryArchive,
   writeUserSkills,
   writeUserState
 };
