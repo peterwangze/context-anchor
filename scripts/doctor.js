@@ -108,7 +108,10 @@ function runDoctor(options = {}) {
   };
   configuration.ready = configuration.internal_hooks_enabled && configuration.extra_skill_dir_registered;
   configuration.missing = Object.entries(configuration)
-    .filter(([key, value]) => key !== 'ready' && key !== 'missing' && value !== true)
+    .filter(
+      ([key, value]) =>
+        !['ready', 'missing', 'memory_takeover_mode', 'memory_takeover_enforced'].includes(key) && value !== true
+    )
     .map(([key]) => key);
 
   return {

@@ -2878,6 +2878,9 @@ test('doctor reports installed absolute paths and wrapper returns a helpful payl
       assert.equal(doctor.paths.workspace_monitor_script, result.workspace_monitor_script);
       assert.ok(fs.existsSync(result.doctor_script));
       assert.equal(doctor.configuration.ready, true);
+      assert.equal(doctor.configuration.memory_takeover_mode, 'enforced');
+      assert.equal(doctor.configuration.memory_takeover_enforced, true);
+      assert.ok(!doctor.configuration.missing.includes('memory_takeover_mode'));
       assert.ok(doctor.commands.hook_with_payload_file.includes(result.hook_handler));
       assert.match(doctor.commands.rebuild_mirror, /mirror-rebuild\.js/);
 
