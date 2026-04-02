@@ -2,7 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const { execFileSync, spawnSync } = require('child_process');
+const { execFileSync, spawn, spawnSync } = require('child_process');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
@@ -40,6 +40,7 @@ const {
   readMirrorCollectionCount,
   readMirrorDocument,
   searchCatalogItems,
+  syncCollectionMirror,
   summarizeCatalogDatabase
 } = require('../scripts/lib/context-anchor-db');
 const { findSessionByKey, getHostConfigFile, resolveOwnership } = require('../scripts/lib/host-config');
@@ -924,6 +925,62 @@ test('session memory writes sync a SQLite mirror and ranked reads use the mirror
       assert.equal(ranked.length, 2);
       assert.match(ranked[0].summary || ranked[0].content, /highest heat checkout retry playbook/);
       assert.match(ranked[1].summary || ranked[1].content, /high heat cache verification note/);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('sqlite mirror waits out a transient write lock instead of failing immediately', async () => {
+  const workspace = makeWorkspace();
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runSessionStart(workspace, 'sqlite-busy', 'demo');
+      runMemorySave(
+        workspace,
+        'sqlite-busy',
+        'session',
+        'best_practice',
+        'retry after temporary lock',
+        JSON.stringify({ heat: 96 })
+      );
+
+      const paths = createPaths(workspace);
+      const memoryFile = sessionMemoryFile(paths, 'sqlite-busy');
+      const descriptor = describeCollectionFile(memoryFile, 'entries');
+      const currentItems = readJson(memoryFile, { entries: [] }).entries;
+      const lockScript = [
+        "const { DatabaseSync } = require('node:sqlite');",
+        "const db = new DatabaseSync(process.argv[1]);",
+        "db.exec(`PRAGMA busy_timeout = 10000; PRAGMA journal_mode = WAL; BEGIN IMMEDIATE;`);",
+        "setTimeout(() => { try { db.exec('COMMIT'); } catch {} db.close(); }, 750);",
+        "setTimeout(() => process.exit(0), 900);"
+      ].join(' ');
+      const child = spawn(process.execPath, ['-e', lockScript, descriptor.dbFile], {
+        cwd: path.resolve(__dirname, '..'),
+        stdio: 'ignore'
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const started = Date.now();
+      const synced = syncCollectionMirror(memoryFile, 'entries', currentItems);
+      const waitedMs = Date.now() - started;
+
+      await new Promise((resolve, reject) => {
+        child.once('exit', (code) => {
+          if (code === 0) {
+            resolve();
+            return;
+          }
+          reject(new Error(`lock holder exited with code ${code}`));
+        });
+        child.once('error', reject);
+      });
+
+      assert.equal(synced, true);
+      assert.ok(waitedMs >= 500);
+      assert.equal(readMirrorCollection(memoryFile, 'entries').status, 'available');
     });
   } finally {
     cleanupWorkspace(workspace);

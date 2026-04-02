@@ -4,6 +4,7 @@ const zlib = require('zlib');
 
 let sqliteRuntime = null;
 const initializedDbFiles = new Set();
+const SQLITE_BUSY_TIMEOUT_MS = 10000;
 
 const BLOB_FIELDS = ['summary', 'content', 'details', 'solution', 'raw_context'];
 const BLOB_STORAGE_LIMITS = {
@@ -598,6 +599,7 @@ function openDatabase(dbFile) {
   const runtime = getSqliteRuntime();
   const db = new runtime.DatabaseSync(dbFile);
   db.exec(`
+    PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS};
     PRAGMA journal_mode = WAL;
     PRAGMA synchronous = NORMAL;
   `);
