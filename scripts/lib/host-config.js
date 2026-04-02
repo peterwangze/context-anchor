@@ -79,7 +79,8 @@ function defaultHostConfig() {
       workspace: null
     },
     onboarding: {
-      auto_register_workspaces: true
+      auto_register_workspaces: true,
+      memory_takeover_mode: 'best_effort'
     },
     users: [],
     workspaces: [],
@@ -88,8 +89,11 @@ function defaultHostConfig() {
 }
 
 function normalizeOnboarding(onboarding = {}) {
+  const rawMode = String(onboarding?.memory_takeover_mode || 'best_effort').trim().toLowerCase();
+  const memoryTakeoverMode = rawMode === 'enforced' ? 'enforced' : 'best_effort';
   return {
-    auto_register_workspaces: onboarding?.auto_register_workspaces !== false
+    auto_register_workspaces: onboarding?.auto_register_workspaces !== false,
+    memory_takeover_mode: memoryTakeoverMode
   };
 }
 
@@ -380,6 +384,13 @@ function setOnboardingPolicy(config, options = {}) {
 
   if (typeof options.autoRegisterWorkspaces === 'boolean') {
     next.onboarding.auto_register_workspaces = options.autoRegisterWorkspaces;
+  }
+  if (typeof options.memoryTakeover === 'boolean') {
+    next.onboarding.memory_takeover_mode = options.memoryTakeover ? 'enforced' : 'best_effort';
+  }
+  if (typeof options.memoryTakeoverMode === 'string' && options.memoryTakeoverMode.trim()) {
+    next.onboarding.memory_takeover_mode =
+      options.memoryTakeoverMode.trim().toLowerCase() === 'enforced' ? 'enforced' : 'best_effort';
   }
 
   return next;

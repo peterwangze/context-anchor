@@ -16,6 +16,7 @@ function parseArgs(argv) {
     assumeYes: false,
     preserveMemories: undefined,
     applyConfig: undefined,
+    memoryTakeover: undefined,
     enableScheduler: undefined,
     targetPlatform: null,
     schedulerWorkspace: null,
@@ -71,6 +72,16 @@ function parseArgs(argv) {
 
     if (arg === '--skip-config') {
       options.applyConfig = false;
+      continue;
+    }
+
+    if (arg === '--enforce-memory-takeover') {
+      options.memoryTakeover = true;
+      continue;
+    }
+
+    if (arg === '--no-enforce-memory-takeover') {
+      options.memoryTakeover = false;
       continue;
     }
 
@@ -399,6 +410,7 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
   const configuration = await runConfigureHost(openClawHome, skillsRoot, {
     assumeYes,
     applyConfig: options.applyConfig,
+    memoryTakeover: options.memoryTakeover,
     enableScheduler: options.enableScheduler,
     targetPlatform: options.targetPlatform,
     schedulerWorkspace: options.schedulerWorkspace,

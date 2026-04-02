@@ -1575,6 +1575,68 @@ test('configure-host writes recommended hooks and workspace monitor entries and 
       assert.equal(result.config.internal_hooks_enabled, true);
       assert.equal(result.config.registered_extra_skill_dir, null);
       assert.equal(result.ownership.onboarding.auto_register_workspaces, true);
+      assert.equal(result.memory_takeover.mode, 'enforced');
+      assert.equal(result.ownership.onboarding.memory_takeover_mode, 'enforced');
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('configure-host asks whether to enforce context-anchor memory takeover and records the accepted mode', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const prompts = [];
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+
+      const result = await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: null,
+        addUsers: [],
+        addWorkspaces: [],
+        ask: async (prompt, defaultYes) => {
+          prompts.push(prompt);
+          return defaultYes;
+        },
+        askText: async (_prompt, defaultValue) => defaultValue
+      });
+
+      assert.equal(result.config.status, 'applied');
+      assert.equal(result.memory_takeover.mode, 'enforced');
+      assert.ok(prompts[0].includes('[Recommended] Let context-anchor take over memory management'));
+      assert.ok(prompts[0].includes('some models or profiles may continue writing their own MEMORY.md'));
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('configure-host can leave memory takeover in best-effort mode and returns clear limitations', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+
+      const result = await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: null,
+        addUsers: [],
+        addWorkspaces: [],
+        ask: async () => false,
+        askText: async (_prompt, defaultValue) => defaultValue
+      });
+
+      assert.equal(result.config.status, 'skipped');
+      assert.equal(result.memory_takeover.mode, 'best_effort');
+      assert.ok(result.memory_takeover.limitations.some((item) => item.includes('fragmented across sources')));
+      assert.equal(result.ownership.onboarding.memory_takeover_mode, 'best_effort');
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -2079,6 +2141,33 @@ test('one-click install can apply recommended config without reinstall prompts',
       assert.equal(result.status, 'installed');
       assert.equal(result.configuration.config.status, 'applied');
       assert.equal(config.hooks.internal.enabled, true);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('one-click install can explicitly keep memory takeover in best-effort mode', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      const result = await runOneClickInstall(openClawHome, undefined, {
+        assumeYes: true,
+        preserveMemories: true,
+        applyConfig: false,
+        memoryTakeover: false,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: null,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      assert.equal(result.status, 'installed');
+      assert.equal(result.configuration.memory_takeover.mode, 'best_effort');
+      assert.equal(result.configuration.config.status, 'skipped');
     });
   } finally {
     cleanupWorkspace(workspace);

@@ -30,6 +30,7 @@ function parseArgs(argv) {
     skillsRoot: null,
     assumeYes: false,
     applyConfig: undefined,
+    memoryTakeover: undefined,
     enableScheduler: undefined,
     targetPlatform: null,
     schedulerWorkspace: null,
@@ -68,6 +69,16 @@ function parseArgs(argv) {
 
     if (arg === '--skip-config') {
       options.applyConfig = false;
+      continue;
+    }
+
+    if (arg === '--enforce-memory-takeover') {
+      options.memoryTakeover = true;
+      continue;
+    }
+
+    if (arg === '--no-enforce-memory-takeover') {
+      options.memoryTakeover = false;
       continue;
     }
 
@@ -266,6 +277,21 @@ function buildRecommendedConfig(paths) {
     default_managed_skills_root: paths.default_managed_skills_root,
     extra_skill_dir: needsExtraSkillsDir ? paths.skills_root : null
   };
+}
+
+function buildMemoryTakeoverPrompt(paths) {
+  return [
+    '[Recommended] Let context-anchor take over memory management for this OpenClaw profile?',
+    '',
+    `This will update ${paths.config_file} so managed hooks stay enabled and context-anchor remains loadable for this profile.`,
+    '',
+    'If you do NOT enable this:',
+    '- some models or profiles may continue writing their own MEMORY.md or private memory files',
+    '- memory may stay fragmented across multiple sources instead of one canonical context-anchor state',
+    '- continuity restore, experience accumulation, and later retrieval may be incomplete',
+    '',
+    'Enable memory takeover now?'
+  ].join('\n');
 }
 
 function backupConfigFile(configFile) {
@@ -731,6 +757,11 @@ async function configureOwnership(paths, options = {}) {
       autoRegisterWorkspaces: options.autoRegisterWorkspaces
     });
   }
+  if (typeof options.memoryTakeover === 'boolean') {
+    config = setOnboardingPolicy(config, {
+      memoryTakeover: options.memoryTakeover
+    });
+  }
 
   let defaultUserId = options.defaultUserId;
   if (defaultUserId === undefined && !assumeYes) {
@@ -874,16 +905,26 @@ async function runConfigureHost(openClawHomeArg, skillsRootArg, options = {}) {
   const assumeYes = Boolean(options.assumeYes);
   const ask = options.ask || null;
   const askInput = options.askText || null;
+  let memoryTakeover = options.memoryTakeover;
+  if (typeof memoryTakeover !== 'boolean') {
+    if (typeof options.applyConfig === 'boolean') {
+      memoryTakeover = options.applyConfig === true;
+    } else {
+      memoryTakeover = assumeYes
+        ? true
+        : await askYesNo(
+            buildMemoryTakeoverPrompt(paths),
+            true,
+            ask
+          );
+    }
+  }
 
   let applyConfig = options.applyConfig;
-  if (typeof applyConfig !== 'boolean') {
-        applyConfig = assumeYes
-      ? true
-      : await askYesNo(
-          `Update ${paths.config_file} now to enable OpenClaw internal hooks${path.resolve(paths.skills_root) !== path.resolve(paths.default_managed_skills_root) ? ' and register the custom context-anchor skills directory' : ''}?`,
-          true,
-          ask
-        );
+  if (memoryTakeover) {
+    applyConfig = true;
+  } else if (typeof applyConfig !== 'boolean') {
+    applyConfig = false;
   }
 
   const config = applyConfig
@@ -896,6 +937,7 @@ async function runConfigureHost(openClawHomeArg, skillsRootArg, options = {}) {
   const ownership = await configureOwnership(paths, {
     ...options,
     assumeYes,
+    memoryTakeover,
     ask,
     askText: askInput
   });
@@ -949,6 +991,16 @@ async function runConfigureHost(openClawHomeArg, skillsRootArg, options = {}) {
     status: 'configured',
     paths,
     config,
+    memory_takeover: {
+      mode: memoryTakeover ? 'enforced' : 'best_effort',
+      limitations: memoryTakeover
+        ? []
+        : [
+            'Some models or profiles may continue managing their own memory files.',
+            'Memory may remain fragmented across sources outside context-anchor.',
+            'Continuity restore and long-term experience accumulation may be incomplete.'
+          ]
+    },
     ownership,
     scheduler
   };

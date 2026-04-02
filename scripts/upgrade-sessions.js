@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const path = require('path');
+const readline = require('readline');
 const {
   createPaths,
   getOpenClawHome,
@@ -16,6 +17,7 @@ const {
   resolveOwnership
 } = require('./lib/host-config');
 const { discoverOpenClawSessions } = require('./lib/openclaw-session-discovery');
+const { runConfigureHost } = require('./configure-host');
 const { runMirrorRebuild } = require('./mirror-rebuild');
 const { runSessionStart } = require('./session-start');
 const { runStorageGovernance } = require('./storage-governance');
@@ -29,6 +31,7 @@ function parseArgs(argv) {
     includeClosed: false,
     rebuildMirror: false,
     runGovernance: false,
+    memoryTakeover: undefined,
     governanceMode: null,
     governancePrune: undefined
   };
@@ -75,6 +78,16 @@ function parseArgs(argv) {
       continue;
     }
 
+    if (arg === '--enforce-memory-takeover') {
+      options.memoryTakeover = true;
+      continue;
+    }
+
+    if (arg === '--no-enforce-memory-takeover') {
+      options.memoryTakeover = false;
+      continue;
+    }
+
     if (arg === '--governance-mode') {
       options.governanceMode = argv[index + 1] || null;
       index += 1;
@@ -96,6 +109,42 @@ function emitProgress(progress, event) {
   if (typeof progress === 'function') {
     progress(event);
   }
+}
+
+function askYesNo(prompt, defaultYes = true) {
+  const suffix = defaultYes ? ' [Y/n] ' : ' [y/N] ';
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  return new Promise((resolve) => {
+    rl.question(`${prompt}${suffix}`, (answer) => {
+      rl.close();
+      const normalized = String(answer || '').trim().toLowerCase();
+      if (!normalized) {
+        resolve(defaultYes);
+        return;
+      }
+
+      resolve(normalized === 'y' || normalized === 'yes');
+    });
+  });
+}
+
+function buildMemoryTakeoverPrompt(openClawHome, skillsRoot) {
+  return [
+    '[Recommended] Force-enable context-anchor memory takeover before upgrading sessions?',
+    '',
+    `This will update ${path.join(getOpenClawHome(openClawHome), 'openclaw.json')} so this OpenClaw profile keeps internal hooks enabled${skillsRoot ? ' and keeps the context-anchor skill path registered' : ''}.`,
+    '',
+    'If you do NOT enable this:',
+    '- some models or profiles may continue using their own MEMORY.md or private memory files',
+    '- memory may remain fragmented across multiple sources after the upgrade',
+    '- continuity restore, experience accumulation, and later retrieval may still feel inconsistent',
+    '',
+    'Enable memory takeover now?'
+  ].join('\n');
 }
 
 function formatCandidateLabel(workspace, sessionKey) {
@@ -446,11 +495,27 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
   return summary;
 }
 
-function main() {
+async function main() {
   try {
     const options = parseArgs(process.argv.slice(2));
+    let memoryTakeover = options.memoryTakeover;
+    if (typeof memoryTakeover !== 'boolean' && process.stdin.isTTY) {
+      memoryTakeover = await askYesNo(
+        buildMemoryTakeoverPrompt(options.openclawHome, options.skillsRoot),
+        true
+      );
+    }
+    if (memoryTakeover) {
+      await runConfigureHost(options.openclawHome, options.skillsRoot, {
+        assumeYes: true,
+        applyConfig: true,
+        memoryTakeover: true,
+        enableScheduler: false
+      });
+    }
     const result = runUpgradeSessions(options.openclawHome, options.skillsRoot, {
       ...options,
+      memoryTakeover,
       progress: createCliProgressReporter(process.stderr)
     });
     console.log(JSON.stringify(result, null, 2));

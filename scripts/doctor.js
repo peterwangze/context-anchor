@@ -102,7 +102,9 @@ function runDoctor(options = {}) {
   const configuration = {
     internal_hooks_enabled: hooks?.internal?.enabled === true,
     extra_skill_dir_registered: installation.extra_skill_dir_registered,
-    auto_workspace_registration_enabled: hostConfig.onboarding.auto_register_workspaces !== false
+    auto_workspace_registration_enabled: hostConfig.onboarding.auto_register_workspaces !== false,
+    memory_takeover_mode: hostConfig.onboarding.memory_takeover_mode || 'best_effort',
+    memory_takeover_enforced: (hostConfig.onboarding.memory_takeover_mode || 'best_effort') === 'enforced'
   };
   configuration.ready = configuration.internal_hooks_enabled && configuration.extra_skill_dir_registered;
   configuration.missing = Object.entries(configuration)
@@ -152,7 +154,10 @@ function runDoctor(options = {}) {
       'If shell quoting is difficult, write payload JSON to a file and pass the file path to the hook handler.',
       'The one-click installer will ask whether to preserve existing memories before it cleans previous installation files.',
       'If internal hooks are disabled, context-anchor-hook will not run even if the managed hook files are installed.',
-      'By default, context-anchor automatically registers first-seen workspaces with the default user and workspace basename project id; disable this in configure-host if you want manual approval instead.'
+      'By default, context-anchor automatically registers first-seen workspaces with the default user and workspace basename project id; disable this in configure-host if you want manual approval instead.',
+      configuration.memory_takeover_enforced
+        ? 'Memory takeover is enforced for this profile: context-anchor is the intended canonical memory manager.'
+        : 'Memory takeover is NOT enforced for this profile: some models or profiles may still manage their own memory files, which can fragment memory and weaken continuity.'
     ]
   };
 }

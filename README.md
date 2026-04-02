@@ -156,6 +156,7 @@ npm run install:host
 安装器会按顺序询问：
 
 - 是否保留旧记忆并重装
+- 是否强制启用 `context-anchor` 接管当前 OpenClaw profile 的记忆管理
 - 是否把推荐的 OpenClaw 配置写入当前 `<openclaw-home>/openclaw.json`
 - 默认用户名是什么
 - 默认 workspace 是什么
@@ -180,6 +181,24 @@ node scripts/install-one-click.js --yes --keep-memory --apply-config --upgrade-s
 这里的安装目录名始终是 `context-anchor`，不受你本地源码目录名影响。
 
 如果你本机上已经有正在使用的 OpenClaw session，推荐直接使用带 `--upgrade-sessions` 的方式重装。现在这个命令除了会刷新存量 session 到最新 runtime 行为，也会顺手执行 SQLite mirror 回填，并默认跑一轮 storage governance，让升级后的 active/archive 状态尽量马上与新版本一致。
+
+安装/配置时会重点提示你是否要“强制启用 `context-anchor` 接管记忆”。  
+如果你接受，安装器会尽量确保：
+
+- OpenClaw internal hooks 持续启用
+- `context-anchor` 始终处于可加载状态
+- 后续记忆、恢复和治理尽量进入统一的 `context-anchor` 平面
+
+如果你拒绝强制接管，限制是：
+
+- 某些模型或 profile 仍可能继续维护自己的 `MEMORY.md` 或私有记忆文件
+- 记忆可能继续分散在多套来源里
+- 连续性恢复、经验沉淀和后续检索复用可能不完整
+
+相关显式参数：
+
+- `--enforce-memory-takeover`
+- `--no-enforce-memory-takeover`
 
 升级链路执行时会把阶段性进度输出到 `stderr`，例如：
 
@@ -206,6 +225,16 @@ npm run configure:host
 
 ```bash
 node scripts/configure-host.js
+```
+
+如果你只想单独调整是否强制接管记忆：
+
+```bash
+node scripts/configure-host.js --enforce-memory-takeover
+```
+
+```bash
+node scripts/configure-host.js --no-enforce-memory-takeover
 ```
 
 如果你要批量接管 OpenClaw 已存在的 session：
@@ -267,6 +296,18 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 `upgrade-sessions.js` 会一次性刷新已发现或已登记的存量 session，重新生成 bootstrap cache，并让这些 session 在下一次 hook / bootstrap 时直接使用最新 runtime 行为；默认跳过已关闭 session，传 `--include-closed` 才会连已关闭 session 一起刷新。传 `--rebuild-mirror` 时，还会顺手把已有 JSON 资产回填到 SQLite mirror。传 `--run-governance` 时，还会在 mirror 回填之后立刻对升级到的 session 运行一次 storage governance。
 
 执行过程中会持续把简明进度打印到 `stderr`，方便区分“仍在处理”还是“真的卡住了”。
+
+如果你想在升级前顺手把当前 OpenClaw profile 切到 `context-anchor` 强制接管模式，可以加：
+
+```bash
+node scripts/upgrade-sessions.js --rebuild-mirror --run-governance --enforce-memory-takeover
+```
+
+如果你明确不想强制接管，也可以显式声明：
+
+```bash
+node scripts/upgrade-sessions.js --rebuild-mirror --no-enforce-memory-takeover
+```
 
 治理相关选项：
 
