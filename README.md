@@ -179,6 +179,15 @@ node scripts/install-one-click.js --yes --keep-memory --apply-config --upgrade-s
 
 如果你本机上已经有正在使用的 OpenClaw session，推荐直接使用带 `--upgrade-sessions` 的方式重装。现在这个命令除了会刷新存量 session 到最新 runtime 行为，也会顺手执行 SQLite mirror 回填，并默认跑一轮 storage governance，让升级后的 active/archive 状态尽量马上与新版本一致。
 
+升级链路执行时会把阶段性进度输出到 `stderr`，例如：
+
+- 已选中多少个 session
+- 当前升级到第几个 session
+- mirror rebuild 是否开始/完成
+- governance 是否开始/完成
+
+最终结果仍然保持 `stdout` 输出 JSON，不影响脚本调用方继续解析结果。
+
 如果你只想升级但暂时不跑治理，可以显式关闭：
 
 ```bash
@@ -254,6 +263,8 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 如果状态查询提示异常，先跑 `sessions-diagnose.js`，再按输出里的诊断命令和修复命令处理。`sessions-status.js` 支持 `--json`，`configure-sessions.js` 和 `upgrade-sessions.js` 也支持 `--workspace` / `--session-key` 只处理一个 workspace 或 session。
 
 `upgrade-sessions.js` 会一次性刷新已发现或已登记的存量 session，重新生成 bootstrap cache，并让这些 session 在下一次 hook / bootstrap 时直接使用最新 runtime 行为；默认跳过已关闭 session，传 `--include-closed` 才会连已关闭 session 一起刷新。传 `--rebuild-mirror` 时，还会顺手把已有 JSON 资产回填到 SQLite mirror。传 `--run-governance` 时，还会在 mirror 回填之后立刻对升级到的 session 运行一次 storage governance。
+
+执行过程中会持续把简明进度打印到 `stderr`，方便区分“仍在处理”还是“真的卡住了”。
 
 治理相关选项：
 

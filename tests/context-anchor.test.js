@@ -2,7 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { pathToFileURL } = require('url');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
@@ -1961,6 +1961,40 @@ test('one-click install can apply recommended config without reinstall prompts',
   }
 });
 
+test('install-one-click CLI stays quiet on stderr when no session upgrade is requested', () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        'scripts/install-one-click.js',
+        '--openclaw-home',
+        openClawHome,
+        '--yes',
+        '--keep-memory',
+        '--apply-config',
+        '--skip-scheduler'
+      ],
+      {
+        cwd: path.resolve(__dirname, '..'),
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          OPENCLAW_HOME: openClawHome
+        }
+      }
+    );
+
+    assert.equal(result.status, 0);
+    assert.equal(JSON.parse(result.stdout).status, 'installed');
+    assert.equal(result.stderr.trim(), '');
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('upgrade-sessions refreshes registered active sessions and skips closed sessions by default', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');
@@ -2102,6 +2136,104 @@ test('upgrade-sessions can run storage governance after rebuilding mirror data',
       assert.equal(archiveEntries.length, 5);
       assert.equal(latestRun.reason, 'upgrade-sessions');
       assert.ok(latestRun.totals.archived >= 1);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('upgrade-sessions reports structured progress events during long-running upgrade chains', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const activeWorkspace = path.join(workspace, 'active-project');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      const progressEvents = [];
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'peter',
+        defaultWorkspace: activeWorkspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      runSessionStart(activeWorkspace, 'active-session', 'active-project', {
+        userId: 'peter'
+      });
+
+      const result = runUpgradeSessions(openClawHome, path.join(openClawHome, 'skills'), {
+        rebuildMirror: true,
+        runGovernance: true,
+        progress: (event) => progressEvents.push(event)
+      });
+
+      assert.equal(result.status, 'ok');
+      assert.ok(progressEvents.some((event) => event.type === 'scan:start'));
+      assert.ok(progressEvents.some((event) => event.type === 'scan:done'));
+      assert.ok(progressEvents.some((event) => event.type === 'session:start'));
+      assert.ok(progressEvents.some((event) => event.type === 'session:done'));
+      assert.ok(progressEvents.some((event) => event.type === 'mirror:start'));
+      assert.ok(progressEvents.some((event) => event.type === 'mirror:done'));
+      assert.ok(progressEvents.some((event) => event.type === 'governance:start'));
+      assert.ok(progressEvents.some((event) => event.type === 'governance:target:done'));
+      assert.ok(progressEvents.some((event) => event.type === 'finish'));
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('upgrade-sessions CLI emits progress on stderr while keeping stdout as JSON', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const activeWorkspace = path.join(workspace, 'active-project');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'peter',
+        defaultWorkspace: activeWorkspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      runSessionStart(activeWorkspace, 'active-session', 'active-project', {
+        userId: 'peter'
+      });
+
+      const result = spawnSync(
+        process.execPath,
+        [
+          'scripts/upgrade-sessions.js',
+          '--openclaw-home',
+          openClawHome,
+          '--skills-root',
+          path.join(openClawHome, 'skills'),
+          '--rebuild-mirror',
+          '--run-governance'
+        ],
+        {
+          cwd: path.resolve(__dirname, '..'),
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            OPENCLAW_HOME: openClawHome
+          }
+        }
+      );
+
+      assert.equal(result.status, 0);
+      assert.match(result.stderr, /\[upgrade\] selected \d+ session\(s\) for processing/);
+      assert.match(result.stderr, /\[upgrade\] mirror rebuild: starting/);
+      assert.match(result.stderr, /\[upgrade\] governance: running \d+ target\(s\)/);
+      assert.match(result.stderr, /\[upgrade\] complete upgraded=\d+ skipped=\d+ unresolved=\d+/);
+      assert.equal(JSON.parse(result.stdout).status, 'ok');
     });
   } finally {
     cleanupWorkspace(workspace);

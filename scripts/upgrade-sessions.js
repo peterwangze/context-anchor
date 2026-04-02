@@ -92,6 +92,66 @@ function parseArgs(argv) {
   return options;
 }
 
+function emitProgress(progress, event) {
+  if (typeof progress === 'function') {
+    progress(event);
+  }
+}
+
+function formatCandidateLabel(workspace, sessionKey) {
+  const workspaceLabel = workspace ? path.basename(path.resolve(workspace)) : 'unresolved';
+  return `${sanitizeKey(sessionKey)} @ ${workspaceLabel}`;
+}
+
+function createCliProgressReporter(stream = process.stderr) {
+  return (event = {}) => {
+    if (!stream || typeof stream.write !== 'function') {
+      return;
+    }
+
+    let line = null;
+
+    switch (event.type) {
+      case 'scan:start':
+        line = '[upgrade] scanning registered and discovered sessions';
+        break;
+      case 'scan:done':
+        line = `[upgrade] selected ${event.selected || 0} session(s) for processing`;
+        break;
+      case 'session:start':
+        line = `[upgrade] session ${event.index}/${event.total}: ${formatCandidateLabel(event.workspace, event.session_key)}`;
+        break;
+      case 'session:done':
+        line = `[upgrade] session ${event.index}/${event.total}: ${event.action} ${formatCandidateLabel(event.workspace, event.session_key)}${event.reason ? ` (${event.reason})` : ''}`;
+        break;
+      case 'mirror:start':
+        line = '[upgrade] mirror rebuild: starting';
+        break;
+      case 'mirror:done':
+        line = `[upgrade] mirror rebuild: done workspaces=${(event.result?.workspaces_processed || []).length} users=${(event.result?.users_processed || []).length}`;
+        break;
+      case 'governance:start':
+        line = `[upgrade] governance: running ${event.total || 0} target(s)`;
+        break;
+      case 'governance:target:start':
+        line = `[upgrade] governance ${event.index}/${event.total}: ${formatCandidateLabel(event.workspace, event.session_key)}`;
+        break;
+      case 'governance:target:done':
+        line = `[upgrade] governance ${event.index}/${event.total}: archived=${event.result?.totals?.archived || 0} pruned=${event.result?.totals?.pruned || 0}`;
+        break;
+      case 'finish':
+        line = `[upgrade] complete upgraded=${event.upgraded_sessions || 0} skipped=${event.skipped_sessions || 0} unresolved=${event.unresolved_sessions || 0}`;
+        break;
+      default:
+        break;
+    }
+
+    if (line) {
+      stream.write(`${line}\n`);
+    }
+  };
+}
+
 function normalizeWorkspaceKey(workspace) {
   const resolved = path.resolve(workspace);
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
@@ -284,32 +344,88 @@ function upgradeCandidate(openClawHome, candidate, options = {}) {
 
 function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
   const openClawHome = getOpenClawHome(openClawHomeArg || options.openclawHome || null);
+  const progress = options.progress;
+  emitProgress(progress, {
+    type: 'scan:start'
+  });
   const candidates = collectUpgradeCandidates(openClawHome).filter((candidate) => matchesFilters(candidate, options));
-  const results = candidates.map((candidate) => upgradeCandidate(openClawHome, candidate, options));
+  emitProgress(progress, {
+    type: 'scan:done',
+    selected: candidates.length
+  });
+  const results = candidates.map((candidate, index) => {
+    emitProgress(progress, {
+      type: 'session:start',
+      index: index + 1,
+      total: candidates.length,
+      session_key: candidate.session_key,
+      workspace: candidate.workspace
+    });
+    const result = upgradeCandidate(openClawHome, candidate, options);
+    emitProgress(progress, {
+      type: 'session:done',
+      index: index + 1,
+      total: candidates.length,
+      session_key: candidate.session_key,
+      workspace: candidate.workspace,
+      action: result.action,
+      reason: result.reason || null
+    });
+    return result;
+  });
   const rebuildWorkspace =
     options.workspace ||
     ([...new Set(results.map((entry) => entry.workspace).filter(Boolean))].length === 1
       ? results.map((entry) => entry.workspace).filter(Boolean)[0]
       : null);
-  const mirrorRebuild = options.rebuildMirror
-    ? runMirrorRebuild(rebuildWorkspace, openClawHome, {})
-    : null;
+  let mirrorRebuild = null;
+  if (options.rebuildMirror) {
+    emitProgress(progress, {
+      type: 'mirror:start'
+    });
+    mirrorRebuild = runMirrorRebuild(rebuildWorkspace, openClawHome, {});
+    emitProgress(progress, {
+      type: 'mirror:done',
+      result: mirrorRebuild
+    });
+  }
   const governanceTargets = [...new Map(
     results
       .filter((entry) => entry.action === 'upgraded' && entry.workspace)
       .map((entry) => [`${normalizeWorkspaceKey(entry.workspace)}::${sanitizeKey(entry.session_key)}`, entry])
   ).values()];
-  const governanceRuns = options.runGovernance
-    ? governanceTargets.map((entry) =>
-        runStorageGovernance(entry.workspace, entry.session_key, {
-          reason: 'upgrade-sessions',
-          mode: options.governanceMode || undefined,
-          pruneArchive: options.governancePrune
-        })
-      )
-    : [];
+  let governanceRuns = [];
+  if (options.runGovernance) {
+    emitProgress(progress, {
+      type: 'governance:start',
+      total: governanceTargets.length
+    });
+    governanceRuns = governanceTargets.map((entry, index) => {
+      emitProgress(progress, {
+        type: 'governance:target:start',
+        index: index + 1,
+        total: governanceTargets.length,
+        session_key: entry.session_key,
+        workspace: entry.workspace
+      });
+      const result = runStorageGovernance(entry.workspace, entry.session_key, {
+        reason: 'upgrade-sessions',
+        mode: options.governanceMode || undefined,
+        pruneArchive: options.governancePrune
+      });
+      emitProgress(progress, {
+        type: 'governance:target:done',
+        index: index + 1,
+        total: governanceTargets.length,
+        session_key: entry.session_key,
+        workspace: entry.workspace,
+        result
+      });
+      return result;
+    });
+  }
 
-  return {
+  const summary = {
     status: 'ok',
     openclaw_home: openClawHome,
     selected_sessions: candidates.length,
@@ -321,12 +437,22 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
     governance_runs: governanceRuns,
     results
   };
+  emitProgress(progress, {
+    type: 'finish',
+    upgraded_sessions: summary.upgraded_sessions,
+    skipped_sessions: summary.skipped_sessions,
+    unresolved_sessions: summary.unresolved_sessions
+  });
+  return summary;
 }
 
 function main() {
   try {
     const options = parseArgs(process.argv.slice(2));
-    const result = runUpgradeSessions(options.openclawHome, options.skillsRoot, options);
+    const result = runUpgradeSessions(options.openclawHome, options.skillsRoot, {
+      ...options,
+      progress: createCliProgressReporter(process.stderr)
+    });
     console.log(JSON.stringify(result, null, 2));
   } catch (error) {
     console.log(
@@ -349,6 +475,7 @@ if (require.main === module) {
 
 module.exports = {
   collectUpgradeCandidates,
+  createCliProgressReporter,
   main,
   parseArgs,
   runUpgradeSessions

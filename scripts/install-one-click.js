@@ -190,6 +190,60 @@ function pathExists(target) {
   return fs.existsSync(target);
 }
 
+function emitProgress(progress, event) {
+  if (typeof progress === 'function') {
+    progress(event);
+  }
+}
+
+function createCliProgressReporter(stream = process.stderr) {
+  return (event = {}) => {
+    if (!stream || typeof stream.write !== 'function') {
+      return;
+    }
+
+    let line = null;
+    switch (event.type) {
+      case 'install:start':
+        line = '[install] preparing reinstall flow';
+        break;
+      case 'install:assets:start':
+        line = '[install] installing host assets';
+        break;
+      case 'install:assets:done':
+        line = '[install] host assets installed';
+        break;
+      case 'install:config:start':
+        line = '[install] applying host configuration';
+        break;
+      case 'install:config:done':
+        line = `[install] host configuration ${event.status || 'completed'}`;
+        break;
+      case 'install:upgrade:start':
+        line = '[install] running session upgrade chain';
+        break;
+      case 'install:upgrade:done':
+        line = `[install] session upgrade chain completed upgraded=${event.upgraded_sessions || 0}`;
+        break;
+      case 'install:mirror:start':
+        line = '[install] running mirror rebuild';
+        break;
+      case 'install:mirror:done':
+        line = '[install] mirror rebuild completed';
+        break;
+      default:
+        if (String(event.type || '').startsWith('upgrade:')) {
+          line = event.message || null;
+        }
+        break;
+    }
+
+    if (line) {
+      stream.write(`${line}\n`);
+    }
+  };
+}
+
 function dirHasFiles(targetDir) {
   if (!pathExists(targetDir)) {
     return false;
@@ -283,6 +337,13 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
   const state = detectExistingState(openClawHome, skillsRoot);
   const ask = options.ask || null;
   const assumeYes = Boolean(options.assumeYes);
+  const progress = options.progress;
+  const shouldReportInstallStages = Boolean(options.upgradeSessions);
+  if (shouldReportInstallStages) {
+    emitProgress(progress, {
+      type: 'install:start'
+    });
+  }
 
   let preserveMemories =
     typeof options.preserveMemories === 'boolean' ? options.preserveMemories : undefined;
@@ -321,7 +382,20 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
   }
 
   cleanupPreviousInstall(state, preserveMemories);
+  if (shouldReportInstallStages) {
+    emitProgress(progress, {
+      type: 'install:assets:start'
+    });
+  }
   const install = runInstallHostAssets(openClawHome, skillsRoot);
+  if (shouldReportInstallStages) {
+    emitProgress(progress, {
+      type: 'install:assets:done'
+    });
+    emitProgress(progress, {
+      type: 'install:config:start'
+    });
+  }
   const configuration = await runConfigureHost(openClawHome, skillsRoot, {
     assumeYes,
     applyConfig: options.applyConfig,
@@ -338,23 +412,116 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
     askText: options.askText,
     schedulerRegistrar: options.schedulerRegistrar
   });
+  if (shouldReportInstallStages) {
+    emitProgress(progress, {
+      type: 'install:config:done',
+      status: configuration?.config?.status || configuration?.status || 'completed'
+    });
+  }
   const upgradeRunGovernance =
     typeof options.runGovernance === 'boolean' ? options.runGovernance : options.upgradeSessions && preserveMemories !== false;
   const sessionUpgrade = options.upgradeSessions
-    ? runUpgradeSessions(openClawHome, skillsRoot, {
+    ? (emitProgress(progress, {
+        type: 'install:upgrade:start'
+      }),
+      runUpgradeSessions(openClawHome, skillsRoot, {
         workspace: options.upgradeWorkspace,
         sessionKey: options.upgradeSessionKey,
         includeClosed: options.includeClosedSessions,
         rebuildMirror: preserveMemories !== false,
         runGovernance: upgradeRunGovernance,
         governanceMode: options.governanceMode,
-        governancePrune: options.governancePrune
-      })
+        governancePrune: options.governancePrune,
+        progress: (event) => {
+          if (!progress) {
+            return;
+          }
+          if (event.type === 'scan:start') {
+            return;
+          }
+          if (event.type === 'scan:done') {
+            emitProgress(progress, {
+              type: 'upgrade:forwarded',
+              message: `[upgrade] selected ${event.selected || 0} session(s) for processing`
+            });
+            return;
+          }
+          if (event.type === 'session:start') {
+            emitProgress(progress, {
+              type: 'upgrade:forwarded',
+              message: `[upgrade] session ${event.index}/${event.total}: ${event.session_key}`
+            });
+            return;
+          }
+          if (event.type === 'session:done') {
+            emitProgress(progress, {
+              type: 'upgrade:forwarded',
+              message: `[upgrade] session ${event.index}/${event.total}: ${event.action}${event.reason ? ` (${event.reason})` : ''}`
+            });
+            return;
+          }
+          if (event.type === 'mirror:start') {
+            emitProgress(progress, {
+              type: 'upgrade:forwarded',
+              message: '[upgrade] mirror rebuild: starting'
+            });
+            return;
+          }
+          if (event.type === 'mirror:done') {
+            emitProgress(progress, {
+              type: 'upgrade:forwarded',
+              message: '[upgrade] mirror rebuild: done'
+            });
+            return;
+          }
+          if (event.type === 'governance:start') {
+            emitProgress(progress, {
+              type: 'upgrade:forwarded',
+              message: `[upgrade] governance: running ${event.total || 0} target(s)`
+            });
+            return;
+          }
+          if (event.type === 'governance:target:start') {
+            emitProgress(progress, {
+              type: 'upgrade:forwarded',
+              message: `[upgrade] governance ${event.index}/${event.total}: ${event.session_key}`
+            });
+            return;
+          }
+          if (event.type === 'governance:target:done') {
+            emitProgress(progress, {
+              type: 'upgrade:forwarded',
+              message: `[upgrade] governance ${event.index}/${event.total}: archived=${event.result?.totals?.archived || 0} pruned=${event.result?.totals?.pruned || 0}`
+            });
+            return;
+          }
+          if (event.type === 'finish') {
+            emitProgress(progress, {
+              type: 'upgrade:forwarded',
+              message: `[upgrade] complete upgraded=${event.upgraded_sessions || 0} skipped=${event.skipped_sessions || 0} unresolved=${event.unresolved_sessions || 0}`
+            });
+          }
+        }
+      }))
     : null;
+  if (sessionUpgrade) {
+    emitProgress(progress, {
+      type: 'install:upgrade:done',
+      upgraded_sessions: sessionUpgrade.upgraded_sessions
+    });
+  }
   const mirrorRebuild =
     !options.upgradeSessions && preserveMemories !== false && state.has_memory_data
-      ? runMirrorRebuild(options.upgradeWorkspace, openClawHome, {})
+      ? (emitProgress(progress, {
+          type: 'install:mirror:start'
+        }),
+        runMirrorRebuild(options.upgradeWorkspace, openClawHome, {}))
       : null;
+  if (mirrorRebuild) {
+    emitProgress(progress, {
+      type: 'install:mirror:done'
+    });
+  }
 
   return {
     status: 'installed',
@@ -371,7 +538,10 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
 async function main() {
   try {
     const options = parseArgs(process.argv.slice(2));
-    const result = await runOneClickInstall(options.openclawHome, options.skillsRoot, options);
+    const result = await runOneClickInstall(options.openclawHome, options.skillsRoot, {
+      ...options,
+      progress: createCliProgressReporter(process.stderr)
+    });
     console.log(JSON.stringify(result, null, 2));
   } catch (error) {
     console.log(
@@ -394,6 +564,7 @@ if (require.main === module) {
 
 module.exports = {
   cleanupPreviousInstall,
+  createCliProgressReporter,
   detectExistingState,
   runOneClickInstall
 };
