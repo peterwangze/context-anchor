@@ -4,6 +4,7 @@ const { createPaths, loadSessionState, sanitizeKey, writeSessionState } = requir
 const { recordSessionOwnership, resolveOwnership } = require('./lib/host-config');
 const { runContextPressureHandle } = require('./context-pressure-handle');
 const { runHeatEvaluation } = require('./heat-eval');
+const { runLegacyMemorySync } = require('./legacy-memory-sync');
 const { runMemoryFlow } = require('./memory-flow');
 const { runSessionExperienceSync } = require('./session-experience-sync');
 const { runSkillReconcile } = require('./skill-reconcile');
@@ -28,6 +29,10 @@ function runHeartbeat(workspaceArg, sessionKeyArg, projectIdArg, usagePercentArg
   sessionState.user_id = ownership.userId;
   sessionState.project_id = ownership.projectId;
   writeSessionState(paths, sessionState.session_key, sessionState);
+  const legacy_memory_sync = runLegacyMemorySync(paths.workspace, sessionState.session_key, {
+    projectId: sessionState.project_id,
+    reason: options.governanceReason || options.reason || 'heartbeat'
+  });
   recordSessionOwnership(paths.openClawHome, paths.workspace, sessionState, {
     status: sessionState.closed_at ? 'closed' : 'active'
   });
@@ -62,6 +67,7 @@ function runHeartbeat(workspaceArg, sessionKeyArg, projectIdArg, usagePercentArg
     session_key: sessionState.session_key,
     project_id: sessionState.project_id,
     session_experiences: sessionExperiences,
+    legacy_memory_sync,
     flow,
     heat,
     skillification,

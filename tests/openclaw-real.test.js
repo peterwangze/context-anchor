@@ -843,7 +843,7 @@ test(
 
         assert.ok(Array.isArray(event.context.bootstrapFiles));
         assert.equal(event.context.bootstrapFiles.length, 1);
-        assert.equal(event.context.bootstrapFiles[0].name, 'MEMORY.md');
+        assert.equal(event.context.bootstrapFiles[0].name, 'CONTEXT-ANCHOR.md');
         assert.ok(fs.existsSync(event.context.bootstrapFiles[0].path));
         assert.match(event.context.bootstrapFiles[0].content, /context-anchor/i);
 

@@ -49,6 +49,7 @@
 - 在后续 session 里自动复用之前的经验和技能
 - 只把短期热记忆直接注入 bootstrap，长期记忆继续留在持久化存储里按需查找
 - 关键集合会同步到内嵌 SQLite 镜像，减少热读和检索时反复扫描大 JSON 的成本
+- 如果 workspace 里还有外部 `MEMORY.md` / `memory/*.md`，会自动归并进 `context-anchor`，减少多套记忆源分裂
 - 第一次见到新 workspace 时，默认自动登记归属，尽量不打断你
 - 在合适的时候自动做 checkpoint、总结、经验提炼和技能治理
 - 运行中的 heartbeat / workspace monitor 也会持续把 session memory 增量提炼成 session experiences
@@ -59,6 +60,7 @@
 - `/compact` 前会先落 checkpoint 和记忆同步，完成后刷新 `compact-packet`、session experiences 和 session draft
 - `/stop`、`/new`、`/reset` 会自动收口当前 session，避免旧 session 悬空
 - OpenClaw 或 gateway 重启后，`gateway:startup` 先给恢复提示，进入对话时再由 `agent:bootstrap` 注入记忆
+- `agent:bootstrap` 注入的文件名现在是 `CONTEXT-ANCHOR.md`，不再和宿主或模型自己的 `MEMORY.md` 约定撞名
 - heartbeat 和后台 workspace monitor 会持续做增量经验提炼，不必等到 session close 才开始沉淀
 - heartbeat / workspace monitor 也会跨同一用户的已登记 workspace 汇总 project experiences，自动累积 user 级 cross-project evidence
 - 如果宿主的压力 snapshot 里带有结构化失败信息，context-pressure monitor 会自动把这些失败沉淀成 project lessons
@@ -363,6 +365,7 @@ node "<openclaw-home>/hooks/context-anchor-hook/handler.js" gateway:startup "./c
 
 - 如果 workspace 已登记但没有最近 session，返回 `idle`
 - 如果有最近活跃 session，返回 `resume_available` 和 `resume_message`
+- 真正注入到 OpenClaw 的 bootstrap 文件名会是 `CONTEXT-ANCHOR.md`，避免和外部 `MEMORY.md` 冲突
 - 默认自动登记开启时，未登记 workspace 会先被自动登记，然后继续返回 `idle` 或 `resume_available`
 - 如果你关闭了自动登记，workspace 未登记时才会返回 `needs_configuration`
 

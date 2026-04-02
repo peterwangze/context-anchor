@@ -36,6 +36,7 @@ OpenClaw 的安装、接入、验证和排错请先看 [README.md](README.md)。
 - heat 评估与 archive 标记
 - 经验自动校验与技能化评分
 - skill 创建脚本
+- 外部 `MEMORY.md` / `memory/*.md` 自动归并进 `context-anchor`
 - hook handler 与 host 安装脚本
 - 旧格式 `MEMORY.md` / `memory/` 迁移
 - 自动化测试
@@ -212,6 +213,7 @@ context-anchor/
 行为：
 
 - `agent:bootstrap`：把持久化上下文注入真实 OpenClaw session；未登记 workspace 时注入配置引导
+- bootstrap 注入文件名使用 `CONTEXT-ANCHOR.md`，避免和宿主/模型自己的 `MEMORY.md` 机制冲突
 - `command:new`：在 OpenClaw `/new` 前执行统一的 `session-close` 生命周期
 - `command:reset`：在 OpenClaw `/reset` 前执行统一的 `session-close` 生命周期
 - `command:stop`：在 OpenClaw `/stop` 时执行统一的 `session-close` 生命周期

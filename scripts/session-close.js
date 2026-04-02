@@ -14,6 +14,7 @@ const { recordSessionOwnership, resolveOwnership } = require('./lib/host-config'
 const { runCheckpointCreate } = require('./checkpoint-create');
 const { runCompactPacketCreate } = require('./compact-packet-create');
 const { runHeatEvaluation } = require('./heat-eval');
+const { runLegacyMemorySync } = require('./legacy-memory-sync');
 const { runMemoryFlow } = require('./memory-flow');
 const { runRuntimeStateUpdate } = require('./runtime-state-update');
 const { runSessionExperienceSync } = require('./session-experience-sync');
@@ -40,6 +41,10 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
   sessionState.user_id = ownership.userId;
   sessionState.project_id = ownership.projectId;
   writeSessionState(paths, sessionKey, sessionState);
+  const legacy_memory_sync = runLegacyMemorySync(paths.workspace, sessionKey, {
+    projectId: sessionState.project_id,
+    reason: options.reason || 'session-close'
+  });
   const checkpoint = runCheckpointCreate(paths.workspace, sessionKey, options.reason || 'session-close', {
     usagePercent: options.usagePercent
   });
@@ -118,6 +123,7 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
     project_id: sessionState.project_id,
     checkpoint,
     compact,
+    legacy_memory_sync,
     flow,
     session_experience_sync: sessionExperiences,
     session_summary_file: require('./lib/context-anchor').sessionSummaryFile(paths, sessionKey),

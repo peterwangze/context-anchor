@@ -15,6 +15,7 @@ const { recordSessionOwnership, resolveOwnership } = require('./lib/host-config'
 const { runCheckpointCreate } = require('./checkpoint-create');
 const { runCompactPacketCreate } = require('./compact-packet-create');
 const { runHeartbeat } = require('./heartbeat');
+const { runLegacyMemorySync } = require('./legacy-memory-sync');
 const { runRuntimeStateUpdate } = require('./runtime-state-update');
 const { runSessionExperienceSync } = require('./session-experience-sync');
 const { runSkillDraftCreate } = require('./skill-draft-create');
@@ -94,6 +95,14 @@ function runSessionCompact(workspaceArg, sessionKeyArg, options = {}) {
     result.checkpoint = runCheckpointCreate(paths.workspace, sessionKey, 'compact-before');
     actions.push('heartbeat', 'checkpoint_created');
   } else {
+    result.legacy_memory_sync = runLegacyMemorySync(paths.workspace, sessionKey, {
+      projectId: ownership.projectId,
+      userId: ownership.userId,
+      reason: 'compact-after'
+    });
+    if (result.legacy_memory_sync.synced_entries > 0) {
+      actions.push('legacy_memory_synced');
+    }
     result.session_experience_sync = runSessionExperienceSync(paths.workspace, sessionKey, {
       projectId: ownership.projectId,
       userId: ownership.userId

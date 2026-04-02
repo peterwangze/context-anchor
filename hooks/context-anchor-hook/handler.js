@@ -390,7 +390,7 @@ function handleManagedBootstrap(event) {
     }
   }
 
-  appendBootstrapFile(event, 'MEMORY.md', bootstrapCache, bootstrapContent);
+  appendBootstrapFile(event, 'CONTEXT-ANCHOR.md', bootstrapCache, bootstrapContent);
   return {
     status: 'handled',
     event: 'agent:bootstrap',

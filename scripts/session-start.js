@@ -55,6 +55,7 @@ const {
   writeUserMemories
 } = require('./lib/context-anchor');
 const { runMemoryFlow } = require('./memory-flow');
+const { runLegacyMemorySync } = require('./legacy-memory-sync');
 const { runScopePromote } = require('./scope-promote');
 const { runSkillReconcile } = require('./skill-reconcile');
 const { runSkillificationScore } = require('./skillification-score');
@@ -638,6 +639,10 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
   }
   sessionState.user_id = resolveUserId(sessionState.user_id || ownership.userId || DEFAULTS.userId);
   sessionState.project_id = projectId;
+  const legacyMemorySync = runLegacyMemorySync(paths.workspace, sessionKey, {
+    projectId,
+    reason: 'session-start'
+  });
   const continuationRecovery = recoverContinuationSource(
     paths,
     sessionKey,
@@ -810,7 +815,8 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
     recommended_reuse: recommendedReuse,
     related_sessions: relatedSessions,
     compatibility: {
-      legacy_memory_files: detectLegacyMemory(paths.workspace)
+      legacy_memory_files: detectLegacyMemory(paths.workspace),
+      legacy_memory_sync: legacyMemorySync
     }
   };
 

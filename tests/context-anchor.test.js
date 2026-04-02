@@ -51,6 +51,7 @@ const { runContextPressureMonitor } = require('../scripts/context-pressure-monit
 const { handleHookEvent, handleManagedHookEvent } = require('../hooks/context-anchor-hook/handler');
 const { runExperienceValidate } = require('../scripts/experience-validate');
 const { runInstallHostAssets } = require('../scripts/install-host-assets');
+const { runLegacyMemorySync } = require('../scripts/legacy-memory-sync');
 const { runOneClickInstall } = require('../scripts/install-one-click');
 const { runMigrateGlobalToUser } = require('../scripts/migrate-global-to-user');
 const { runMirrorRebuild } = require('../scripts/mirror-rebuild');
@@ -206,6 +207,72 @@ test('session-start preserves existing session state', () => {
     assert.equal(nextState.active_task, 'keep-me');
     assert.equal(nextState.commitments.length, 1);
     assert.equal(result.session.restored, true);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('session-start auto-ingests legacy MEMORY.md into context-anchor project memory and stays idempotent', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      fs.writeFileSync(
+        path.join(workspace, 'MEMORY.md'),
+        [
+          '## MEM-legacy-1',
+          'type: best_practice',
+          'heat: 88',
+          'tags: [legacy, model-memory]',
+          'Use one unified memory plane for long tasks.'
+        ].join('\n'),
+        'utf8'
+      );
+
+      const first = runSessionStart(workspace, 'legacy-sync-session', 'demo');
+      const second = runSessionStart(workspace, 'legacy-sync-session', 'demo');
+      const experiences = readJson(
+        path.join(workspace, '.context-anchor', 'projects', 'demo', 'experiences.json'),
+        { experiences: [] }
+      ).experiences;
+      const syncState = readJson(path.join(workspace, '.context-anchor', 'legacy-memory-sync.json'), { files: {} });
+
+      assert.equal(first.compatibility.legacy_memory_sync.synced_entries, 1);
+      assert.equal(second.compatibility.legacy_memory_sync.synced_entries, 0);
+      assert.equal(experiences.length, 1);
+      assert.match(experiences[0].summary, /unified memory plane/);
+      assert.ok(syncState.files['MEMORY.md']);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('legacy memory sync can ingest raw external memory files without MEM entry blocks', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      fs.mkdirSync(path.join(workspace, 'memory'), { recursive: true });
+      fs.writeFileSync(
+        path.join(workspace, 'memory', 'model-note.md'),
+        '# External Memory\n\nThis was written by another model path and should still be centralized.',
+        'utf8'
+      );
+
+      const result = runLegacyMemorySync(workspace, 'legacy-raw', {
+        projectId: 'demo',
+        reason: 'test'
+      });
+      const facts = readJson(
+        path.join(workspace, '.context-anchor', 'projects', 'demo', 'facts.json'),
+        { facts: [] }
+      ).facts;
+
+      assert.equal(result.synced_entries, 1);
+      assert.equal(facts.length, 1);
+      assert.match(facts[0].content, /written by another model path/);
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -3786,6 +3853,7 @@ test('managed bootstrap injects recovered continuity for an unfinished prior ses
       assert.equal(result.status, 'handled');
       assert.equal(result.actions[0], 'bootstrap_injected');
       assert.equal(event.context.bootstrapFiles.length, 1);
+      assert.equal(event.context.bootstrapFiles[0].name, 'CONTEXT-ANCHOR.md');
       assert.match(event.context.bootstrapFiles[0].content, /Continued from: bootstrap-source/);
       assert.match(event.context.bootstrapFiles[0].content, /repair checkout retries/);
       assert.match(event.context.bootstrapFiles[0].content, /checkout retries/);
