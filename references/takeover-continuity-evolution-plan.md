@@ -53,19 +53,31 @@
   - 新增本路线文档
   - 已将 README 文档导航接入本路线
   - 已在旧存储演进文档中补充“后续方向”指引
+- `2026-04-03`
+  - 已完成 `Stage 1：多记忆源漂移观测`
+  - `doctor` 已增加 external memory source count、last legacy sync time、drift status
+  - `status-report` 已增加 external source summary、memory source health、recommended action
+  - `sessions-status / sessions-diagnose` 已增加 drift issue 类型、按 drift 给出更精准 repair / follow-up 命令
+  - 已新增 `migrate:memory` CLI 作为外部记忆归并入口
+  - 已补充 Stage 1 自动化测试，覆盖 `single_source / best_effort / drift_detected`
+- `2026-04-03`
+  - 已启动 `Stage 2：接管能力强化`
+  - `configure-host / install-one-click / upgrade-sessions` 已增加 `takeover_audit`
+  - 强制接管模式下，如外部记忆源在最近同步后仍发生变化，会明确返回 warning
+  - install / upgrade 的进度输出已可回显 takeover audit 摘要
+  - 已补充 Stage 2 自动化测试，覆盖 enforced drift warning 与 install / upgrade audit 回读
 
 当前仍未完成的重点：
 
-- 还没有独立的“多记忆源漂移状态”观测模型
 - 用户仍然不够容易看到“这次恢复了什么 / 新沉淀了什么”
 - 任务连续性还没有形成明确的 goal/result/next-step 模型
 - 严格模式还没有形成完整的 drift 告警与自动修复闭环
 
 下一步建议：
 
-1. 先做 `Stage 1：多记忆源漂移观测`
-2. 再做 `Stage 2：接管能力强化`
-3. 然后推进 `Stage 3：收益显性化`
+1. 先做 `Stage 2：接管能力强化`
+2. 再做 `Stage 3：收益显性化`
+3. 然后推进 `Stage 4：任务连续性模型`
 
 后续每一轮开发完成后，都应更新本节，至少补：
 
@@ -99,7 +111,6 @@
 
 当前仍未完成的关键问题：
 
-- 还不能稳定观测“当前 workspace / profile 是否存在多记忆源漂移”
 - 用户还看不清“这次恢复了什么”和“这次系统新沉淀了什么”
 - 任务连续性仍偏“材料恢复”，还不够“状态恢复”
 - 严格接管模式还没有形成完整的 drift 告警、强约束和自动修复闭环
@@ -225,11 +236,13 @@
 
 状态：
 
-- `未开始`
-- 已有铺垫：
-  - memory takeover mode
-  - legacy memory sync
-  - repair 路由修正
+- `已完成`
+- 已完成内容：
+  - `doctor` 已输出 external memory source count、last legacy sync time、drift status
+  - `status-report` 已输出 external source summary、memory source health、recommended action
+  - `sessions-status / sessions-diagnose` 已把 drift 纳入 issue 和 repair 路由
+  - 已补 `migrate:memory` 命令统一归并外部 `MEMORY.md` / `memory/*.md`
+  - 已补测试覆盖 `single_source / best_effort / drift_detected`
 
 ## Stage 2：接管能力强化
 
@@ -261,10 +274,15 @@
 
 状态：
 
-- `未开始`
-- 已有铺垫：
-  - install / configure / upgrade 交互式接管选项
-  - bootstrap 注入文件改名，避免 `MEMORY.md` 冲突
+- `进行中`
+- 已完成部分：
+  - `configure-host / install-one-click / upgrade-sessions` 已执行接管一致性回读审计
+  - enforced 模式下的 external drift 已提升为明确 warning
+  - install / upgrade 已可回显 `takeover_audit` 摘要
+- 仍待完成：
+  - 文件变化 watcher
+  - 多 profile / 多 workspace host audit
+  - 更强的 strict-mode repair 闭环
 
 ## Stage 3：收益显性化
 

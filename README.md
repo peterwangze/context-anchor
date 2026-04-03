@@ -258,6 +258,18 @@ node scripts/doctor.js
 node scripts/doctor.js --openclaw-home "D:/openclaw-home" --skills-root "D:/openclaw-home/skills"
 ```
 
+`doctor.js` 现在除了安装和 host 配置状态，还会显示：
+
+- `memory_sources.external_source_count`
+- `memory_sources.last_legacy_sync_at`
+- `memory_sources.health.status`
+
+如果你想明确检查某个 workspace 是否存在外部 `MEMORY.md` / `memory/*.md` 漂移，建议显式带上：
+
+```bash
+node scripts/doctor.js --workspace "<workspace>"
+```
+
 查看 session 状态：
 
 ```bash
@@ -268,6 +280,18 @@ node scripts/sessions-status.js
 
 ```bash
 node scripts/sessions-diagnose.js
+```
+
+`sessions-status.js` 和 `sessions-diagnose.js` 现在会按 workspace 显示：
+
+- `SINGLE_SOURCE`
+- `BEST_EFFORT`
+- `DRIFT`
+
+如果检测到外部记忆源已经变化或还没归并，输出里会直接给出对应的 repair 命令。你也可以手工执行：
+
+```bash
+npm run migrate:memory -- --workspace "<workspace>"
 ```
 
 升级存量 session：
@@ -293,6 +317,9 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 ```
 
 如果状态查询提示异常，先跑 `sessions-diagnose.js`，再按输出里的诊断命令和修复命令处理。`sessions-status.js` 支持 `--json`，`configure-sessions.js` 和 `upgrade-sessions.js` 也支持 `--workspace` / `--session-key` 只处理一个 workspace 或 session。
+
+`configure-host.js`、`install-one-click.js` 和 `upgrade-sessions.js` 的 JSON 结果里现在也会带 `takeover_audit`。  
+如果你已经开启强制接管，但外部记忆文件还在最近一次归并后继续变化，audit 会直接返回 warning 和推荐修复命令。
 
 `upgrade-sessions.js` 会一次性刷新已发现或已登记的存量 session，重新生成 bootstrap cache，并让这些 session 在下一次 hook / bootstrap 时直接使用最新 runtime 行为；默认跳过已关闭 session，传 `--include-closed` 才会连已关闭 session 一起刷新。传 `--rebuild-mirror` 时，还会顺手把已有 JSON 资产回填到 SQLite mirror。传 `--run-governance` 时，还会在 mirror 回填之后立刻对升级到的 session 运行一次 storage governance。
 

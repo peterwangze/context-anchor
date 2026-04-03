@@ -7,6 +7,7 @@ const path = require('path');
 const readline = require('readline');
 const { execFileSync } = require('child_process');
 const { ensureDir, getOpenClawHome, writeJson, writeText } = require('./lib/context-anchor');
+const { runTakeoverAudit } = require('./doctor');
 const {
   DEFAULT_USER_ID,
   getHostConfigFile,
@@ -987,6 +988,18 @@ async function runConfigureHost(openClawHomeArg, skillsRootArg, options = {}) {
     }
   }
 
+  const auditWorkspace =
+    ownership.defaults.workspace ||
+    options.schedulerWorkspace ||
+    options.defaultWorkspace ||
+    ownership.added_workspaces?.[0]?.workspace ||
+    null;
+  const takeoverAudit = runTakeoverAudit({
+    openClawHome,
+    skillsRoot,
+    workspace: auditWorkspace
+  });
+
   return {
     status: 'configured',
     paths,
@@ -1002,7 +1015,8 @@ async function runConfigureHost(openClawHomeArg, skillsRootArg, options = {}) {
           ]
     },
     ownership,
-    scheduler
+    scheduler,
+    takeover_audit: takeoverAudit
   };
 }
 

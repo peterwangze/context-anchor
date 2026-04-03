@@ -18,6 +18,7 @@ const {
 } = require('./lib/host-config');
 const { discoverOpenClawSessions } = require('./lib/openclaw-session-discovery');
 const { runConfigureHost } = require('./configure-host');
+const { runTakeoverAudit } = require('./doctor');
 const { runMirrorRebuild } = require('./mirror-rebuild');
 const { runSessionStart } = require('./session-start');
 const { runStorageGovernance } = require('./storage-governance');
@@ -393,6 +394,12 @@ function upgradeCandidate(openClawHome, candidate, options = {}) {
 
 function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
   const openClawHome = getOpenClawHome(openClawHomeArg || options.openclawHome || null);
+  const skillsRoot = path.resolve(
+    skillsRootArg ||
+      options.skillsRoot ||
+      process.env.CONTEXT_ANCHOR_SKILLS_ROOT ||
+      path.join(openClawHome, 'skills')
+  );
   const progress = options.progress;
   emitProgress(progress, {
     type: 'scan:start'
@@ -474,6 +481,16 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
     });
   }
 
+  const auditWorkspace =
+    options.workspace ||
+    results.find((entry) => entry.workspace && entry.action === 'upgraded')?.workspace ||
+    results.find((entry) => entry.workspace)?.workspace ||
+    null;
+  const takeoverAudit = runTakeoverAudit({
+    openClawHome,
+    skillsRoot,
+    workspace: auditWorkspace
+  });
   const summary = {
     status: 'ok',
     openclaw_home: openClawHome,
@@ -484,8 +501,16 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
     configuration_required_sessions: results.filter((entry) => entry.reason === 'workspace_needs_configuration').length,
     mirror_rebuild: mirrorRebuild,
     governance_runs: governanceRuns,
+    takeover_audit: takeoverAudit,
     results
   };
+  if (takeoverAudit.status !== 'ok') {
+    emitProgress(progress, {
+      type: 'takeover:audit',
+      status: takeoverAudit.status,
+      message: `[upgrade] takeover audit: ${takeoverAudit.summary}`
+    });
+  }
   emitProgress(progress, {
     type: 'finish',
     upgraded_sessions: summary.upgraded_sessions,

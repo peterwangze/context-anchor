@@ -6,6 +6,10 @@ const { execFileSync } = require('child_process');
 const { runDoctor } = require('../doctor');
 const { createPaths, sanitizeKey } = require('./context-anchor');
 const { summarizeCatalogDatabase } = require('./context-anchor-db');
+const {
+  classifyMemorySourceHealth,
+  summarizeExternalMemorySources
+} = require('../legacy-memory-sync');
 const { discoverOpenClawSessions } = require('./openclaw-session-discovery');
 const {
   findSession,
@@ -47,6 +51,10 @@ function buildNpmCommand(scriptName, options = {}) {
     forwarded.push('--session-key', quoteCommandArg(options.sessionKey));
   }
 
+  if (options.projectId) {
+    forwarded.push('--project-id', quoteCommandArg(options.projectId));
+  }
+
   if (options.openclawHome) {
     forwarded.push('--openclaw-home', quoteCommandArg(options.openclawHome));
   }
@@ -57,6 +65,14 @@ function buildNpmCommand(scriptName, options = {}) {
 
   if (options.yes) {
     forwarded.push('--yes');
+  }
+
+  if (options.applyConfig) {
+    forwarded.push('--apply-config');
+  }
+
+  if (options.enforceMemoryTakeover) {
+    forwarded.push('--enforce-memory-takeover');
   }
 
   if (options.json) {
@@ -106,6 +122,14 @@ function collectSessionIssues(classification = {}) {
   return issues;
 }
 
+function collectMemorySourceIssues(memorySourceHealth = {}) {
+  if (!memorySourceHealth || memorySourceHealth.status === 'unknown') {
+    return [];
+  }
+
+  return Array.isArray(memorySourceHealth.drift_reasons) ? [...memorySourceHealth.drift_reasons] : [];
+}
+
 function describeIssue(issue) {
   switch (issue) {
     case 'workspace_unresolved':
@@ -118,16 +142,42 @@ function describeIssue(issue) {
       return 'background monitor is not configured';
     case 'monitor_legacy_window':
       return 'background monitor uses a visible Windows launcher';
+    case 'legacy_memory_never_synced':
+      return 'external memory source has not been centralized yet';
+    case 'legacy_memory_changed_since_sync':
+      return 'external memory source changed after the last sync';
     default:
       return issue;
   }
 }
 
-function buildGroupScope(group) {
+function buildUnknownMemorySourceStatus(memoryTakeoverMode) {
+  return {
+    workspace: null,
+    external_source_count: 0,
+    changed_source_count: 0,
+    never_synced_source_count: 0,
+    unsynced_source_count: 0,
+    last_legacy_sync_at: null,
+    sync_status: 'workspace_unresolved',
+    sources: [],
+    health: {
+      status: 'unknown',
+      level: 'notice',
+      memory_takeover_mode: memoryTakeoverMode === 'enforced' ? 'enforced' : 'best_effort',
+      drift_detected: false,
+      drift_reasons: [],
+      summary: 'Workspace is unresolved, so external memory drift cannot be inspected.'
+    }
+  };
+}
+
+function buildGroupScope(group, options = {}) {
   const firstResolvedSession = group.sessions.find((entry) => entry.workspace);
   return {
     workspace: normalizeScopeWorkspace(group.workspace || firstResolvedSession?.workspace),
-    sessionKey: !group.workspace && group.sessions.length > 0 ? group.sessions[0].session_key : null
+    sessionKey: !group.workspace && group.sessions.length > 0 ? group.sessions[0].session_key : null,
+    projectId: options.projectId || firstResolvedSession?.project_id || null
   };
 }
 
@@ -159,6 +209,7 @@ function buildActionCommands(scope, options = {}) {
   const commandScope = {
     workspace: scope.workspace || null,
     sessionKey: scope.sessionKey || null,
+    projectId: scope.projectId || null,
     openclawHome: options.openclawHome || null,
     skillsRoot: options.skillsRoot || null
   };
@@ -167,6 +218,10 @@ function buildActionCommands(scope, options = {}) {
   });
 
   let repair_command;
+  let follow_up_command = null;
+  const needsMemorySync =
+    issues.includes('legacy_memory_never_synced') ||
+    issues.includes('legacy_memory_changed_since_sync');
   const needsSessionRepair =
     issues.includes('workspace_unresolved') ||
     issues.includes('session_not_ready');
@@ -175,12 +230,23 @@ function buildActionCommands(scope, options = {}) {
     issues.includes('monitor_not_configured') ||
     issues.includes('monitor_legacy_window') ||
     options.globalConfigurationReady === false;
+  const needsTakeoverEnforcement =
+    options.memoryTakeoverMode !== 'enforced' &&
+    !needsSessionRepair &&
+    !needsHostRepair &&
+    (needsMemorySync || options.memorySourceStatus === 'best_effort');
 
   if (needsSessionRepair) {
     repair_command = buildNpmCommand('configure:sessions', {
       ...commandScope,
       yes: Boolean(options.forceYes)
     });
+    if (needsMemorySync && scope.workspace) {
+      follow_up_command = buildNpmCommand('migrate:memory', {
+        workspace: scope.workspace,
+        projectId: scope.projectId || null
+      });
+    }
   } else if (needsHostRepair) {
     const extraArgs = ['--apply-config'];
     if (scope.workspace && (issues.includes('monitor_not_configured') || issues.includes('monitor_legacy_window'))) {
@@ -188,10 +254,40 @@ function buildActionCommands(scope, options = {}) {
     }
     repair_command = buildNpmCommand('configure:host', {
       workspace: scope.workspace || null,
+        openclawHome: options.openclawHome || null,
+        skillsRoot: options.skillsRoot || null,
+        yes: true,
+        extraArgs
+      });
+    if (needsMemorySync && scope.workspace) {
+      follow_up_command = buildNpmCommand('migrate:memory', {
+        workspace: scope.workspace,
+        projectId: scope.projectId || null
+      });
+    }
+  } else if (needsMemorySync && scope.workspace) {
+    repair_command = buildNpmCommand('migrate:memory', {
+      workspace: scope.workspace,
+      projectId: scope.projectId || null
+    });
+    if (needsTakeoverEnforcement) {
+      follow_up_command = buildNpmCommand('configure:host', {
+        workspace: scope.workspace || null,
+        openclawHome: options.openclawHome || null,
+        skillsRoot: options.skillsRoot || null,
+        applyConfig: true,
+        enforceMemoryTakeover: true,
+        yes: true
+      });
+    }
+  } else if (needsTakeoverEnforcement && scope.workspace) {
+    repair_command = buildNpmCommand('configure:host', {
+      workspace: scope.workspace || null,
       openclawHome: options.openclawHome || null,
       skillsRoot: options.skillsRoot || null,
-      yes: true,
-      extraArgs
+      applyConfig: true,
+      enforceMemoryTakeover: true,
+      yes: true
     });
   } else {
     repair_command = buildNpmCommand('configure:sessions', {
@@ -202,7 +298,8 @@ function buildActionCommands(scope, options = {}) {
 
   return {
     diagnostic_command,
-    repair_command
+    repair_command,
+    follow_up_command
   };
 }
 
@@ -544,15 +641,35 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
           userId: hostConfig.defaults.user_id
         })
       : null;
-    const issues = [...new Set(group.sessions.flatMap((session) => session.classification.issues || []))];
-    const commandScope = buildGroupScope(group);
+    const memorySources = workspace
+      ? summarizeExternalMemorySources(workspace)
+      : buildUnknownMemorySourceStatus(doctor.configuration.memory_takeover_mode);
+    const memorySourceHealth = workspace
+      ? classifyMemorySourceHealth(memorySources, {
+          memoryTakeoverMode: doctor.configuration.memory_takeover_mode
+        })
+      : memorySources.health;
+    const issues = [
+      ...new Set([
+        ...group.sessions.flatMap((session) => session.classification.issues || []),
+        ...collectMemorySourceIssues(memorySourceHealth)
+      ])
+    ];
+    const commandScope = buildGroupScope(group, {
+      projectId:
+        workspaceStatus?.workspaceEntry?.project_id ||
+        workspaceStatus?.suggestedProjectId ||
+        group.sessions[0]?.project_id ||
+        null
+    });
     const commands = buildActionCommands(commandScope, {
       openclawHome: resolvedOpenClawHome,
       skillsRoot,
-      forceYes: Boolean(commandScope.workspace)
-      ,
+      forceYes: Boolean(commandScope.workspace),
       issues,
-      globalConfigurationReady: doctor.configuration.ready
+      globalConfigurationReady: doctor.configuration.ready,
+      memoryTakeoverMode: doctor.configuration.memory_takeover_mode,
+      memorySourceStatus: memorySourceHealth.status
     });
     const hookStatus = workspace
       ? group.sessions[0]?.classification?.hook || 'off'
@@ -569,13 +686,19 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
       hook_status: hookStatus,
       monitor_status: monitorStatus,
       mirror: buildWorkspaceMirrorSummary(workspace),
+      memory_sources: {
+        ...memorySources,
+        health: memorySourceHealth
+      },
       workspace_status: workspaceStatus,
       session_count: group.sessions.length,
       ready_count: ready,
       attention_count: attention,
+      needs_attention: issues.length > 0,
       issues,
       diagnostic_command: commands.diagnostic_command,
       repair_command: commands.repair_command,
+      follow_up_command: commands.follow_up_command,
       sessions: group.sessions.sort((left, right) => {
         return Number(right.updated_at || 0) - Number(left.updated_at || 0);
       })
@@ -597,11 +720,14 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
     attention_sessions: sessions.filter((entry) => entry.classification.overall !== 'ready').length,
     unresolved_sessions: sessions.filter((entry) => entry.workspace === null).length,
     hook_on_workspaces: groups.filter((entry) => entry.hook_status === 'on').length,
-    monitor_running_workspaces: groups.filter((entry) => entry.monitor_status === 'running').length
+    monitor_running_workspaces: groups.filter((entry) => entry.monitor_status === 'running').length,
+    single_source_workspaces: groups.filter((entry) => entry.memory_sources.health.status === 'single_source').length,
+    best_effort_workspaces: groups.filter((entry) => entry.memory_sources.health.status === 'best_effort').length,
+    drift_workspaces: groups.filter((entry) => entry.memory_sources.health.status === 'drift_detected').length
   };
 
   return {
-    status: 'ok',
+    status: summary.attention_sessions > 0 || summary.drift_workspaces > 0 ? 'warning' : 'ok',
     openclaw_home: resolvedOpenClawHome,
     skills_root: skillsRoot,
     scope,
@@ -648,8 +774,13 @@ function renderCommandSummary(report) {
   const lines = [];
   lines.push(`Diagnostic command: ${report.commands.diagnostic_command}`);
   lines.push(`Repair command: ${report.commands.repair_command}`);
+  if (report.summary.drift_workspaces > 0) {
+    lines.push(`Memory drift detected in ${report.summary.drift_workspaces} workspace(s); prefer the per-workspace repair command shown below.`);
+  }
   if (report.summary.attention_sessions > 0) {
     lines.push(`Warning: ${report.summary.attention_sessions} session(s) need attention. Run the diagnostic command first, then the repair command.`);
+  } else if (report.summary.drift_workspaces > 0) {
+    lines.push('Session linkage looks healthy, but external memory drift still needs attention.');
   } else {
     lines.push('All discovered sessions are healthy.');
   }
@@ -672,6 +803,11 @@ function renderOpenClawSessionStatusReport(report) {
       `Needs attention: ${report.summary.attention_sessions} | ` +
       `Unresolved: ${report.summary.unresolved_sessions}`
   );
+  lines.push(
+    `Memory sources: SINGLE_SOURCE ${report.summary.single_source_workspaces} | ` +
+      `BEST_EFFORT ${report.summary.best_effort_workspaces} | ` +
+      `DRIFT ${report.summary.drift_workspaces}`
+  );
   lines.push(...renderCommandSummary(report));
   lines.push('');
 
@@ -690,10 +826,19 @@ function renderOpenClawSessionStatusReport(report) {
         `Docs: ${group.mirror.documents} | ` +
         `Indexed sessions: ${group.mirror.indexed_sessions}`
     );
-    if (group.attention_count > 0) {
+    lines.push(
+      `  Memory: ${group.memory_sources.health.status.toUpperCase()} | ` +
+        `External: ${group.memory_sources.external_source_count} | ` +
+        `Unsynced: ${group.memory_sources.unsynced_source_count} | ` +
+        `Last sync: ${group.memory_sources.last_legacy_sync_at || '-'}`
+    );
+    if (group.issues.length > 0) {
       lines.push(`  Issues: ${group.issues.map(describeIssue).join(', ')}`);
       lines.push(`  Diagnose: ${group.diagnostic_command}`);
       lines.push(`  Repair: ${group.repair_command}`);
+      if (group.follow_up_command) {
+        lines.push(`  Follow-up: ${group.follow_up_command}`);
+      }
     }
 
     const rows = renderSessionRows(group.sessions);
@@ -701,7 +846,7 @@ function renderOpenClawSessionStatusReport(report) {
     lines.push('');
   }
 
-  lines.push('Legend: READY = linked session state and host registration; PARTIAL = only one side is present; ON = hook is enabled; RUNNING = monitor task is active.');
+  lines.push('Legend: READY = linked session state and host registration; PARTIAL = only one side is present; ON = hook is enabled; RUNNING = monitor task is active; DRIFT = external memory files changed after the last central sync.');
 
   return lines.join('\n');
 }
@@ -713,7 +858,7 @@ function renderOpenClawSessionDiagnosisReport(report) {
   lines.push(...renderCommandSummary(report));
   lines.push('');
 
-  const problemGroups = report.groups.filter((group) => group.attention_count > 0);
+  const problemGroups = report.groups.filter((group) => group.issues.length > 0);
   if (problemGroups.length === 0) {
     lines.push('No session anomalies detected.');
     lines.push('');
@@ -725,8 +870,17 @@ function renderOpenClawSessionDiagnosisReport(report) {
           `Docs: ${group.mirror.documents} | ` +
           `Indexed sessions: ${group.mirror.indexed_sessions}`
       );
+      lines.push(
+        `  Memory: ${group.memory_sources.health.status.toUpperCase()} | ` +
+          `External: ${group.memory_sources.external_source_count} | ` +
+          `Unsynced: ${group.memory_sources.unsynced_source_count} | ` +
+          `Last sync: ${group.memory_sources.last_legacy_sync_at || '-'}`
+      );
       lines.push(`  Diagnose: ${group.diagnostic_command}`);
       lines.push(`  Repair: ${group.repair_command}`);
+      if (group.follow_up_command) {
+        lines.push(`  Follow-up: ${group.follow_up_command}`);
+      }
       lines.push(...renderSessionRows(group.sessions));
       lines.push('');
     }
@@ -741,9 +895,18 @@ function renderOpenClawSessionDiagnosisReport(report) {
         `Docs: ${group.mirror.documents} | ` +
         `Indexed sessions: ${group.mirror.indexed_sessions}`
     );
+    lines.push(
+      `  Memory: ${group.memory_sources.health.status.toUpperCase()} | ` +
+        `External: ${group.memory_sources.external_source_count} | ` +
+        `Unsynced: ${group.memory_sources.unsynced_source_count} | ` +
+        `Last sync: ${group.memory_sources.last_legacy_sync_at || '-'}`
+    );
     lines.push(`  Issues: ${group.issues.map(describeIssue).join(', ')}`);
     lines.push(`  Diagnose: ${group.diagnostic_command}`);
     lines.push(`  Repair: ${group.repair_command}`);
+    if (group.follow_up_command) {
+      lines.push(`  Follow-up: ${group.follow_up_command}`);
+    }
     lines.push(...renderSessionRows(group.sessions));
     lines.push('');
   }

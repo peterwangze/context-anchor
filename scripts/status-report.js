@@ -40,6 +40,44 @@ const {
 } = require('./lib/context-anchor');
 const { describeCollectionFile, readLatestGovernanceRun } = require('./lib/context-anchor-db');
 const { resolveOwnership } = require('./lib/host-config');
+const {
+  classifyMemorySourceHealth,
+  summarizeExternalMemorySources
+} = require('./legacy-memory-sync');
+
+function quoteArg(value) {
+  return `"${String(value).replace(/"/g, '\\"')}"`;
+}
+
+function buildNpmScriptCommand(scriptName, options = {}) {
+  const forwarded = [];
+
+  if (options.workspace) {
+    forwarded.push('--workspace', quoteArg(options.workspace));
+  }
+  if (options.projectId) {
+    forwarded.push('--project-id', quoteArg(options.projectId));
+  }
+  if (options.openclawHome) {
+    forwarded.push('--openclaw-home', quoteArg(options.openclawHome));
+  }
+  if (options.skillsRoot) {
+    forwarded.push('--skills-root', quoteArg(options.skillsRoot));
+  }
+  if (options.applyConfig) {
+    forwarded.push('--apply-config');
+  }
+  if (options.enforceMemoryTakeover) {
+    forwarded.push('--enforce-memory-takeover');
+  }
+  if (options.yes) {
+    forwarded.push('--yes');
+  }
+
+  return forwarded.length > 0
+    ? `npm run ${scriptName} -- ${forwarded.join(' ')}`
+    : `npm run ${scriptName}`;
+}
 
 function summarizeSkillEvidence(skills = []) {
   const entries = skills.flatMap((skill) =>
@@ -195,9 +233,55 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
     user: userSkills
   });
   const skillStatusCounts = countByStatus(diagnostics.all);
+  const externalSources = summarizeExternalMemorySources(paths.workspace);
+  const memorySourceHealth = classifyMemorySourceHealth(externalSources, {
+    memoryTakeoverMode: ownership.config?.onboarding?.memory_takeover_mode
+  });
+  const recommendedAction =
+    memorySourceHealth.status === 'drift_detected'
+      ? {
+          type: 'sync_legacy_memory',
+          priority: 'high',
+          summary: 'External memory sources changed after the last sync. Re-sync them into context-anchor now.',
+          command: buildNpmScriptCommand('migrate:memory', {
+            workspace: paths.workspace,
+            projectId
+          }),
+          follow_up_command:
+            memorySourceHealth.memory_takeover_mode === 'enforced'
+              ? null
+              : buildNpmScriptCommand('configure:host', {
+                  workspace: paths.workspace,
+                  openclawHome: paths.openClawHome,
+                  applyConfig: true,
+                  enforceMemoryTakeover: true,
+                  yes: true
+                })
+        }
+      : memorySourceHealth.status === 'best_effort'
+        ? {
+            type: 'enforce_memory_takeover',
+            priority: 'medium',
+            summary: 'Takeover is still best-effort. Enforce context-anchor takeover to reduce future memory bypass.',
+            command: buildNpmScriptCommand('configure:host', {
+              workspace: paths.workspace,
+              openclawHome: paths.openClawHome,
+              applyConfig: true,
+              enforceMemoryTakeover: true,
+              yes: true
+            }),
+            follow_up_command: null
+          }
+        : {
+            type: 'none',
+            priority: 'low',
+            summary: 'No repair action required.',
+            command: null,
+            follow_up_command: null
+          };
 
   const report = {
-    status: 'ok',
+    status: memorySourceHealth.drift_detected ? 'warning' : 'ok',
     workspace: paths.workspace,
     user: {
       id: userId,
@@ -246,6 +330,9 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
       superseded: diagnostics.superseded.length,
       budgeted_out: diagnostics.budgeted_out.length
     },
+    external_sources: externalSources,
+    memory_source_health: memorySourceHealth,
+    recommended_action: recommendedAction,
     storage_governance: summarizeStorageGovernance(paths, sessionKey, projectId, userId),
     skills: skillStatusCounts
   };

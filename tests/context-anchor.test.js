@@ -1615,6 +1615,43 @@ test('configure-host asks whether to enforce context-anchor memory takeover and 
   }
 });
 
+test('configure-host warns when enforced takeover still sees external memory drift', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      fs.writeFileSync(
+        path.join(workspace, 'MEMORY.md'),
+        [
+          '## MEM-config-drift-1',
+          'type: best_practice',
+          'heat: 86',
+          'This external memory still needs to be centralized after enabling takeover.'
+        ].join('\n'),
+        'utf8'
+      );
+
+      const result = await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: workspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      assert.equal(result.memory_takeover.mode, 'enforced');
+      assert.equal(result.takeover_audit.status, 'warning');
+      assert.ok(result.takeover_audit.issues.includes('enforced_mode_external_drift'));
+      assert.match(result.takeover_audit.recommended_action.command, /migrate:memory/);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('configure-host can leave memory takeover in best-effort mode and returns clear limitations', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');
@@ -2168,6 +2205,9 @@ test('one-click install can explicitly keep memory takeover in best-effort mode'
       assert.equal(result.status, 'installed');
       assert.equal(result.configuration.memory_takeover.mode, 'best_effort');
       assert.equal(result.configuration.config.status, 'skipped');
+      assert.equal(result.configuration.takeover_audit.status, 'warning');
+      assert.ok(result.configuration.takeover_audit.issues.includes('profile_not_ready'));
+      assert.equal(result.takeover_audit.status, 'warning');
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -2279,6 +2319,8 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
       assert.equal(result.upgraded_sessions, 1);
       assert.equal(result.mirror_rebuild.status, 'ok');
       assert.deepEqual(result.governance_runs, []);
+      assert.equal(result.takeover_audit.status, 'warning');
+      assert.ok(result.takeover_audit.issues.includes('profile_not_ready'));
       assert.ok(result.mirror_rebuild.workspaces_processed.some((entry) => entry === activeWorkspace));
       assert.equal(activeResult.action, 'upgraded');
       assert.equal(closedResult.action, 'skipped');
@@ -2894,6 +2936,80 @@ test('session status global repair command recommends configure-host when host c
   }
 });
 
+test('session status surfaces external memory drift and recommends migrate-memory with an enforcement follow-up', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const configuredWorkspace = path.join(workspace, 'configured-workspace');
+  const agentSessionsDir = path.join(openClawHome, 'agents', 'main', 'sessions');
+  const transcriptFile = path.join(agentSessionsDir, 'memory-drift.jsonl');
+  const sessionsIndex = path.join(agentSessionsDir, 'sessions.json');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        assumeYes: true,
+        applyConfig: true,
+        enableScheduler: true,
+        defaultUserId: 'default-user',
+        defaultWorkspace: configuredWorkspace,
+        schedulerWorkspace: configuredWorkspace,
+        schedulerUserId: 'default-user',
+        schedulerProjectId: 'configured-workspace',
+        schedulerRegistrar: () => {},
+        addUsers: [],
+        addWorkspaces: [],
+        memoryTakeover: false
+      });
+      runSessionStart(configuredWorkspace, 'agent:main:memory:drift', 'configured-workspace', {
+        userId: 'default-user',
+        openClawSessionId: 'memory-drift-session-id'
+      });
+
+      fs.mkdirSync(path.join(configuredWorkspace, 'memory'), { recursive: true });
+      fs.writeFileSync(
+        path.join(configuredWorkspace, 'memory', 'model-note.md'),
+        '# Drifted Memory\n\nThis external memory file still needs to be centralized.',
+        'utf8'
+      );
+
+      fs.mkdirSync(agentSessionsDir, { recursive: true });
+      writeSessionTranscript(transcriptFile, configuredWorkspace, 'memory-drift-session-id');
+      writeJson(sessionsIndex, {
+        'agent:main:memory:drift': {
+          sessionId: 'memory-drift-session-id',
+          sessionFile: transcriptFile,
+          updatedAt: 1774705708043,
+          chatType: 'direct'
+        }
+      });
+
+      const report = buildOpenClawSessionStatusReport(openClawHome, path.join(openClawHome, 'skills'), {
+        schedulerProbe: () => 'running'
+      });
+      const rendered = renderOpenClawSessionStatusReport(report);
+      const diagnosisRendered = renderOpenClawSessionDiagnosisReport(report);
+      const group = report.groups.find((entry) => entry.workspace && entry.workspace.endsWith('configured-workspace'));
+
+      assert.equal(report.status, 'warning');
+      assert.equal(report.summary.drift_workspaces, 1);
+      assert.equal(group.memory_sources.health.status, 'drift_detected');
+      assert.ok(group.issues.includes('legacy_memory_never_synced'));
+      assert.match(group.repair_command, /migrate:memory/);
+      assert.match(group.repair_command, /--workspace/);
+      assert.match(group.follow_up_command, /configure:host/);
+      assert.match(group.follow_up_command, /--enforce-memory-takeover/);
+      assert.match(rendered, /Memory sources: SINGLE_SOURCE/);
+      assert.match(rendered, /DRIFT 1/);
+      assert.match(rendered, /Memory: DRIFT_DETECTED/);
+      assert.match(diagnosisRendered, /external memory source has not been centralized yet/);
+      assert.match(diagnosisRendered, /Follow-up:/);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('configure-host refuses to overwrite an invalid openclaw.json', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');
@@ -2959,6 +3075,51 @@ test('doctor reports installed absolute paths and wrapper returns a helpful payl
           return true;
         }
       );
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('doctor classifies synchronized external memory as single-source when takeover is enforced', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: workspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      fs.writeFileSync(
+        path.join(workspace, 'MEMORY.md'),
+        [
+          '## MEM-doctor-sync-1',
+          'type: best_practice',
+          'heat: 80',
+          'Centralize external memory before the next session starts.'
+        ].join('\n'),
+        'utf8'
+      );
+      runLegacyMemorySync(workspace, 'doctor-sync', {
+        projectId: 'demo',
+        reason: 'test'
+      });
+
+      const doctor = runDoctor({ openclawHome: openClawHome, workspace });
+
+      assert.equal(doctor.status, 'ok');
+      assert.equal(doctor.memory_sources.external_source_count, 1);
+      assert.equal(doctor.memory_sources.sync_status, 'centralized');
+      assert.equal(doctor.memory_sources.health.status, 'single_source');
+      assert.equal(doctor.memory_sources.recommended_action.type, 'none');
+      assert.equal(doctor.memory_sources.last_legacy_sync_at !== null, true);
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -5320,6 +5481,10 @@ test('status report summarizes user project session counts and governance', () =
       assert.ok(typeof report.storage_governance.last_run.bytes_before === 'number');
       assert.ok(typeof report.storage_governance.last_run.bytes_after === 'number');
       assert.ok(typeof report.storage_governance.last_run.prune_count === 'number');
+      assert.equal(report.external_sources.external_source_count, 0);
+      assert.equal(report.memory_source_health.status, 'best_effort');
+      assert.equal(report.recommended_action.type, 'enforce_memory_takeover');
+      assert.match(report.recommended_action.command, /configure:host/);
       assert.ok(report.evidence.project_skills);
     });
   } finally {

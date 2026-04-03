@@ -94,6 +94,134 @@ function stableLegacyId(relativeFile, stableId) {
   return `legacy-${crypto.createHash('sha1').update(`${relativeFile}:${stableId}`).digest('hex').slice(0, 16)}`;
 }
 
+function readLegacyMemorySyncState(workspaceArg) {
+  const paths = createPaths(workspaceArg);
+  return {
+    paths,
+    stateFile: legacyMemorySyncStateFile(paths),
+    state: readJson(legacyMemorySyncStateFile(paths), {
+      files: {}
+    })
+  };
+}
+
+function getLatestIsoTimestamp(values = []) {
+  return values
+    .filter((value) => typeof value === 'string' && value.trim())
+    .sort((left, right) => new Date(right).getTime() - new Date(left).getTime())[0] || null;
+}
+
+function summarizeExternalMemorySources(workspaceArg) {
+  const { paths, stateFile, state } = readLegacyMemorySyncState(workspaceArg);
+  const trackedFiles = state && typeof state === 'object' && state.files && typeof state.files === 'object'
+    ? state.files
+    : {};
+  const detectedFiles = collectLegacyMemoryFiles(paths.workspace);
+  const sources = detectedFiles.map((filePath) => {
+    const relativeFile = path.relative(paths.workspace, filePath).replace(/\\/g, '/');
+    const syncState = trackedFiles[relativeFile] || null;
+    const content = fs.readFileSync(filePath, 'utf8');
+    const contentHash = crypto.createHash('sha1').update(content).digest('hex');
+    const syncStatus =
+      !syncState
+        ? 'never_synced'
+        : syncState.hash === contentHash
+          ? 'up_to_date'
+          : 'changed_since_sync';
+
+    return {
+      file: relativeFile,
+      path: filePath,
+      bytes: Buffer.byteLength(content, 'utf8'),
+      sync_status: syncStatus,
+      last_synced_at: syncState?.last_synced_at || null,
+      tracked_hash: syncState?.hash || null,
+      synced_entries: Number(syncState?.synced_entries || 0),
+      mode: syncState?.mode || null
+    };
+  });
+
+  const externalSourceCount = sources.length;
+  const neverSyncedSourceCount = sources.filter((entry) => entry.sync_status === 'never_synced').length;
+  const changedSourceCount = sources.filter((entry) => entry.sync_status === 'changed_since_sync').length;
+  const syncedSourceCount = sources.filter((entry) => entry.sync_status === 'up_to_date').length;
+  const unsyncedSourceCount = neverSyncedSourceCount + changedSourceCount;
+  const lastLegacySyncAt = getLatestIsoTimestamp(
+    Object.values(trackedFiles).map((entry) => entry?.last_synced_at || null)
+  );
+
+  return {
+    workspace: paths.workspace,
+    state_file: stateFile,
+    canonical_source: 'context-anchor',
+    total_source_count: 1 + externalSourceCount,
+    external_source_count: externalSourceCount,
+    tracked_source_count: Object.keys(trackedFiles).length,
+    synced_source_count: syncedSourceCount,
+    never_synced_source_count: neverSyncedSourceCount,
+    changed_source_count: changedSourceCount,
+    unsynced_source_count: unsyncedSourceCount,
+    last_legacy_sync_at: lastLegacySyncAt,
+    sync_status:
+      externalSourceCount === 0
+        ? 'no_external_sources'
+        : unsyncedSourceCount > 0
+          ? 'unsynced_external_sources'
+          : 'centralized',
+    sources
+  };
+}
+
+function classifyMemorySourceHealth(summary, options = {}) {
+  const takeoverMode = options.memoryTakeoverMode === 'enforced' ? 'enforced' : 'best_effort';
+  const driftReasons = [];
+
+  if (Number(summary?.never_synced_source_count || 0) > 0) {
+    driftReasons.push('legacy_memory_never_synced');
+  }
+  if (Number(summary?.changed_source_count || 0) > 0) {
+    driftReasons.push('legacy_memory_changed_since_sync');
+  }
+
+  const driftDetected = driftReasons.length > 0;
+  const externalSourceCount = Number(summary?.external_source_count || 0);
+  let status;
+  let level;
+  let summaryText;
+
+  if (driftDetected) {
+    status = 'drift_detected';
+    level = 'warning';
+    summaryText =
+      externalSourceCount > 0
+        ? `${externalSourceCount} external memory source(s) detected and ${summary.unsynced_source_count} source(s) need re-sync.`
+        : 'Memory drift detected and legacy memory sources need re-sync.';
+  } else if (takeoverMode === 'enforced') {
+    status = 'single_source';
+    level = 'ok';
+    summaryText =
+      externalSourceCount > 0
+        ? `context-anchor is the effective canonical memory plane; ${externalSourceCount} external source(s) are currently centralized.`
+        : 'context-anchor is the canonical memory plane and no external memory sources were detected.';
+  } else {
+    status = 'best_effort';
+    level = 'notice';
+    summaryText =
+      externalSourceCount > 0
+        ? `${externalSourceCount} external memory source(s) are currently centralized, but takeover is still best-effort.`
+        : 'No external memory sources were detected, but takeover is still best-effort.';
+  }
+
+  return {
+    status,
+    level,
+    memory_takeover_mode: takeoverMode,
+    drift_detected: driftDetected,
+    drift_reasons: driftReasons,
+    summary: summaryText
+  };
+}
+
 function runLegacyMemorySync(workspaceArg, sessionKeyArg, options = {}) {
   const paths = createPaths(workspaceArg);
   ensureAnchorDirs(paths);
@@ -193,8 +321,11 @@ if (require.main === module) {
 }
 
 module.exports = {
+  classifyMemorySourceHealth,
   collectLegacyMemoryFiles,
   legacyMemorySyncStateFile,
   parseLegacyEntries,
-  runLegacyMemorySync
+  readLegacyMemorySyncState,
+  runLegacyMemorySync,
+  summarizeExternalMemorySources
 };

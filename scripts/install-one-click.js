@@ -429,6 +429,13 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
       type: 'install:config:done',
       status: configuration?.config?.status || configuration?.status || 'completed'
     });
+    if (configuration?.takeover_audit?.status && configuration.takeover_audit.status !== 'ok') {
+      emitProgress(progress, {
+        type: 'install:config:audit',
+        status: configuration.takeover_audit.status,
+        message: `[install] takeover audit: ${configuration.takeover_audit.summary}`
+      });
+    }
   }
   const upgradeRunGovernance =
     typeof options.runGovernance === 'boolean' ? options.runGovernance : options.upgradeSessions && preserveMemories !== false;
@@ -521,6 +528,13 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
       type: 'install:upgrade:done',
       upgraded_sessions: sessionUpgrade.upgraded_sessions
     });
+    if (sessionUpgrade?.takeover_audit?.status && sessionUpgrade.takeover_audit.status !== 'ok') {
+      emitProgress(progress, {
+        type: 'install:upgrade:audit',
+        status: sessionUpgrade.takeover_audit.status,
+        message: `[install] takeover audit: ${sessionUpgrade.takeover_audit.summary}`
+      });
+    }
   }
   const mirrorRebuild =
     !options.upgradeSessions && preserveMemories !== false && state.has_memory_data
@@ -543,7 +557,8 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
     install,
     configuration,
     session_upgrade: sessionUpgrade,
-    mirror_rebuild: mirrorRebuild
+    mirror_rebuild: mirrorRebuild,
+    takeover_audit: sessionUpgrade?.takeover_audit || configuration?.takeover_audit || null
   };
 }
 
