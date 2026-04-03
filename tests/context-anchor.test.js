@@ -2826,6 +2826,74 @@ test('session status overview groups workspaces and shows skill, hook, and monit
   }
 });
 
+test('session status recommends configure-host when only monitor setup is missing', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const configuredWorkspace = path.join(workspace, 'configured-workspace');
+  const agentSessionsDir = path.join(openClawHome, 'agents', 'main', 'sessions');
+  const transcriptFile = path.join(agentSessionsDir, 'monitor-missing.jsonl');
+  const sessionsIndex = path.join(agentSessionsDir, 'sessions.json');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: configuredWorkspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+      runSessionStart(configuredWorkspace, 'agent:main:monitor:missing', 'configured-workspace', {
+        userId: 'default-user',
+        openClawSessionId: 'monitor-missing-session-id'
+      });
+
+      fs.mkdirSync(agentSessionsDir, { recursive: true });
+      writeSessionTranscript(transcriptFile, configuredWorkspace, 'monitor-missing-session-id');
+      writeJson(sessionsIndex, {
+        'agent:main:monitor:missing': {
+          sessionId: 'monitor-missing-session-id',
+          sessionFile: transcriptFile,
+          updatedAt: 1774705704043,
+          chatType: 'direct'
+        }
+      });
+
+      const report = buildOpenClawSessionStatusReport(openClawHome, path.join(openClawHome, 'skills'), {
+        schedulerProbe: () => 'missing'
+      });
+      const group = report.groups.find((entry) => entry.workspace && entry.workspace.endsWith('configured-workspace'));
+
+      assert.equal(group.hook_status, 'on');
+      assert.equal(group.monitor_status, 'off');
+      assert.ok(group.issues.includes('monitor_not_configured'));
+      assert.match(group.repair_command, /configure:host/);
+      assert.match(group.repair_command, /--enable-scheduler/);
+      assert.doesNotMatch(group.repair_command, /configure:sessions/);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('session status global repair command recommends configure-host when host configuration is not ready', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      const report = buildOpenClawSessionStatusReport(openClawHome, path.join(openClawHome, 'skills'));
+
+      assert.match(report.commands.repair_command, /configure:host/);
+      assert.match(report.commands.repair_command, /--apply-config/);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('configure-host refuses to overwrite an invalid openclaw.json', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');

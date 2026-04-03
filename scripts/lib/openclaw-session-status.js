@@ -62,6 +62,11 @@ function buildNpmCommand(scriptName, options = {}) {
   if (options.json) {
     forwarded.push('--json');
   }
+  if (Array.isArray(options.extraArgs)) {
+    options.extraArgs.filter(Boolean).forEach((arg) => {
+      forwarded.push(arg);
+    });
+  }
 
   if (forwarded.length > 0) {
     parts.push('--', ...forwarded);
@@ -150,17 +155,50 @@ function buildWorkspaceMirrorSummary(workspace) {
 }
 
 function buildActionCommands(scope, options = {}) {
+  const issues = Array.isArray(options.issues) ? options.issues : [];
   const commandScope = {
     workspace: scope.workspace || null,
-    sessionKey: scope.sessionKey || null
+    sessionKey: scope.sessionKey || null,
+    openclawHome: options.openclawHome || null,
+    skillsRoot: options.skillsRoot || null
   };
   const diagnostic_command = buildNpmCommand('diagnose:sessions', {
     ...commandScope
   });
-  const repair_command = buildNpmCommand('configure:sessions', {
-    ...commandScope,
-    yes: Boolean(options.forceYes)
-  });
+
+  let repair_command;
+  const needsSessionRepair =
+    issues.includes('workspace_unresolved') ||
+    issues.includes('session_not_ready');
+  const needsHostRepair =
+    issues.includes('hook_not_configured') ||
+    issues.includes('monitor_not_configured') ||
+    issues.includes('monitor_legacy_window') ||
+    options.globalConfigurationReady === false;
+
+  if (needsSessionRepair) {
+    repair_command = buildNpmCommand('configure:sessions', {
+      ...commandScope,
+      yes: Boolean(options.forceYes)
+    });
+  } else if (needsHostRepair) {
+    const extraArgs = ['--apply-config'];
+    if (scope.workspace && (issues.includes('monitor_not_configured') || issues.includes('monitor_legacy_window'))) {
+      extraArgs.push('--enable-scheduler');
+    }
+    repair_command = buildNpmCommand('configure:host', {
+      workspace: scope.workspace || null,
+      openclawHome: options.openclawHome || null,
+      skillsRoot: options.skillsRoot || null,
+      yes: true,
+      extraArgs
+    });
+  } else {
+    repair_command = buildNpmCommand('configure:sessions', {
+      ...commandScope,
+      yes: Boolean(options.forceYes)
+    });
+  }
 
   return {
     diagnostic_command,
@@ -509,7 +547,12 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
     const issues = [...new Set(group.sessions.flatMap((session) => session.classification.issues || []))];
     const commandScope = buildGroupScope(group);
     const commands = buildActionCommands(commandScope, {
+      openclawHome: resolvedOpenClawHome,
+      skillsRoot,
       forceYes: Boolean(commandScope.workspace)
+      ,
+      issues,
+      globalConfigurationReady: doctor.configuration.ready
     });
     const hookStatus = workspace
       ? group.sessions[0]?.classification?.hook || 'off'
@@ -540,7 +583,11 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
   });
 
   const globalCommands = buildActionCommands(scope, {
-    forceYes: true
+    openclawHome: resolvedOpenClawHome,
+    skillsRoot,
+    forceYes: true,
+    issues: doctor.configuration.ready ? [] : ['hook_not_configured'],
+    globalConfigurationReady: doctor.configuration.ready
   });
   const summary = {
     total_sessions: sessions.length,
