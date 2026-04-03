@@ -31,6 +31,7 @@
 - 贡献者：从「贡献者」开始，重点看高级配置、运行时结构和开发者指南
 - 想查运行规范：继续看 `SKILL.md`
 - 想查长期记忆治理与 SQLite 演进：看 `references/storage-governance-evolution-plan.md`
+- 想查下一阶段的接管能力、收益显性化与任务连续性路线：看 `references/takeover-continuity-evolution-plan.md`
 
 ## 使用者
 
