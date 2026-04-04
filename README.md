@@ -328,6 +328,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 
 如果状态查询提示异常，先跑 `sessions-diagnose.js`，再按输出里的诊断命令和修复命令处理。`sessions-status.js` 支持 `--json`，`configure-sessions.js` 和 `upgrade-sessions.js` 也支持 `--workspace` / `--session-key` 只处理一个 workspace 或 session。
 现在 `sessions-diagnose.js` 还会额外给出 `Recheck` 和 `Repair path`，把 repair -> follow-up -> recheck 明确串起来，减少 strict-mode 下的误操作和漏检查。
+本轮还会额外给出 `Strategy`，直接告诉你这是 `migrate -> enforce -> recheck`、`configure host -> recheck` 还是别的闭环路径。
 
 `configure-host.js`、`install-one-click.js` 和 `upgrade-sessions.js` 的 JSON 结果里现在也会带 `takeover_audit` 和 `host_takeover_audit`。  
 如果你已经开启强制接管，但外部记忆文件还在最近一次归并后继续变化，audit 会直接返回 warning 和推荐修复命令。  
@@ -335,6 +336,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 
 现在 `doctor.js` 还会输出 `profile_takeover_audit`，用来提示同级 OpenClaw profile 是否仍处于 `best_effort`、未完成配置，或者仍存在外部记忆漂移。
 `doctor.js` 的 `recommended_action` 现在也会带 `recheck_command` 和 `repair_sequence`，可以直接把 strict-mode 下的修复步骤串起来执行。
+同时 `recommended_action.repair_strategy` 会给出更明确的修复策略标签，减少用户自己判断先后顺序。
 
 `configure-host.js` 和 `configure-sessions.js` 现在还会返回 `verification`。  
 如果这次 repair 没有真正把目标状态修到位，结果里会直接显示 `verification.status = needs_attention`，并附带 `recheck_command`，避免用户执行完修复后还要自己猜有没有生效。

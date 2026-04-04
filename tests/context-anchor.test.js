@@ -3458,12 +3458,14 @@ test('session status surfaces external memory drift and recommends migrate-memor
       assert.match(group.follow_up_command, /configure:host/);
       assert.match(group.follow_up_command, /--enforce-memory-takeover/);
       assert.match(group.recheck_command, /status:sessions/);
+      assert.equal(group.repair_strategy.type, 'migrate_then_enforce_then_recheck');
       assert.match(rendered, /Memory sources: SINGLE_SOURCE/);
       assert.match(rendered, /DRIFT 1/);
       assert.match(rendered, /Memory: DRIFT_DETECTED/);
       assert.match(diagnosisRendered, /external memory source has not been centralized yet/);
       assert.match(diagnosisRendered, /Follow-up:/);
       assert.match(diagnosisRendered, /Recheck:/);
+      assert.match(diagnosisRendered, /Strategy: migrate -> enforce -> recheck/);
       assert.match(diagnosisRendered, /Repair path:/);
     });
   } finally {
@@ -3582,6 +3584,7 @@ test('doctor classifies synchronized external memory as single-source when takeo
       assert.equal(doctor.memory_sources.recommended_action.type, 'none');
       assert.match(doctor.memory_sources.recommended_action.recheck_command, /npm run doctor/);
       assert.equal(Array.isArray(doctor.memory_sources.recommended_action.repair_sequence), true);
+      assert.equal(doctor.memory_sources.recommended_action.repair_strategy.type, 'recheck_only');
       assert.equal(doctor.memory_sources.last_legacy_sync_at !== null, true);
     });
   } finally {
@@ -3640,6 +3643,7 @@ test('doctor host audit flags drift in another registered workspace', async () =
       assert.match(doctor.host_takeover_audit.summary, /1 workspace\(s\) have external memory drift/);
       assert.match(doctor.host_takeover_audit.recommended_action.recheck_command, /npm run doctor/);
       assert.equal(doctor.host_takeover_audit.recommended_action.repair_sequence.at(-1).step, 'recheck');
+      assert.equal(doctor.host_takeover_audit.recommended_action.repair_strategy.type, 'migrate_then_recheck');
     });
   } finally {
     cleanupWorkspace(workspace);

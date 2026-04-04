@@ -240,6 +240,59 @@ function renderVisibleSummaryLine(label, summaryText, sessionKey) {
   return `  ${label}: ${prefix}${shorten(summaryText, 180)}`;
 }
 
+function buildSessionRepairStrategy(type) {
+  switch (type) {
+    case 'configure_sessions_then_migrate_then_recheck':
+      return {
+        type,
+        label: 'configure sessions -> migrate -> recheck',
+        summary: 'Repair session linkage first, then centralize external memory, then rerun session status.'
+      };
+    case 'configure_sessions_then_recheck':
+      return {
+        type,
+        label: 'configure sessions -> recheck',
+        summary: 'Repair session linkage first, then rerun session status.'
+      };
+    case 'configure_host_then_migrate_then_recheck':
+      return {
+        type,
+        label: 'configure host -> migrate -> recheck',
+        summary: 'Repair host configuration first, then centralize external memory, then rerun session status.'
+      };
+    case 'configure_host_then_recheck':
+      return {
+        type,
+        label: 'configure host -> recheck',
+        summary: 'Repair host configuration first, then rerun session status.'
+      };
+    case 'migrate_then_enforce_then_recheck':
+      return {
+        type,
+        label: 'migrate -> enforce -> recheck',
+        summary: 'Centralize external memory first, then enforce takeover, then rerun session status.'
+      };
+    case 'migrate_then_recheck':
+      return {
+        type,
+        label: 'migrate -> recheck',
+        summary: 'Centralize external memory first, then rerun session status.'
+      };
+    case 'enforce_then_recheck':
+      return {
+        type,
+        label: 'enforce -> recheck',
+        summary: 'Enforce takeover first, then rerun session status.'
+      };
+    default:
+      return {
+        type: 'refresh_then_recheck',
+        label: 'refresh -> recheck',
+        summary: 'Refresh session linkage, then rerun session status.'
+      };
+  }
+}
+
 function buildUnknownMemorySourceStatus(memoryTakeoverMode) {
   return {
     workspace: null,
@@ -393,13 +446,31 @@ function buildActionCommands(scope, options = {}) {
     follow_up_command ? { step: 'follow_up', command: follow_up_command } : null,
     recheck_command ? { step: 'recheck', command: recheck_command } : null
   ].filter(Boolean);
+  const repair_strategy = buildSessionRepairStrategy(
+    needsSessionRepair && needsMemorySync
+      ? 'configure_sessions_then_migrate_then_recheck'
+      : needsSessionRepair
+      ? 'configure_sessions_then_recheck'
+      : needsHostRepair && needsMemorySync
+      ? 'configure_host_then_migrate_then_recheck'
+      : needsHostRepair
+      ? 'configure_host_then_recheck'
+      : needsMemorySync && needsTakeoverEnforcement
+      ? 'migrate_then_enforce_then_recheck'
+      : needsMemorySync
+      ? 'migrate_then_recheck'
+      : needsTakeoverEnforcement
+      ? 'enforce_then_recheck'
+      : 'refresh_then_recheck'
+  );
 
   return {
     diagnostic_command,
     repair_command,
     follow_up_command,
     recheck_command,
-    repair_sequence
+    repair_sequence,
+    repair_strategy
   };
 }
 
@@ -810,6 +881,7 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
       follow_up_command: commands.follow_up_command,
       recheck_command: commands.recheck_command,
       repair_sequence: commands.repair_sequence,
+      repair_strategy: commands.repair_strategy,
       task_state_summary: primaryTaskStateSession?.task_state_summary || buildTaskStateSummary({}),
       task_state_session_key: primaryTaskStateSession?.session_key || null,
       last_benefit_summary: primaryBenefitSession?.last_benefit_summary || null,
@@ -891,6 +963,10 @@ function renderCommandSummary(report) {
   lines.push(`Diagnostic command: ${report.commands.diagnostic_command}`);
   lines.push(`Repair command: ${report.commands.repair_command}`);
   lines.push(`Recheck command: ${report.commands.recheck_command}`);
+  const strategyLine = renderRepairStrategy(report.commands.repair_strategy);
+  if (strategyLine) {
+    lines.push(strategyLine);
+  }
   if (report.summary.drift_workspaces > 0) {
     lines.push(`Memory drift detected in ${report.summary.drift_workspaces} workspace(s); prefer the per-workspace repair command shown below.`);
   }
@@ -912,6 +988,14 @@ function renderRepairSequence(sequence = []) {
   return sequence
     .map((entry, index) => `${index + 1}) ${entry.step}: ${entry.command}`)
     .join(' | ');
+}
+
+function renderRepairStrategy(strategy) {
+  if (!strategy?.label) {
+    return null;
+  }
+
+  return `Strategy: ${strategy.label}${strategy.summary ? ` (${strategy.summary})` : ''}`;
 }
 
 function renderOpenClawSessionStatusReport(report) {
@@ -990,6 +1074,10 @@ function renderOpenClawSessionStatusReport(report) {
         lines.push(`  Follow-up: ${group.follow_up_command}`);
       }
       lines.push(`  Recheck: ${group.recheck_command}`);
+      const strategyLine = renderRepairStrategy(group.repair_strategy);
+      if (strategyLine) {
+        lines.push(`  ${strategyLine}`);
+      }
       const repairPath = renderRepairSequence(group.repair_sequence);
       if (repairPath) {
         lines.push(`  Repair path: ${repairPath}`);
@@ -1053,6 +1141,10 @@ function renderOpenClawSessionDiagnosisReport(report) {
         lines.push(`  Follow-up: ${group.follow_up_command}`);
       }
       lines.push(`  Recheck: ${group.recheck_command}`);
+      const strategyLine = renderRepairStrategy(group.repair_strategy);
+      if (strategyLine) {
+        lines.push(`  ${strategyLine}`);
+      }
       const repairPath = renderRepairSequence(group.repair_sequence);
       if (repairPath) {
         lines.push(`  Repair path: ${repairPath}`);
@@ -1100,6 +1192,10 @@ function renderOpenClawSessionDiagnosisReport(report) {
       lines.push(`  Follow-up: ${group.follow_up_command}`);
     }
     lines.push(`  Recheck: ${group.recheck_command}`);
+    const strategyLine = renderRepairStrategy(group.repair_strategy);
+    if (strategyLine) {
+      lines.push(`  ${strategyLine}`);
+    }
     const repairPath = renderRepairSequence(group.repair_sequence);
     if (repairPath) {
       lines.push(`  Repair path: ${repairPath}`);

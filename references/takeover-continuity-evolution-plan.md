@@ -108,6 +108,10 @@
   - `doctor` 的 `recommended_action` 已增加 `recheck_command` 与 `repair_sequence`
   - `sessions-diagnose` 已显式展示 `Recheck` 与 `Repair path`
   - 已补充自动化测试，覆盖 doctor strict repair path 与 diagnose repair path 可见性
+- `2026-04-04`
+  - `doctor` 的 `recommended_action` 已增加 `repair_strategy`
+  - `sessions-diagnose` 已显式展示 `Strategy`
+  - 已补充自动化测试，覆盖 strict repair strategy 可见性
 
 当前仍未完成的重点：
 
@@ -467,6 +471,7 @@
   - `verification` 已增加 `readiness_transition.before / after`
   - repair / upgrade 结果现在可以显式判断“是否真的修好”还是“只是执行过命令”
   - `doctor / sessions-diagnose` 已开始显式串联 repair -> follow-up -> recheck 路径
+  - `doctor / sessions-diagnose` 已开始显式区分 strict repair strategy，减少手工判断先后顺序
 - 仍待完成：
   - `doctor` / `sessions-diagnose` 还需要给出更细粒度 strict-mode auto-fix 路径
 

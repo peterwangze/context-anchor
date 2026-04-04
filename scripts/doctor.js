@@ -93,6 +93,58 @@ function buildRepairSequence(command, followUpCommand, recheckCommand) {
   ].filter(Boolean);
 }
 
+function buildRepairStrategy(type, options = {}) {
+  const workspace = options.workspace ? path.resolve(options.workspace) : null;
+  switch (type) {
+    case 'migrate_then_enforce_then_recheck':
+      return {
+        type,
+        label: 'migrate -> enforce -> recheck',
+        summary: workspace
+          ? `First centralize external memory for ${workspace}, then enforce takeover, then rerun doctor.`
+          : 'First centralize external memory, then enforce takeover, then rerun doctor.'
+      };
+    case 'migrate_then_recheck':
+      return {
+        type,
+        label: 'migrate -> recheck',
+        summary: workspace
+          ? `Centralize external memory for ${workspace}, then rerun doctor.`
+          : 'Centralize external memory, then rerun doctor.'
+      };
+    case 'enforce_then_recheck':
+      return {
+        type,
+        label: 'enforce -> recheck',
+        summary: 'Apply enforced takeover for this profile, then rerun doctor.'
+      };
+    case 'configure_host_then_recheck':
+      return {
+        type,
+        label: 'configure host -> recheck',
+        summary: 'Repair host configuration first, then rerun doctor.'
+      };
+    case 'review_workspace_then_recheck':
+      return {
+        type,
+        label: 'review workspace -> recheck',
+        summary: 'Fix or remove the broken workspace registration, then rerun doctor.'
+      };
+    case 'select_workspace_then_recheck':
+      return {
+        type,
+        label: 'select workspace -> recheck',
+        summary: 'Pick the target workspace first, then rerun doctor.'
+      };
+    default:
+      return {
+        type: 'recheck_only',
+        label: 'recheck',
+        summary: 'No repair action is required right now; rerun doctor when the environment changes.'
+      };
+  }
+}
+
 function normalizeWorkspaceKey(workspace) {
   const resolved = path.resolve(workspace);
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
@@ -129,7 +181,11 @@ function buildMemorySourceRecommendedAction(memorySourceHealth, options = {}) {
       command,
       follow_up_command: followUpCommand,
       recheck_command: recheckCommand,
-      repair_sequence: buildRepairSequence(command, followUpCommand, recheckCommand)
+      repair_sequence: buildRepairSequence(command, followUpCommand, recheckCommand),
+      repair_strategy: buildRepairStrategy(
+        followUpCommand ? 'migrate_then_enforce_then_recheck' : 'migrate_then_recheck',
+        { workspace }
+      )
     };
   }
 
@@ -148,7 +204,8 @@ function buildMemorySourceRecommendedAction(memorySourceHealth, options = {}) {
       command,
       follow_up_command: null,
       recheck_command: recheckCommand,
-      repair_sequence: buildRepairSequence(command, null, recheckCommand)
+      repair_sequence: buildRepairSequence(command, null, recheckCommand),
+      repair_strategy: buildRepairStrategy('enforce_then_recheck', { workspace })
     };
   }
 
@@ -158,7 +215,8 @@ function buildMemorySourceRecommendedAction(memorySourceHealth, options = {}) {
     command: null,
     follow_up_command: null,
     recheck_command: recheckCommand,
-    repair_sequence: buildRepairSequence(null, null, recheckCommand)
+    repair_sequence: buildRepairSequence(null, null, recheckCommand),
+    repair_strategy: buildRepairStrategy('recheck_only', { workspace })
   };
 }
 
@@ -245,7 +303,22 @@ function buildWorkspaceTakeoverInspection(target = {}, options = {}) {
         type: 'review_workspace_registration',
         summary: 'Review this registered workspace path and update the host configuration if it moved or was removed.',
         command: null,
-        follow_up_command: null
+        follow_up_command: null,
+        recheck_command: buildNpmScriptCommand('doctor', {
+          workspace,
+          openClawHome: options.openClawHome,
+          skillsRoot: options.skillsRoot
+        }),
+        repair_sequence: buildRepairSequence(
+          null,
+          null,
+          buildNpmScriptCommand('doctor', {
+            workspace,
+            openClawHome: options.openClawHome,
+            skillsRoot: options.skillsRoot
+          })
+        ),
+        repair_strategy: buildRepairStrategy('review_workspace_then_recheck', { workspace })
       }
     };
   }
@@ -367,6 +440,9 @@ function buildHostTakeoverAudit(options = {}) {
               skillsRoot: options.skillsRoot
             })
           ),
+          repair_strategy: buildRepairStrategy('recheck_only', {
+            workspace: options.selectedWorkspace || null
+          }),
           workspace: null
         },
     workspaces
@@ -638,6 +714,7 @@ function buildProfileTakeoverAudit(options = {}) {
               skillsRoot: options.skillsRoot
             })
           ),
+          repair_strategy: buildRepairStrategy('recheck_only', {}),
           openclaw_home: null
         },
     profiles
@@ -680,7 +757,8 @@ function buildTakeoverAudit(doctorResult = {}) {
           openClawHome: doctorResult?.paths?.openclaw_home || null,
           skillsRoot: doctorResult?.paths?.skills_root || null
         })
-      )
+      ),
+      repair_strategy: buildRepairStrategy('configure_host_then_recheck', { workspace })
     };
   } else if (!workspace) {
     issues.push('workspace_audit_missing');
@@ -696,7 +774,8 @@ function buildTakeoverAudit(doctorResult = {}) {
         openClawHome: doctorResult?.paths?.openclaw_home || null,
         skillsRoot: doctorResult?.paths?.skills_root || null
       }),
-      repair_sequence: []
+      repair_sequence: [],
+      repair_strategy: buildRepairStrategy('select_workspace_then_recheck', {})
     };
   } else if (doctorResult?.memory_sources?.health?.status === 'drift_detected') {
     issues.push(mode === 'enforced' ? 'enforced_mode_external_drift' : 'best_effort_external_drift');
