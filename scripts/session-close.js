@@ -25,6 +25,11 @@ const { runSkillificationScore } = require('./skillification-score');
 const { runStorageGovernance } = require('./storage-governance');
 const { buildVisibleBenefitSummary } = require('./lib/visible-benefit-summary');
 
+function shouldClearTaskStateForReason(reason) {
+  const normalized = String(reason || '').trim().toLowerCase();
+  return normalized === 'command-stop';
+}
+
 function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
   const paths = createPaths(workspaceArg);
   const sessionKey = sanitizeKey(sessionKeyArg || DEFAULTS.sessionKey);
@@ -122,12 +127,15 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
     projectId: sessionState.project_id,
     userId: sessionState.user_id,
     reason: options.reason || 'session-close',
-    currentGoal: sessionState.active_task,
+    currentGoal: shouldClearTaskStateForReason(options.reason) ? null : sessionState.active_task,
     latestVerifiedResult: summary.benefit_summary.visible ? summary.benefit_summary.summary : null,
-    nextStep:
-      (Array.isArray(sessionState.commitments)
-        ? sessionState.commitments.find((entry) => entry.status === 'pending')?.what
-        : null) || null,
+    nextStep: shouldClearTaskStateForReason(options.reason)
+      ? null
+      : (
+          Array.isArray(sessionState.commitments)
+            ? sessionState.commitments.find((entry) => entry.status === 'pending')?.what
+            : null
+        ) || null,
     blockedBy: sessionState.metadata?.blocked_by || null,
     lastUserVisibleProgress: summary.benefit_summary.visible ? summary.benefit_summary.summary : null
   });

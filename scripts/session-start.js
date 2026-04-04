@@ -385,18 +385,24 @@ function restoreSessionContinuity(sessionState, continuationSource) {
   let inheritedActiveTask = false;
   let inheritedCommitments = 0;
   let referenceOnly = false;
+  const previousReason = String(continuationSource?.summary?.reason || '').trim().toLowerCase();
   const currentPendingCommitments = Array.isArray(sessionState.commitments)
     ? sessionState.commitments.filter((entry) => entry.status === 'pending')
     : [];
   const shouldCarryActiveTask =
-    continuationSource.pending_commitments.length > 0 || !continuationSource.closed_at;
+    previousReason !== 'command-stop' &&
+    (continuationSource.pending_commitments.length > 0 || !continuationSource.closed_at);
 
   if (!sessionState.active_task && shouldCarryActiveTask && continuationSource.active_task) {
     sessionState.active_task = continuationSource.active_task;
     inheritedActiveTask = true;
   }
 
-  if (currentPendingCommitments.length === 0 && continuationSource.pending_commitments.length > 0) {
+  if (
+    currentPendingCommitments.length === 0 &&
+    shouldCarryActiveTask &&
+    continuationSource.pending_commitments.length > 0
+  ) {
     sessionState.commitments = continuationSource.pending_commitments.map((entry) =>
       cloneCommitment(entry, continuationSource.session_key)
     );

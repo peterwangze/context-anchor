@@ -5017,10 +5017,15 @@ test('command stop hook runs unified session close lifecycle', async () => {
         project_id: 'demo',
         usage_percent: 91
       });
+      const next = runSessionStart(workspace, 'hook-close-next', 'demo');
 
       assert.equal(result.status, 'handled');
       assert.equal(result.result.status, 'closed');
       assert.ok(fs.existsSync(path.join(workspace, '.context-anchor', 'sessions', 'hook-close', 'session-summary.json')));
+      assert.equal(next.session.continued_from, 'hook-close');
+      assert.equal(next.recovery.active_task, null);
+      assert.equal(next.recovery.pending_commitments.length, 0);
+      assert.equal(next.recovery.continuity.reference_only, true);
     });
   } finally {
     cleanupWorkspace(workspace);
