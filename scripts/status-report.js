@@ -316,6 +316,15 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
       last_checkpoint: runtimeState?.last_checkpoint || sessionState.last_checkpoint,
       last_summary: runtimeState?.last_summary || sessionState.last_summary,
       task_state_summary: buildTaskStateSummary(runtimeState || {}),
+      last_benefit_summary: sessionSummary?.benefit_summary
+        ? {
+            visible: Boolean(sessionSummary.benefit_summary.visible),
+            summary: sessionSummary.benefit_summary.summary || null,
+            summary_lines: Array.isArray(sessionSummary.benefit_summary.summary_lines)
+              ? sessionSummary.benefit_summary.summary_lines
+              : []
+          }
+        : null,
       last_summary_snapshot: sessionSummary.created_at ? {
         created_at: sessionSummary.created_at,
         promoted_project_skills: (sessionSummary.promoted_project_skills || []).length,

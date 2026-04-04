@@ -6136,6 +6136,8 @@ test('status report summarizes user project session counts and governance', () =
       assert.equal(report.session.task_state_summary.current_goal, 'stabilize checkout retries');
       assert.equal(report.session.task_state_summary.next_step, 'ship checkout retry fix');
       assert.equal(report.session.task_state_summary.blocked_by, 'waiting for CI rerun');
+      assert.equal(report.session.last_benefit_summary.visible, true);
+      assert.ok(report.session.last_benefit_summary.summary_lines.some((line) => line.includes('captured 1 new lesson')));
       assert.ok(typeof report.governance.active === 'number');
       assert.ok(report.storage_governance.active_item_count >= 3);
       assert.ok(typeof report.storage_governance.archive_item_count === 'number');
