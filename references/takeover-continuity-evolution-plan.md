@@ -104,6 +104,10 @@
   - `configure-host / configure-sessions / upgrade-sessions / install-one-click` 的 `verification` 已增加 `readiness_transition.before / after`
   - repair / upgrade 完成后现在可以直接看到 attention session、drift workspace、host readiness 是否真的改善
   - 已补充自动化测试，覆盖 host / session / upgrade 的 readiness transition
+- `2026-04-04`
+  - `doctor` 的 `recommended_action` 已增加 `recheck_command` 与 `repair_sequence`
+  - `sessions-diagnose` 已显式展示 `Recheck` 与 `Repair path`
+  - 已补充自动化测试，覆盖 doctor strict repair path 与 diagnose repair path 可见性
 
 当前仍未完成的重点：
 
@@ -462,6 +466,7 @@
   - `configure-host / configure-sessions / upgrade-sessions` 已形成 repair -> verify -> recheck 主链路
   - `verification` 已增加 `readiness_transition.before / after`
   - repair / upgrade 结果现在可以显式判断“是否真的修好”还是“只是执行过命令”
+  - `doctor / sessions-diagnose` 已开始显式串联 repair -> follow-up -> recheck 路径
 - 仍待完成：
   - `doctor` / `sessions-diagnose` 还需要给出更细粒度 strict-mode auto-fix 路径
 

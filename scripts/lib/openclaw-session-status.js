@@ -305,6 +305,9 @@ function buildActionCommands(scope, options = {}) {
   const diagnostic_command = buildNpmCommand('diagnose:sessions', {
     ...commandScope
   });
+  const recheck_command = buildNpmCommand('status:sessions', {
+    ...commandScope
+  });
 
   let repair_command;
   let follow_up_command = null;
@@ -385,10 +388,18 @@ function buildActionCommands(scope, options = {}) {
     });
   }
 
+  const repair_sequence = [
+    repair_command ? { step: 'repair', command: repair_command } : null,
+    follow_up_command ? { step: 'follow_up', command: follow_up_command } : null,
+    recheck_command ? { step: 'recheck', command: recheck_command } : null
+  ].filter(Boolean);
+
   return {
     diagnostic_command,
     repair_command,
-    follow_up_command
+    follow_up_command,
+    recheck_command,
+    repair_sequence
   };
 }
 
@@ -797,6 +808,8 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
       diagnostic_command: commands.diagnostic_command,
       repair_command: commands.repair_command,
       follow_up_command: commands.follow_up_command,
+      recheck_command: commands.recheck_command,
+      repair_sequence: commands.repair_sequence,
       task_state_summary: primaryTaskStateSession?.task_state_summary || buildTaskStateSummary({}),
       task_state_session_key: primaryTaskStateSession?.session_key || null,
       last_benefit_summary: primaryBenefitSession?.last_benefit_summary || null,
@@ -877,6 +890,7 @@ function renderCommandSummary(report) {
   const lines = [];
   lines.push(`Diagnostic command: ${report.commands.diagnostic_command}`);
   lines.push(`Repair command: ${report.commands.repair_command}`);
+  lines.push(`Recheck command: ${report.commands.recheck_command}`);
   if (report.summary.drift_workspaces > 0) {
     lines.push(`Memory drift detected in ${report.summary.drift_workspaces} workspace(s); prefer the per-workspace repair command shown below.`);
   }
@@ -888,6 +902,16 @@ function renderCommandSummary(report) {
     lines.push('All discovered sessions are healthy.');
   }
   return lines;
+}
+
+function renderRepairSequence(sequence = []) {
+  if (!Array.isArray(sequence) || sequence.length === 0) {
+    return null;
+  }
+
+  return sequence
+    .map((entry, index) => `${index + 1}) ${entry.step}: ${entry.command}`)
+    .join(' | ');
 }
 
 function renderOpenClawSessionStatusReport(report) {
@@ -965,6 +989,11 @@ function renderOpenClawSessionStatusReport(report) {
       if (group.follow_up_command) {
         lines.push(`  Follow-up: ${group.follow_up_command}`);
       }
+      lines.push(`  Recheck: ${group.recheck_command}`);
+      const repairPath = renderRepairSequence(group.repair_sequence);
+      if (repairPath) {
+        lines.push(`  Repair path: ${repairPath}`);
+      }
     }
 
     const rows = renderSessionRows(group.sessions);
@@ -1023,6 +1052,11 @@ function renderOpenClawSessionDiagnosisReport(report) {
       if (group.follow_up_command) {
         lines.push(`  Follow-up: ${group.follow_up_command}`);
       }
+      lines.push(`  Recheck: ${group.recheck_command}`);
+      const repairPath = renderRepairSequence(group.repair_sequence);
+      if (repairPath) {
+        lines.push(`  Repair path: ${repairPath}`);
+      }
       lines.push(...renderSessionRows(group.sessions));
       lines.push('');
     }
@@ -1064,6 +1098,11 @@ function renderOpenClawSessionDiagnosisReport(report) {
     lines.push(`  Repair: ${group.repair_command}`);
     if (group.follow_up_command) {
       lines.push(`  Follow-up: ${group.follow_up_command}`);
+    }
+    lines.push(`  Recheck: ${group.recheck_command}`);
+    const repairPath = renderRepairSequence(group.repair_sequence);
+    if (repairPath) {
+      lines.push(`  Repair path: ${repairPath}`);
     }
     lines.push(...renderSessionRows(group.sessions));
     lines.push('');

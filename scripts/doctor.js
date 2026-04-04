@@ -85,6 +85,14 @@ function buildNpmScriptCommand(scriptName, options = {}) {
     : `npm run ${scriptName}`;
 }
 
+function buildRepairSequence(command, followUpCommand, recheckCommand) {
+  return [
+    command ? { step: 'repair', command } : null,
+    followUpCommand ? { step: 'follow_up', command: followUpCommand } : null,
+    recheckCommand ? { step: 'recheck', command: recheckCommand } : null
+  ].filter(Boolean);
+}
+
 function normalizeWorkspaceKey(workspace) {
   const resolved = path.resolve(workspace);
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
@@ -92,43 +100,55 @@ function normalizeWorkspaceKey(workspace) {
 
 function buildMemorySourceRecommendedAction(memorySourceHealth, options = {}) {
   const workspace = options.workspace ? path.resolve(options.workspace) : null;
+  const recheckCommand = buildNpmScriptCommand('doctor', {
+    workspace,
+    openclawHome: options.openClawHome,
+    skillsRoot: options.skillsRoot
+  });
 
   if (memorySourceHealth.status === 'drift_detected') {
+    const command = workspace
+      ? buildNpmScriptCommand('migrate:memory', {
+          workspace
+        })
+      : null;
+    const followUpCommand =
+      options.memoryTakeoverEnforced
+        ? null
+        : buildNpmScriptCommand('configure:host', {
+            workspace,
+            openClawHome: options.openClawHome,
+            skillsRoot: options.skillsRoot,
+            applyConfig: true,
+            enforceMemoryTakeover: true,
+            yes: true
+          });
     return {
       type: 'sync_legacy_memory',
       summary: 'External memory sources changed after the last sync. Centralize them into context-anchor now.',
-      command: workspace
-        ? buildNpmScriptCommand('migrate:memory', {
-            workspace
-          })
-        : null,
-      follow_up_command:
-        options.memoryTakeoverEnforced
-          ? null
-          : buildNpmScriptCommand('configure:host', {
-              workspace,
-              openClawHome: options.openClawHome,
-              skillsRoot: options.skillsRoot,
-              applyConfig: true,
-              enforceMemoryTakeover: true,
-              yes: true
-            })
+      command,
+      follow_up_command: followUpCommand,
+      recheck_command: recheckCommand,
+      repair_sequence: buildRepairSequence(command, followUpCommand, recheckCommand)
     };
   }
 
   if (memorySourceHealth.status === 'best_effort') {
+    const command = buildNpmScriptCommand('configure:host', {
+      workspace,
+      openClawHome: options.openClawHome,
+      skillsRoot: options.skillsRoot,
+      applyConfig: true,
+      enforceMemoryTakeover: true,
+      yes: true
+    });
     return {
       type: 'enforce_memory_takeover',
       summary: 'Takeover is still best-effort. Enforce context-anchor takeover to reduce future bypass.',
-      command: buildNpmScriptCommand('configure:host', {
-        workspace,
-        openClawHome: options.openClawHome,
-        skillsRoot: options.skillsRoot,
-        applyConfig: true,
-        enforceMemoryTakeover: true,
-        yes: true
-      }),
-      follow_up_command: null
+      command,
+      follow_up_command: null,
+      recheck_command: recheckCommand,
+      repair_sequence: buildRepairSequence(command, null, recheckCommand)
     };
   }
 
@@ -136,7 +156,9 @@ function buildMemorySourceRecommendedAction(memorySourceHealth, options = {}) {
     type: 'none',
     summary: 'No repair action required.',
     command: null,
-    follow_up_command: null
+    follow_up_command: null,
+    recheck_command: recheckCommand,
+    repair_sequence: buildRepairSequence(null, null, recheckCommand)
   };
 }
 
@@ -331,6 +353,20 @@ function buildHostTakeoverAudit(options = {}) {
           summary: 'No repair action required.',
           command: null,
           follow_up_command: null,
+          recheck_command: buildNpmScriptCommand('doctor', {
+            workspace: options.selectedWorkspace || null,
+            openClawHome: options.openClawHome,
+            skillsRoot: options.skillsRoot
+          }),
+          repair_sequence: buildRepairSequence(
+            null,
+            null,
+            buildNpmScriptCommand('doctor', {
+              workspace: options.selectedWorkspace || null,
+              openClawHome: options.openClawHome,
+              skillsRoot: options.skillsRoot
+            })
+          ),
           workspace: null
         },
     workspaces
@@ -590,6 +626,18 @@ function buildProfileTakeoverAudit(options = {}) {
           summary: 'No repair action required.',
           command: null,
           follow_up_command: null,
+          recheck_command: buildNpmScriptCommand('doctor', {
+            openClawHome: options.openClawHome,
+            skillsRoot: options.skillsRoot
+          }),
+          repair_sequence: buildRepairSequence(
+            null,
+            null,
+            buildNpmScriptCommand('doctor', {
+              openClawHome: options.openClawHome,
+              skillsRoot: options.skillsRoot
+            })
+          ),
           openclaw_home: null
         },
     profiles
@@ -610,14 +658,29 @@ function buildTakeoverAudit(doctorResult = {}) {
   };
 
   if (!doctorResult?.installation?.ready || !doctorResult?.configuration?.ready) {
+    const command = doctorResult?.commands?.configure || null;
     issues.push('profile_not_ready');
     status = 'warning';
     summary = 'The OpenClaw profile is not fully configured for context-anchor takeover yet.';
     recommendedAction = {
       type: 'configure_host',
       summary: 'Apply the recommended host configuration before relying on takeover.',
-      command: doctorResult?.commands?.configure || null,
-      follow_up_command: null
+      command,
+      follow_up_command: null,
+      recheck_command: buildNpmScriptCommand('doctor', {
+        workspace,
+        openClawHome: doctorResult?.paths?.openclaw_home || null,
+        skillsRoot: doctorResult?.paths?.skills_root || null
+      }),
+      repair_sequence: buildRepairSequence(
+        command,
+        null,
+        buildNpmScriptCommand('doctor', {
+          workspace,
+          openClawHome: doctorResult?.paths?.openclaw_home || null,
+          skillsRoot: doctorResult?.paths?.skills_root || null
+        })
+      )
     };
   } else if (!workspace) {
     issues.push('workspace_audit_missing');
@@ -627,7 +690,13 @@ function buildTakeoverAudit(doctorResult = {}) {
       type: 'select_workspace',
       summary: 'Provide --workspace or configure a default workspace before running the next audit.',
       command: null,
-      follow_up_command: null
+      follow_up_command: null,
+      recheck_command: buildNpmScriptCommand('doctor', {
+        workspace: '<workspace>',
+        openClawHome: doctorResult?.paths?.openclaw_home || null,
+        skillsRoot: doctorResult?.paths?.skills_root || null
+      }),
+      repair_sequence: []
     };
   } else if (doctorResult?.memory_sources?.health?.status === 'drift_detected') {
     issues.push(mode === 'enforced' ? 'enforced_mode_external_drift' : 'best_effort_external_drift');
