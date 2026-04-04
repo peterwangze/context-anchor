@@ -2654,6 +2654,7 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
       assert.equal(typeof result.verification.readiness_transition.changed, 'boolean');
       assert.equal(typeof result.verification.readiness_transition.improved, 'boolean');
       assert.equal(result.verification.repair_strategy.type, 'recheck_upgrade_state');
+      assert.equal(result.verification.repair_strategy.execution_mode, 'automatic');
       assert.equal(result.verification.readiness_transition.after.target_sessions, 1);
       assert.equal(result.verification.upgraded_sessions, 1);
       assert.equal(result.verification.remaining_attention_sessions, 0);
@@ -2901,7 +2902,8 @@ test('one-click install can upgrade existing sessions after refreshing runtime a
       assert.equal(result.verification.status, 'needs_attention');
       assert.match(result.verification.recheck_command, /npm run doctor/);
       assert.ok(Array.isArray(result.verification.repair_strategies.all));
-      assert.ok(result.verification.repair_strategies.configuration.length >= 1);
+      assert.ok(result.verification.repair_strategies.configuration.all.length >= 1);
+      assert.ok(Array.isArray(result.verification.repair_strategies.automatic));
       assert.equal(result.session_upgrade.verification.status, 'verified');
       assert.ok(fs.existsSync(bootstrapFile));
       assert.match(fs.readFileSync(bootstrapFile, 'utf8'), /refresh runtime for stored session/);
@@ -3468,7 +3470,7 @@ test('session status surfaces external memory drift and recommends migrate-memor
       assert.match(diagnosisRendered, /external memory source has not been centralized yet/);
       assert.match(diagnosisRendered, /Follow-up:/);
       assert.match(diagnosisRendered, /Recheck:/);
-      assert.match(diagnosisRendered, /Strategy: migrate -> enforce -> recheck/);
+      assert.match(diagnosisRendered, /Strategy: \[auto\] migrate -> enforce -> recheck/);
       assert.match(diagnosisRendered, /Repair path:/);
     });
   } finally {
@@ -3588,6 +3590,7 @@ test('doctor classifies synchronized external memory as single-source when takeo
       assert.match(doctor.memory_sources.recommended_action.recheck_command, /npm run doctor/);
       assert.equal(Array.isArray(doctor.memory_sources.recommended_action.repair_sequence), true);
       assert.equal(doctor.memory_sources.recommended_action.repair_strategy.type, 'recheck_only');
+      assert.equal(doctor.memory_sources.recommended_action.repair_strategy.execution_mode, 'automatic');
       assert.equal(doctor.memory_sources.last_legacy_sync_at !== null, true);
     });
   } finally {
@@ -3647,6 +3650,7 @@ test('doctor host audit flags drift in another registered workspace', async () =
       assert.match(doctor.host_takeover_audit.recommended_action.recheck_command, /npm run doctor/);
       assert.equal(doctor.host_takeover_audit.recommended_action.repair_sequence.at(-1).step, 'recheck');
       assert.equal(doctor.host_takeover_audit.recommended_action.repair_strategy.type, 'migrate_then_recheck');
+      assert.equal(doctor.host_takeover_audit.recommended_action.repair_strategy.execution_mode, 'automatic');
     });
   } finally {
     cleanupWorkspace(workspace);

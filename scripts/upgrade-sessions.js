@@ -146,6 +146,8 @@ function buildUpgradeRepairStrategy(verification = {}) {
     return {
       type: 'configure_sessions_then_recheck',
       label: 'configure sessions -> recheck',
+      execution_mode: 'automatic',
+      requires_manual_confirmation: false,
       summary: 'Workspace configuration is still missing; repair session linkage first, then rerun session status.'
     };
   }
@@ -154,6 +156,8 @@ function buildUpgradeRepairStrategy(verification = {}) {
     return {
       type: 'resolve_workspace_then_recheck',
       label: 'resolve workspace -> recheck',
+      execution_mode: 'manual',
+      requires_manual_confirmation: true,
       summary: 'Resolve the missing workspace paths first, then rerun session status.'
     };
   }
@@ -162,6 +166,8 @@ function buildUpgradeRepairStrategy(verification = {}) {
     return {
       type: 'repair_sessions_then_recheck',
       label: 'repair sessions -> recheck',
+      execution_mode: 'automatic',
+      requires_manual_confirmation: false,
       summary: 'Repair the remaining session linkage issues, then rerun session status.'
     };
   }
@@ -169,8 +175,18 @@ function buildUpgradeRepairStrategy(verification = {}) {
   return {
     type: 'recheck_upgrade_state',
     label: 'recheck upgraded sessions',
+    execution_mode: 'automatic',
+    requires_manual_confirmation: false,
     summary: 'The upgrade path is currently healthy; rerun session status after the next environment change.'
   };
+}
+
+function formatUpgradeStrategyLabel(strategy) {
+  if (!strategy?.label) {
+    return null;
+  }
+
+  return `${strategy.execution_mode === 'manual' ? 'manual' : 'auto'}:${strategy.label}`;
 }
 
 function summarizeUpgradeVerificationState(sessionReport = {}) {
@@ -657,12 +673,12 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
     upgraded_sessions: summary.upgraded_sessions,
     skipped_sessions: summary.skipped_sessions,
     unresolved_sessions: summary.unresolved_sessions,
-    strategy_label: verification?.repair_strategy?.label || null
+    strategy_label: formatUpgradeStrategyLabel(verification?.repair_strategy) || null
   });
   if (verification?.repair_strategy?.label) {
     emitProgress(progress, {
       type: 'verification:strategy',
-      label: verification.repair_strategy.label,
+      label: formatUpgradeStrategyLabel(verification.repair_strategy),
       summary: verification.repair_strategy.summary
     });
   }

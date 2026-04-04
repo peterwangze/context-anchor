@@ -100,6 +100,8 @@ function buildRepairStrategy(type, options = {}) {
       return {
         type,
         label: 'migrate -> enforce -> recheck',
+        execution_mode: 'automatic',
+        requires_manual_confirmation: false,
         summary: workspace
           ? `First centralize external memory for ${workspace}, then enforce takeover, then rerun doctor.`
           : 'First centralize external memory, then enforce takeover, then rerun doctor.'
@@ -108,6 +110,8 @@ function buildRepairStrategy(type, options = {}) {
       return {
         type,
         label: 'migrate -> recheck',
+        execution_mode: 'automatic',
+        requires_manual_confirmation: false,
         summary: workspace
           ? `Centralize external memory for ${workspace}, then rerun doctor.`
           : 'Centralize external memory, then rerun doctor.'
@@ -116,30 +120,40 @@ function buildRepairStrategy(type, options = {}) {
       return {
         type,
         label: 'enforce -> recheck',
+        execution_mode: 'automatic',
+        requires_manual_confirmation: false,
         summary: 'Apply enforced takeover for this profile, then rerun doctor.'
       };
     case 'configure_host_then_recheck':
       return {
         type,
         label: 'configure host -> recheck',
+        execution_mode: 'automatic',
+        requires_manual_confirmation: false,
         summary: 'Repair host configuration first, then rerun doctor.'
       };
     case 'review_workspace_then_recheck':
       return {
         type,
         label: 'review workspace -> recheck',
+        execution_mode: 'manual',
+        requires_manual_confirmation: true,
         summary: 'Fix or remove the broken workspace registration, then rerun doctor.'
       };
     case 'select_workspace_then_recheck':
       return {
         type,
         label: 'select workspace -> recheck',
+        execution_mode: 'manual',
+        requires_manual_confirmation: true,
         summary: 'Pick the target workspace first, then rerun doctor.'
       };
     default:
       return {
         type: 'recheck_only',
         label: 'recheck',
+        execution_mode: 'automatic',
+        requires_manual_confirmation: false,
         summary: 'No repair action is required right now; rerun doctor when the environment changes.'
       };
   }

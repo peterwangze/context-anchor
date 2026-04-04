@@ -246,48 +246,64 @@ function buildSessionRepairStrategy(type) {
       return {
         type,
         label: 'configure sessions -> migrate -> recheck',
+        execution_mode: 'automatic',
+        requires_manual_confirmation: false,
         summary: 'Repair session linkage first, then centralize external memory, then rerun session status.'
       };
     case 'configure_sessions_then_recheck':
       return {
         type,
         label: 'configure sessions -> recheck',
+        execution_mode: 'automatic',
+        requires_manual_confirmation: false,
         summary: 'Repair session linkage first, then rerun session status.'
       };
     case 'configure_host_then_migrate_then_recheck':
       return {
         type,
         label: 'configure host -> migrate -> recheck',
+        execution_mode: 'automatic',
+        requires_manual_confirmation: false,
         summary: 'Repair host configuration first, then centralize external memory, then rerun session status.'
       };
     case 'configure_host_then_recheck':
       return {
         type,
         label: 'configure host -> recheck',
+        execution_mode: 'automatic',
+        requires_manual_confirmation: false,
         summary: 'Repair host configuration first, then rerun session status.'
       };
     case 'migrate_then_enforce_then_recheck':
       return {
         type,
         label: 'migrate -> enforce -> recheck',
+        execution_mode: 'automatic',
+        requires_manual_confirmation: false,
         summary: 'Centralize external memory first, then enforce takeover, then rerun session status.'
       };
     case 'migrate_then_recheck':
       return {
         type,
         label: 'migrate -> recheck',
+        execution_mode: 'automatic',
+        requires_manual_confirmation: false,
         summary: 'Centralize external memory first, then rerun session status.'
       };
     case 'enforce_then_recheck':
       return {
         type,
         label: 'enforce -> recheck',
+        execution_mode: 'automatic',
+        requires_manual_confirmation: false,
         summary: 'Enforce takeover first, then rerun session status.'
       };
     default:
       return {
         type: 'refresh_then_recheck',
         label: 'refresh -> recheck',
+        execution_mode: 'automatic',
+        requires_manual_confirmation: false,
         summary: 'Refresh session linkage, then rerun session status.'
       };
   }
@@ -995,7 +1011,8 @@ function renderRepairStrategy(strategy) {
     return null;
   }
 
-  return `Strategy: ${strategy.label}${strategy.summary ? ` (${strategy.summary})` : ''}`;
+  const mode = strategy.execution_mode === 'manual' ? 'manual' : 'auto';
+  return `Strategy: [${mode}] ${strategy.label}${strategy.summary ? ` (${strategy.summary})` : ''}`;
 }
 
 function renderOpenClawSessionStatusReport(report) {

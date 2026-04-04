@@ -281,6 +281,22 @@ function dedupeStrategies(entries = []) {
   });
 }
 
+function summarizeStrategyKinds(entries = []) {
+  const normalized = dedupeStrategies(entries);
+  return {
+    automatic: normalized.filter((entry) => entry.execution_mode !== 'manual'),
+    manual: normalized.filter((entry) => entry.execution_mode === 'manual')
+  };
+}
+
+function formatStrategyLabel(entry) {
+  if (!entry?.label) {
+    return null;
+  }
+
+  return `${entry.execution_mode === 'manual' ? 'manual' : 'auto'}:${entry.label}`;
+}
+
 function extractInstallRepairStrategies(configuration, sessionUpgrade) {
   const configurationStrategies = collectStrategyEntries(
     configuration?.verification?.repair_strategy,
@@ -295,10 +311,21 @@ function extractInstallRepairStrategies(configuration, sessionUpgrade) {
     sessionUpgrade?.profile_takeover_audit?.recommended_action?.repair_strategy
   );
 
+  const configurationAll = dedupeStrategies(configurationStrategies);
+  const sessionsAll = dedupeStrategies(upgradeStrategies);
+  const all = dedupeStrategies([...configurationStrategies, ...upgradeStrategies]);
+
   return {
-    configuration: dedupeStrategies(configurationStrategies),
-    sessions: dedupeStrategies(upgradeStrategies),
-    all: dedupeStrategies([...configurationStrategies, ...upgradeStrategies])
+    configuration: {
+      all: configurationAll,
+      ...summarizeStrategyKinds(configurationAll)
+    },
+    sessions: {
+      all: sessionsAll,
+      ...summarizeStrategyKinds(sessionsAll)
+    },
+    all,
+    ...summarizeStrategyKinds(all)
   };
 }
 
@@ -517,11 +544,11 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
     schedulerRegistrar: options.schedulerRegistrar
   });
   if (shouldReportInstallStages) {
-    const configurationStrategies = extractInstallRepairStrategies(configuration, null).configuration;
+    const configurationStrategies = extractInstallRepairStrategies(configuration, null).configuration.all;
     emitProgress(progress, {
       type: 'install:config:done',
       status: configuration?.config?.status || configuration?.status || 'completed',
-      strategy_labels: configurationStrategies.map((entry) => entry.label)
+      strategy_labels: configurationStrategies.map(formatStrategyLabel).filter(Boolean)
     });
     if (configuration?.takeover_audit?.status && configuration.takeover_audit.status !== 'ok') {
       emitProgress(progress, {
@@ -639,11 +666,11 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
       }))
     : null;
   if (sessionUpgrade) {
-    const upgradeStrategies = extractInstallRepairStrategies(null, sessionUpgrade).sessions;
+    const upgradeStrategies = extractInstallRepairStrategies(null, sessionUpgrade).sessions.all;
     emitProgress(progress, {
       type: 'install:upgrade:done',
       upgraded_sessions: sessionUpgrade.upgraded_sessions,
-      strategy_labels: upgradeStrategies.map((entry) => entry.label)
+      strategy_labels: upgradeStrategies.map(formatStrategyLabel).filter(Boolean)
     });
     if (sessionUpgrade?.takeover_audit?.status && sessionUpgrade.takeover_audit.status !== 'ok') {
       emitProgress(progress, {

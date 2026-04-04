@@ -337,6 +337,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 现在 `doctor.js` 还会输出 `profile_takeover_audit`，用来提示同级 OpenClaw profile 是否仍处于 `best_effort`、未完成配置，或者仍存在外部记忆漂移。
 `doctor.js` 的 `recommended_action` 现在也会带 `recheck_command` 和 `repair_sequence`，可以直接把 strict-mode 下的修复步骤串起来执行。
 同时 `recommended_action.repair_strategy` 会给出更明确的修复策略标签，减少用户自己判断先后顺序。
+现在 `repair_strategy` 还会区分 `execution_mode = automatic|manual`，并标记 `requires_manual_confirmation`，帮助用户快速判断哪些步骤可以直接执行，哪些需要先人工确认。
 
 `configure-host.js` 和 `configure-sessions.js` 现在还会返回 `verification`。  
 如果这次 repair 没有真正把目标状态修到位，结果里会直接显示 `verification.status = needs_attention`，并附带 `recheck_command`，避免用户执行完修复后还要自己猜有没有生效。
@@ -345,6 +346,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 `upgrade-sessions.js` 现在也会返回 `verification` 和 `verification_report`，`install-one-click.js` 会在顶层聚合成自己的 `verification`。  
 这样升级或一键安装结束后，你可以直接看“这轮是否已经验证通过”，而不是只看到 audit 告警再自己手工补检查。
 现在 `upgrade-sessions.js` 的 `verification` 也会带 `repair_strategy`，`install-one-click.js` 会把 config/session 两段的 strategy 聚合到 `verification.repair_strategies`，长流程里也能直接看到下一步应该怎么收口。
+`install-one-click.js` 聚合后的 `verification.repair_strategies` 现在也会按 `automatic` / `manual` 分类，方便在长流程结束后直接判断自助修复边界。
 
 如果你希望比定时 workspace monitor 更快地收敛外部 `MEMORY.md` / `memory/*.md` 变化，现在还可以直接运行：
 
