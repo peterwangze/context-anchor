@@ -2,6 +2,7 @@
 
 const { createPaths, getRecentSessions } = require('./lib/context-anchor');
 const { ensureWorkspaceRegistration, getWorkspaceRegistrationStatus, resolveOwnership } = require('./lib/host-config');
+const { runLegacyMemorySync, summarizeExternalMemorySources } = require('./legacy-memory-sync');
 const { runSessionMaintenance } = require('./session-maintenance');
 
 function sortRecentSessions(entries = []) {
@@ -33,15 +34,45 @@ function runWorkspaceMonitor(workspaceArg, options = {}) {
   }
 
   const recentSessions = sortRecentSessions(getRecentSessions(paths, options.windowMs));
+  const externalMemorySources = summarizeExternalMemorySources(paths.workspace);
 
   if (recentSessions.length === 0) {
+    const legacyMemorySync =
+      externalMemorySources.external_source_count > 0 && externalMemorySources.unsynced_source_count > 0
+        ? runLegacyMemorySync(paths.workspace, 'workspace-monitor', {
+            projectId: ownership.projectId,
+            reason: 'workspace-monitor'
+          })
+        : {
+            status: 'skipped',
+            workspace: paths.workspace,
+            session_key: 'workspace-monitor',
+            project_id: ownership.projectId,
+            reason:
+              externalMemorySources.external_source_count > 0
+                ? 'already_centralized'
+                : 'no_external_sources',
+            detected_files: externalMemorySources.external_source_count,
+            synced_files: 0,
+            skipped_files: externalMemorySources.external_source_count,
+            synced_entries: 0,
+            files: [],
+            errors: []
+          };
+
     return {
       status: 'idle',
       workspace: paths.workspace,
       onboarding: ensured,
       recent_sessions: 0,
       handled_sessions: 0,
-      results: []
+      results: [],
+      memory_sources: {
+        external_source_count: externalMemorySources.external_source_count,
+        unsynced_source_count: externalMemorySources.unsynced_source_count,
+        last_legacy_sync_at: externalMemorySources.last_legacy_sync_at
+      },
+      legacy_memory_sync: legacyMemorySync
     };
   }
 

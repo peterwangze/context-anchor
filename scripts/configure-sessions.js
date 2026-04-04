@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
+const { buildOpenClawSessionStatusReport } = require('./lib/openclaw-session-status');
 const { runConfigureHost } = require('./configure-host');
 const { runDoctor } = require('./doctor');
 const { runInstallHostAssets } = require('./install-host-assets');
@@ -68,6 +69,81 @@ function normalizeWorkspaceKey(workspace) {
 
 function formatWorkspaceLabel(workspace) {
   return workspace || '<workspace unknown>';
+}
+
+function quoteArg(value) {
+  return `"${String(value).replace(/"/g, '\\"')}"`;
+}
+
+function buildSessionsRecheckCommand(openClawHome, skillsRoot, options = {}) {
+  const forwarded = [
+    '--openclaw-home',
+    quoteArg(openClawHome),
+    '--skills-root',
+    quoteArg(skillsRoot)
+  ];
+
+  if (options.workspace) {
+    forwarded.push('--workspace', quoteArg(options.workspace));
+  }
+  if (options.sessionKey) {
+    forwarded.push('--session-key', quoteArg(options.sessionKey));
+  }
+
+  return `npm run status:sessions -- ${forwarded.join(' ')}`;
+}
+
+function buildConfigureSessionsVerification({
+  openClawHome,
+  skillsRoot,
+  options,
+  results,
+  doctor,
+  sessionReport
+}) {
+  const configuredResults = results.filter((entry) => entry.action === 'configured' || entry.action === 'reconfigured');
+  const configuredKeys = new Set(configuredResults.map((entry) => sanitizeKey(entry.session_key)));
+  const verifiedSessions = sessionReport.sessions.filter((entry) => configuredKeys.has(sanitizeKey(entry.session_key)));
+  const remainingAttention = verifiedSessions.filter((entry) => {
+    const classification = entry.classification || {};
+    return classification.skill !== 'ready' || classification.hook !== 'on';
+  });
+  const issues = [];
+  let status = 'verified';
+  let summary = 'Configure-sessions recheck passed.';
+
+  if (!doctor.installation.ready || !doctor.configuration.ready) {
+    issues.push('profile_not_ready');
+    status = 'needs_attention';
+  }
+
+  if (remainingAttention.length > 0) {
+    issues.push('session_not_ready_after_repair');
+    status = 'needs_attention';
+  }
+
+  if (status === 'needs_attention') {
+    summary = !doctor.installation.ready || !doctor.configuration.ready
+      ? 'Configure-sessions recheck still sees host/runtime issues after the repair run.'
+      : `${remainingAttention.length} configured session(s) still need attention after recheck.`;
+  } else if (configuredResults.length === 0) {
+    summary = 'No sessions were configured in this run, so only the current status snapshot was rechecked.';
+  }
+
+  return {
+    status,
+    summary,
+    issues,
+    configured_sessions: configuredResults.length,
+    verified_sessions: verifiedSessions.length,
+    remaining_attention_sessions: remainingAttention.length,
+    doctor_status: doctor.status,
+    session_report_status: sessionReport.status,
+    recheck_command: buildSessionsRecheckCommand(openClawHome, skillsRoot, {
+      workspace: options.workspace || null,
+      sessionKey: options.sessionKey || null
+    })
+  };
 }
 
 function askText(prompt, defaultValue = '', ask = null) {
@@ -365,6 +441,19 @@ async function runConfigureSessions(openClawHomeArg, skillsRootArg, options = {}
     });
   }
 
+  const verificationReport = buildOpenClawSessionStatusReport(openClawHome, skillsRoot, {
+    workspace: options.workspace || null,
+    sessionKey: options.sessionKey || null
+  });
+  const verification = buildConfigureSessionsVerification({
+    openClawHome,
+    skillsRoot,
+    options,
+    results,
+    doctor,
+    sessionReport: verificationReport
+  });
+
   return {
     status: 'ok',
     openclaw_home: openClawHome,
@@ -374,6 +463,8 @@ async function runConfigureSessions(openClawHomeArg, skillsRootArg, options = {}
     configured_sessions: results.filter((entry) => entry.action === 'configured' || entry.action === 'reconfigured').length,
     skipped_sessions: results.filter((entry) => entry.action === 'skipped').length,
     results,
+    verification,
+    verification_report: verificationReport,
     doctor,
     repair
   };

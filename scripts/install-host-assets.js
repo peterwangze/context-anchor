@@ -45,6 +45,7 @@ function runInstallHostAssets(openClawHomeArg, skillsRootArg) {
   const hooksTargetDir = path.join(openClawHome, 'hooks', 'context-anchor-hook');
   const automationTargetDir = path.join(openClawHome, 'automation', 'context-anchor');
   const workspaceMonitorScript = path.join(automationTargetDir, 'workspace-monitor.js');
+  const externalMemoryWatchScript = path.join(automationTargetDir, 'external-memory-watch.js');
 
   ensureDir(openClawHome);
 
@@ -115,6 +116,28 @@ console.log(JSON.stringify(result, null, 2));
 `;
   writeText(workspaceMonitorScript, workspaceMonitorWrapper);
 
+  const externalMemoryWatchWrapper = `#!/usr/bin/env node
+const { runExternalMemoryWatch } = require(${JSON.stringify(
+    path.join(installedSkillDir, 'scripts', 'external-memory-watch.js')
+  )});
+(async () => {
+  const result = await runExternalMemoryWatch(process.argv[2], {
+    sessionKey: process.argv[3] || 'external-memory-watch',
+    projectId: process.argv[4] || null,
+    debounceMs: process.argv[5] || undefined,
+    durationMs: process.argv[6] || undefined
+  });
+  console.log(JSON.stringify(result, null, 2));
+})().catch((error) => {
+  console.log(JSON.stringify({
+    status: 'error',
+    message: error.message
+  }, null, 2));
+  process.exit(1);
+});
+`;
+  writeText(externalMemoryWatchScript, externalMemoryWatchWrapper);
+
   return {
     status: 'installed',
     openclaw_home: openClawHome,
@@ -125,6 +148,7 @@ console.log(JSON.stringify(result, null, 2));
     hook_handler: path.join(hooksTargetDir, 'handler.js'),
     monitor_script: path.join(automationTargetDir, 'context-pressure-monitor.js'),
     workspace_monitor_script: workspaceMonitorScript,
+    external_memory_watch_script: externalMemoryWatchScript,
     configure_script: path.join(installedSkillDir, 'scripts', 'configure-host.js'),
     doctor_script: path.join(installedSkillDir, 'scripts', 'doctor.js')
   };

@@ -6,6 +6,7 @@
   "scripts": {
     "doctor": "node scripts/doctor.js",
     "benchmark:storage": "node scripts/perf-benchmark.js",
+    "watch:memory": "node scripts/external-memory-watch.js",
     "migrate:memory": "node scripts/migrate-memory.js",
     "rebuild:mirror": "node scripts/mirror-rebuild.js",
     "configure:host": "node scripts/configure-host.js",

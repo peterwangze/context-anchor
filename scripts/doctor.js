@@ -85,6 +85,517 @@ function buildNpmScriptCommand(scriptName, options = {}) {
     : `npm run ${scriptName}`;
 }
 
+function normalizeWorkspaceKey(workspace) {
+  const resolved = path.resolve(workspace);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+function buildMemorySourceRecommendedAction(memorySourceHealth, options = {}) {
+  const workspace = options.workspace ? path.resolve(options.workspace) : null;
+
+  if (memorySourceHealth.status === 'drift_detected') {
+    return {
+      type: 'sync_legacy_memory',
+      summary: 'External memory sources changed after the last sync. Centralize them into context-anchor now.',
+      command: workspace
+        ? buildNpmScriptCommand('migrate:memory', {
+            workspace
+          })
+        : null,
+      follow_up_command:
+        options.memoryTakeoverEnforced
+          ? null
+          : buildNpmScriptCommand('configure:host', {
+              workspace,
+              openClawHome: options.openClawHome,
+              skillsRoot: options.skillsRoot,
+              applyConfig: true,
+              enforceMemoryTakeover: true,
+              yes: true
+            })
+    };
+  }
+
+  if (memorySourceHealth.status === 'best_effort') {
+    return {
+      type: 'enforce_memory_takeover',
+      summary: 'Takeover is still best-effort. Enforce context-anchor takeover to reduce future bypass.',
+      command: buildNpmScriptCommand('configure:host', {
+        workspace,
+        openClawHome: options.openClawHome,
+        skillsRoot: options.skillsRoot,
+        applyConfig: true,
+        enforceMemoryTakeover: true,
+        yes: true
+      }),
+      follow_up_command: null
+    };
+  }
+
+  return {
+    type: 'none',
+    summary: 'No repair action required.',
+    command: null,
+    follow_up_command: null
+  };
+}
+
+function collectHostAuditTargets(hostConfig, selectedWorkspace) {
+  const targets = new Map();
+
+  function upsertWorkspaceTarget(workspace, metadata = {}) {
+    if (!workspace) {
+      return;
+    }
+
+    const resolvedWorkspace = path.resolve(workspace);
+    const key = normalizeWorkspaceKey(resolvedWorkspace);
+    const previous = targets.get(key) || {
+      workspace: resolvedWorkspace,
+      selected: false,
+      default: false,
+      registered: false,
+      user_id: null,
+      project_id: null,
+      updated_at: null
+    };
+    targets.set(key, {
+      ...previous,
+      ...metadata,
+      workspace: resolvedWorkspace,
+      selected: previous.selected || metadata.selected === true,
+      default: previous.default || metadata.default === true,
+      registered: previous.registered || metadata.registered === true,
+      user_id: metadata.user_id || previous.user_id || null,
+      project_id: metadata.project_id || previous.project_id || null,
+      updated_at: metadata.updated_at || previous.updated_at || null
+    });
+  }
+
+  upsertWorkspaceTarget(selectedWorkspace, {
+    selected: Boolean(selectedWorkspace)
+  });
+  upsertWorkspaceTarget(hostConfig?.defaults?.workspace || null, {
+    default: Boolean(hostConfig?.defaults?.workspace),
+    registered: Boolean(hostConfig?.defaults?.workspace),
+    user_id: hostConfig?.defaults?.user_id || null
+  });
+
+  (Array.isArray(hostConfig?.workspaces) ? hostConfig.workspaces : []).forEach((entry) => {
+    upsertWorkspaceTarget(entry.workspace, {
+      registered: true,
+      user_id: entry.user_id || null,
+      project_id: entry.project_id || null,
+      updated_at: entry.updated_at || null
+    });
+  });
+
+  return [...targets.values()].sort((left, right) => left.workspace.localeCompare(right.workspace));
+}
+
+function buildWorkspaceTakeoverInspection(target = {}, options = {}) {
+  const workspace = target.workspace ? path.resolve(target.workspace) : null;
+
+  if (!workspace) {
+    return null;
+  }
+
+  if (!fs.existsSync(workspace)) {
+    return {
+      workspace,
+      selected: Boolean(target.selected),
+      default: Boolean(target.default),
+      registered: Boolean(target.registered),
+      exists: false,
+      user_id: target.user_id || null,
+      project_id: target.project_id || null,
+      updated_at: target.updated_at || null,
+      memory_sources: null,
+      health: {
+        status: 'workspace_missing',
+        level: 'warning',
+        memory_takeover_mode: options.memoryTakeoverMode,
+        drift_detected: false,
+        drift_reasons: [],
+        summary: 'This workspace is registered in host config but is not present on disk.'
+      },
+      recommended_action: {
+        type: 'review_workspace_registration',
+        summary: 'Review this registered workspace path and update the host configuration if it moved or was removed.',
+        command: null,
+        follow_up_command: null
+      }
+    };
+  }
+
+  const memorySources = summarizeExternalMemorySources(workspace);
+  const health = classifyMemorySourceHealth(memorySources, {
+    memoryTakeoverMode: options.memoryTakeoverMode
+  });
+
+  return {
+    workspace,
+    selected: Boolean(target.selected),
+    default: Boolean(target.default),
+    registered: Boolean(target.registered),
+    exists: true,
+    user_id: target.user_id || null,
+    project_id: target.project_id || null,
+    updated_at: target.updated_at || null,
+    memory_sources: memorySources,
+    health,
+    recommended_action: buildMemorySourceRecommendedAction(health, {
+      workspace,
+      openClawHome: options.openClawHome,
+      skillsRoot: options.skillsRoot,
+      memoryTakeoverEnforced: options.memoryTakeoverEnforced
+    })
+  };
+}
+
+function buildHostTakeoverAudit(options = {}) {
+  const targets = collectHostAuditTargets(options.hostConfig || {}, options.selectedWorkspace || null);
+  const workspaces = targets
+    .map((target) =>
+      buildWorkspaceTakeoverInspection(target, {
+        openClawHome: options.openClawHome,
+        skillsRoot: options.skillsRoot,
+        memoryTakeoverMode: options.memoryTakeoverMode,
+        memoryTakeoverEnforced: options.memoryTakeoverEnforced
+      })
+    )
+    .filter(Boolean);
+
+  const missingWorkspaceCount = workspaces.filter((entry) => entry.exists === false).length;
+  const singleSourceCount = workspaces.filter((entry) => entry.health.status === 'single_source').length;
+  const bestEffortCount = workspaces.filter((entry) => entry.health.status === 'best_effort').length;
+  const driftCount = workspaces.filter((entry) => entry.health.status === 'drift_detected').length;
+  const issues = [];
+  let status = 'ok';
+  let summary = 'All registered workspaces are aligned with the current takeover policy.';
+
+  if (missingWorkspaceCount > 0) {
+    issues.push('registered_workspace_missing');
+    status = 'warning';
+  }
+  if (driftCount > 0) {
+    issues.push(options.memoryTakeoverEnforced ? 'registered_workspace_drift' : 'registered_workspace_drift_best_effort');
+    status = 'warning';
+  }
+  if (status !== 'warning' && options.memoryTakeoverEnforced !== true) {
+    issues.push('best_effort_takeover');
+    status = workspaces.length > 0 ? 'notice' : 'warning';
+  }
+  if (workspaces.length === 0) {
+    issues.push('no_registered_workspaces');
+    status = status === 'warning' ? status : 'notice';
+    summary = 'No registered workspaces were found for host-level takeover audit.';
+  } else if (status === 'warning') {
+    const warningParts = [];
+    if (driftCount > 0) {
+      warningParts.push(`${driftCount} workspace(s) have external memory drift`);
+    }
+    if (missingWorkspaceCount > 0) {
+      warningParts.push(`${missingWorkspaceCount} registered workspace path(s) are missing`);
+    }
+    summary = warningParts.join('; ') + '.';
+  } else if (status === 'notice') {
+    summary =
+      options.memoryTakeoverEnforced === true
+        ? 'Registered workspaces are present, but some host-audit details still need review.'
+        : `${bestEffortCount} workspace(s) are still under best-effort takeover and may bypass context-anchor.`;
+  }
+
+  const firstProblem =
+    workspaces.find((entry) => entry.health.status === 'drift_detected' || entry.health.status === 'workspace_missing') ||
+    workspaces.find((entry) => entry.health.status === 'best_effort') ||
+    null;
+
+  return {
+    status,
+    memory_takeover_mode: options.memoryTakeoverMode || 'best_effort',
+    total_registered_workspaces: workspaces.length,
+    missing_workspace_count: missingWorkspaceCount,
+    single_source_workspaces: singleSourceCount,
+    best_effort_workspaces: bestEffortCount,
+    drift_workspaces: driftCount,
+    issues,
+    summary,
+    recommended_action: firstProblem
+      ? {
+          workspace: firstProblem.workspace,
+          ...firstProblem.recommended_action
+        }
+      : {
+          type: 'none',
+          summary: 'No repair action required.',
+          command: null,
+          follow_up_command: null,
+          workspace: null
+        },
+    workspaces
+  };
+}
+
+function resolveProfileFamilyPrefix(profileName) {
+  if (profileName === '.openclaw' || String(profileName).startsWith('.openclaw-')) {
+    return '.openclaw';
+  }
+
+  return String(profileName || '').trim();
+}
+
+function discoverPeerProfileHomes(openClawHome) {
+  const resolvedHome = path.resolve(openClawHome);
+  const parentDir = path.dirname(resolvedHome);
+  const profileName = path.basename(resolvedHome);
+  const profileFamilyPrefix = resolveProfileFamilyPrefix(profileName);
+
+  if (!fs.existsSync(parentDir)) {
+    return [resolvedHome];
+  }
+
+  const homes = fs.readdirSync(parentDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(parentDir, entry.name))
+    .filter((candidate) => {
+      const candidateName = path.basename(candidate);
+      if (normalizeWorkspaceKey(candidate) === normalizeWorkspaceKey(resolvedHome)) {
+        return true;
+      }
+
+      if (!profileFamilyPrefix) {
+        return false;
+      }
+
+      if (candidateName === profileFamilyPrefix || candidateName.startsWith(`${profileFamilyPrefix}-`)) {
+        const hasOpenClawMarkers =
+          fs.existsSync(path.join(candidate, 'openclaw.json')) ||
+          fs.existsSync(getHostConfigFile(candidate)) ||
+          fs.existsSync(path.join(candidate, 'skills')) ||
+          fs.existsSync(path.join(candidate, 'hooks'));
+        return hasOpenClawMarkers;
+      }
+
+      return false;
+    })
+    .sort((left, right) => left.localeCompare(right));
+
+  return homes.length > 0 ? homes : [resolvedHome];
+}
+
+function detectInstalledSkillRoots(openClawHome, options = {}) {
+  const configFile = path.join(openClawHome, 'openclaw.json');
+  const config = readJson(configFile, null);
+  const defaultManagedSkillsRoot = path.join(openClawHome, 'skills');
+  const configuredExtraDirs = Array.isArray(config?.skills?.load?.extraDirs) ? config.skills.load.extraDirs : [];
+  const candidateRoots = [
+    options.skillsRoot ? path.resolve(options.skillsRoot) : null,
+    defaultManagedSkillsRoot,
+    ...configuredExtraDirs.map((entry) => path.resolve(entry))
+  ].filter(Boolean);
+  const seen = new Set();
+  const installedRoots = [];
+
+  for (const root of candidateRoots) {
+    const normalized = normalizeWorkspaceKey(root);
+    if (seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+
+    if (fs.existsSync(path.join(root, 'context-anchor', 'SKILL.md'))) {
+      installedRoots.push(root);
+    }
+  }
+
+  return {
+    config,
+    default_managed_skills_root: defaultManagedSkillsRoot,
+    installed_skill_roots: installedRoots,
+    configured_extra_dirs: configuredExtraDirs
+  };
+}
+
+function inspectProfileTakeoverState(openClawHome, options = {}) {
+  const resolvedHome = path.resolve(openClawHome);
+  const skillRoots = detectInstalledSkillRoots(resolvedHome, {
+    skillsRoot: options.skillsRoot || null
+  });
+  const config = skillRoots.config;
+  const hostConfig = readHostConfig(resolvedHome);
+  const hooks = config?.hooks || {};
+  const preferredSkillsRoot =
+    (options.selected && options.skillsRoot ? path.resolve(options.skillsRoot) : null) ||
+    skillRoots.installed_skill_roots[0] ||
+    skillRoots.default_managed_skills_root;
+  const installation = {
+    config_exists: fs.existsSync(path.join(resolvedHome, 'openclaw.json')),
+    host_config_exists: fs.existsSync(getHostConfigFile(resolvedHome)),
+    skill_snapshot_exists: skillRoots.installed_skill_roots.length > 0,
+    hook_wrapper_exists: fs.existsSync(path.join(resolvedHome, 'hooks', 'context-anchor-hook', 'handler.js')),
+    monitor_wrapper_exists: fs.existsSync(
+      path.join(resolvedHome, 'automation', 'context-anchor', 'context-pressure-monitor.js')
+    ),
+    workspace_monitor_wrapper_exists: fs.existsSync(
+      path.join(resolvedHome, 'automation', 'context-anchor', 'workspace-monitor.js')
+    ),
+    detected_skill_roots: skillRoots.installed_skill_roots
+  };
+  installation.ready =
+    installation.config_exists &&
+    installation.skill_snapshot_exists &&
+    installation.hook_wrapper_exists &&
+    installation.monitor_wrapper_exists &&
+    installation.workspace_monitor_wrapper_exists;
+
+  const configuration = {
+    internal_hooks_enabled: hooks?.internal?.enabled === true,
+    memory_takeover_mode: hostConfig.onboarding.memory_takeover_mode || 'best_effort',
+    memory_takeover_enforced: (hostConfig.onboarding.memory_takeover_mode || 'best_effort') === 'enforced'
+  };
+  configuration.ready = installation.ready && configuration.internal_hooks_enabled;
+
+  const hostTakeoverAudit = buildHostTakeoverAudit({
+    hostConfig,
+    selectedWorkspace: hostConfig.defaults.workspace || null,
+    openClawHome: resolvedHome,
+    skillsRoot: preferredSkillsRoot,
+    memoryTakeoverMode: configuration.memory_takeover_mode,
+    memoryTakeoverEnforced: configuration.memory_takeover_enforced
+  });
+
+  let status = 'ok';
+  let summary = 'Profile takeover is aligned.';
+  let recommendedAction = {
+    type: 'none',
+    summary: 'No repair action required.',
+    command: null,
+    follow_up_command: null
+  };
+  const issues = [];
+
+  if (!configuration.ready) {
+    status = 'warning';
+    summary = 'This profile is not fully configured for context-anchor takeover.';
+    issues.push('profile_not_ready');
+    recommendedAction = {
+      type: 'configure_host',
+      summary: 'Apply the recommended host configuration for this profile.',
+      command: buildNpmScriptCommand('configure:host', {
+        openClawHome: resolvedHome,
+        skillsRoot: preferredSkillsRoot,
+        applyConfig: true,
+        enforceMemoryTakeover: true,
+        yes: true
+      }),
+      follow_up_command: null
+    };
+  } else if (hostTakeoverAudit.status === 'warning') {
+    status = 'warning';
+    summary = hostTakeoverAudit.summary;
+    issues.push(...hostTakeoverAudit.issues);
+    recommendedAction = hostTakeoverAudit.recommended_action || recommendedAction;
+  } else if (configuration.memory_takeover_enforced !== true) {
+    status = 'notice';
+    summary = 'This profile is still in best-effort takeover mode.';
+    issues.push('best_effort_takeover');
+    recommendedAction = {
+      type: 'enforce_memory_takeover',
+      summary: 'Enforce context-anchor takeover for this profile.',
+      command: buildNpmScriptCommand('configure:host', {
+        openClawHome: resolvedHome,
+        skillsRoot: preferredSkillsRoot,
+        applyConfig: true,
+        enforceMemoryTakeover: true,
+        yes: true
+      }),
+      follow_up_command: null
+    };
+  } else if (hostTakeoverAudit.status === 'notice') {
+    status = 'notice';
+    summary = hostTakeoverAudit.summary;
+    issues.push(...hostTakeoverAudit.issues);
+    recommendedAction = hostTakeoverAudit.recommended_action || recommendedAction;
+  }
+
+  return {
+    openclaw_home: resolvedHome,
+    selected: Boolean(options.selected),
+    installation,
+    configuration,
+    host_takeover_audit: hostTakeoverAudit,
+    status,
+    summary,
+    issues,
+    recommended_action: recommendedAction
+  };
+}
+
+function buildProfileTakeoverAudit(options = {}) {
+  const profiles = discoverPeerProfileHomes(options.openClawHome)
+    .map((profileHome) =>
+      inspectProfileTakeoverState(profileHome, {
+        selected: normalizeWorkspaceKey(profileHome) === normalizeWorkspaceKey(options.openClawHome),
+        skillsRoot:
+          normalizeWorkspaceKey(profileHome) === normalizeWorkspaceKey(options.openClawHome)
+            ? options.skillsRoot || null
+            : null
+      })
+    );
+
+  const warningProfiles = profiles.filter((entry) => entry.status === 'warning').length;
+  const noticeProfiles = profiles.filter((entry) => entry.status === 'notice').length;
+  const enforcedProfiles = profiles.filter((entry) => entry.configuration.memory_takeover_enforced === true).length;
+  const driftProfiles = profiles.filter((entry) => entry.host_takeover_audit.drift_workspaces > 0).length;
+  const notReadyProfiles = profiles.filter((entry) => entry.issues.includes('profile_not_ready')).length;
+  const issues = [];
+  let status = 'ok';
+  let summary = 'All discovered profiles are aligned with the current takeover policy.';
+
+  if (warningProfiles > 0) {
+    status = 'warning';
+    if (notReadyProfiles > 0) {
+      issues.push('peer_profile_not_ready');
+    }
+    if (driftProfiles > 0) {
+      issues.push('peer_profile_drift');
+    }
+    summary = `${warningProfiles} profile(s) need attention across the current profile family.`;
+  } else if (noticeProfiles > 0) {
+    status = 'notice';
+    issues.push('peer_profile_best_effort');
+    summary = `${noticeProfiles} profile(s) are still running in best-effort takeover mode.`;
+  }
+
+  const firstProblem = profiles.find((entry) => entry.status === 'warning' || entry.status === 'notice') || null;
+
+  return {
+    status,
+    total_profiles: profiles.length,
+    warning_profiles: warningProfiles,
+    notice_profiles: noticeProfiles,
+    enforced_profiles: enforcedProfiles,
+    drift_profiles: driftProfiles,
+    not_ready_profiles: notReadyProfiles,
+    issues,
+    summary,
+    recommended_action: firstProblem
+      ? {
+          openclaw_home: firstProblem.openclaw_home,
+          ...firstProblem.recommended_action
+        }
+      : {
+          type: 'none',
+          summary: 'No repair action required.',
+          command: null,
+          follow_up_command: null,
+          openclaw_home: null
+        },
+    profiles
+  };
+}
+
 function buildTakeoverAudit(doctorResult = {}) {
   const mode = doctorResult?.configuration?.memory_takeover_mode || 'best_effort';
   const workspace = doctorResult?.paths?.workspace || null;
@@ -154,6 +665,14 @@ function runTakeoverAudit(options = {}) {
   return buildTakeoverAudit(runDoctor(options));
 }
 
+function runHostTakeoverAudit(options = {}) {
+  return runDoctor(options).host_takeover_audit;
+}
+
+function runProfileTakeoverAudit(options = {}) {
+  return runDoctor(options).profile_takeover_audit;
+}
+
 function runDoctor(options = {}) {
   const openClawHome = getOpenClawHome(options.openclawHome || null);
   const skillsRoot = path.resolve(
@@ -170,6 +689,12 @@ function runDoctor(options = {}) {
     'automation',
     'context-anchor',
     'workspace-monitor.js'
+  );
+  const externalMemoryWatchScript = path.join(
+    openClawHome,
+    'automation',
+    'context-anchor',
+    'external-memory-watch.js'
   );
   const userDataRoot = path.join(openClawHome, 'context-anchor', 'users', 'default-user');
   const hostConfigFile = getHostConfigFile(openClawHome);
@@ -191,6 +716,7 @@ function runDoctor(options = {}) {
     hook_wrapper_exists: fs.existsSync(hookHandler),
     monitor_wrapper_exists: fs.existsSync(monitorScript),
     workspace_monitor_wrapper_exists: fs.existsSync(workspaceMonitorScript),
+    external_memory_watch_wrapper_exists: fs.existsSync(externalMemoryWatchScript),
     extra_skill_dir_registered: skillsRootRegistrationRequired ? extraDirs.includes(skillsRoot) : true
   };
   installation.managed_skills_root = defaultManagedSkillsRoot;
@@ -249,49 +775,34 @@ function runDoctor(options = {}) {
         drift_reasons: [],
         summary: 'Provide --workspace or configure a default workspace to inspect external memory drift.'
       };
-  const memorySourceAction =
-    memorySourceHealth.status === 'drift_detected'
-      ? {
-          type: 'sync_legacy_memory',
-          summary: 'External memory sources changed after the last sync. Centralize them into context-anchor now.',
-          command: buildNpmScriptCommand('migrate:memory', {
-            workspace
-          }),
-          follow_up_command:
-            configuration.memory_takeover_enforced
-              ? null
-              : buildNpmScriptCommand('configure:host', {
-                  workspace,
-                  openClawHome,
-                  skillsRoot,
-                  applyConfig: true,
-                  enforceMemoryTakeover: true,
-                  yes: true
-                })
-        }
-      : memorySourceHealth.status === 'best_effort'
-        ? {
-            type: 'enforce_memory_takeover',
-            summary: 'Takeover is still best-effort. Enforce context-anchor takeover to reduce future bypass.',
-            command: buildNpmScriptCommand('configure:host', {
-              workspace,
-              openClawHome,
-              skillsRoot,
-              applyConfig: true,
-              enforceMemoryTakeover: true,
-              yes: true
-            }),
-            follow_up_command: null
-          }
-        : {
-            type: 'none',
-            summary: 'No repair action required.',
-            command: null,
-            follow_up_command: null
-          };
+  const memorySourceAction = buildMemorySourceRecommendedAction(memorySourceHealth, {
+    workspace,
+    openClawHome,
+    skillsRoot,
+    memoryTakeoverEnforced: configuration.memory_takeover_enforced
+  });
+  const hostTakeoverAudit = buildHostTakeoverAudit({
+    hostConfig,
+    selectedWorkspace: workspace,
+    openClawHome,
+    skillsRoot,
+    memoryTakeoverMode: configuration.memory_takeover_mode,
+    memoryTakeoverEnforced: configuration.memory_takeover_enforced
+  });
+  const profileTakeoverAudit = buildProfileTakeoverAudit({
+    openClawHome,
+    skillsRoot
+  });
 
   return {
-    status: installation.ready && configuration.ready && !memorySourceHealth.drift_detected ? 'ok' : 'warning',
+    status:
+      installation.ready &&
+      configuration.ready &&
+      !memorySourceHealth.drift_detected &&
+      hostTakeoverAudit.status !== 'warning' &&
+      profileTakeoverAudit.status !== 'warning'
+        ? 'ok'
+        : 'warning',
     platform: process.platform,
     platform_label: platformLabel(process.platform),
     paths: {
@@ -304,6 +815,7 @@ function runDoctor(options = {}) {
       hook_handler: hookHandler,
       monitor_script: monitorScript,
       workspace_monitor_script: workspaceMonitorScript,
+      external_memory_watch_script: externalMemoryWatchScript,
       host_config_file: hostConfigFile,
       user_data_root: userDataRoot,
       workspace
@@ -315,6 +827,8 @@ function runDoctor(options = {}) {
       health: memorySourceHealth,
       recommended_action: memorySourceAction
     },
+    host_takeover_audit: hostTakeoverAudit,
+    profile_takeover_audit: profileTakeoverAudit,
     ownership: summarizeHostConfig(hostConfig),
     commands: {
       install: `node ${quoteArg(path.join(__dirname, 'install-one-click.js'))}`,
@@ -333,6 +847,9 @@ function runDoctor(options = {}) {
         process.platform === 'win32' ? '.\\context-anchor-payload.json' : './context-anchor-payload.json'
       )}`,
       workspace_monitor: `node ${quoteArg(workspaceMonitorScript)} ${quoteArg(workspace || '<workspace>')}`,
+      external_memory_watch: `node ${quoteArg(externalMemoryWatchScript)} ${quoteArg(
+        workspace || '<workspace>'
+      )} ${quoteArg('external-memory-watch')} ${quoteArg('<project-id>')} 800`,
       monitor_single_session: `node ${quoteArg(monitorScript)} ${quoteArg(
         workspace || '<workspace>'
       )} ${quoteArg('<session-key>')} 82`
@@ -346,6 +863,11 @@ function runDoctor(options = {}) {
       'The one-click installer will ask whether to preserve existing memories before it cleans previous installation files.',
       'If internal hooks are disabled, context-anchor-hook will not run even if the managed hook files are installed.',
       'By default, context-anchor automatically registers first-seen workspaces with the default user and workspace basename project id; disable this in configure-host if you want manual approval instead.',
+      'Use the external memory watcher when you want faster-than-scheduler centralization after MEMORY.md or memory/*.md changes.',
+      hostTakeoverAudit.total_registered_workspaces > 0
+        ? `Host takeover audit inspected ${hostTakeoverAudit.total_registered_workspaces} workspace(s): single_source=${hostTakeoverAudit.single_source_workspaces}, best_effort=${hostTakeoverAudit.best_effort_workspaces}, drift=${hostTakeoverAudit.drift_workspaces}, missing=${hostTakeoverAudit.missing_workspace_count}.`
+        : 'Host takeover audit did not find any registered workspaces yet.',
+      `Profile takeover audit inspected ${profileTakeoverAudit.total_profiles} profile(s): enforced=${profileTakeoverAudit.enforced_profiles}, warning=${profileTakeoverAudit.warning_profiles}, notice=${profileTakeoverAudit.notice_profiles}, drift=${profileTakeoverAudit.drift_profiles}.`,
       workspace
         ? `Memory drift check inspected workspace ${workspace}.`
         : 'Memory drift check is skipped until you provide --workspace or configure a default workspace.',
@@ -367,6 +889,10 @@ if (require.main === module) {
 
 module.exports = {
   buildTakeoverAudit,
+  buildHostTakeoverAudit,
+  buildProfileTakeoverAudit,
   runDoctor,
+  runHostTakeoverAudit,
+  runProfileTakeoverAudit,
   runTakeoverAudit
 };

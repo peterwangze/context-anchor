@@ -10,6 +10,7 @@ const {
   sessionStateFile
 } = require('./lib/context-anchor');
 const { buildBootstrapCacheContent, buildBootstrapCachePath, writeBootstrapCache } = require('./lib/bootstrap-cache');
+const { buildOpenClawSessionStatusReport } = require('./lib/openclaw-session-status');
 const {
   ensureWorkspaceRegistration,
   findSession,
@@ -18,7 +19,7 @@ const {
 } = require('./lib/host-config');
 const { discoverOpenClawSessions } = require('./lib/openclaw-session-discovery');
 const { runConfigureHost } = require('./configure-host');
-const { runTakeoverAudit } = require('./doctor');
+const { buildTakeoverAudit, runDoctor } = require('./doctor');
 const { runMirrorRebuild } = require('./mirror-rebuild');
 const { runSessionStart } = require('./session-start');
 const { runStorageGovernance } = require('./storage-governance');
@@ -110,6 +111,90 @@ function emitProgress(progress, event) {
   if (typeof progress === 'function') {
     progress(event);
   }
+}
+
+function quoteArg(value) {
+  return `"${String(value).replace(/"/g, '\\"')}"`;
+}
+
+function buildUpgradeRecheckCommand(openClawHome, skillsRoot, options = {}) {
+  const forwarded = [
+    '--openclaw-home',
+    quoteArg(openClawHome),
+    '--skills-root',
+    quoteArg(skillsRoot)
+  ];
+
+  if (options.workspace) {
+    forwarded.push('--workspace', quoteArg(options.workspace));
+  }
+  if (options.sessionKey) {
+    forwarded.push('--session-key', quoteArg(options.sessionKey));
+  }
+
+  return `npm run status:sessions -- ${forwarded.join(' ')}`;
+}
+
+function buildUpgradeVerification({
+  openClawHome,
+  skillsRoot,
+  options,
+  results,
+  sessionReport
+}) {
+  const upgradedResults = results.filter((entry) => entry.action === 'upgraded');
+  const upgradedKeys = new Set(upgradedResults.map((entry) => sanitizeKey(entry.session_key)));
+  const verifiedSessions = sessionReport.sessions.filter((entry) => upgradedKeys.has(sanitizeKey(entry.session_key)));
+  const remainingAttention = verifiedSessions.filter((entry) => {
+    const skill = entry.classification?.skill || 'missing';
+    return skill === 'missing' || skill === 'unknown';
+  });
+  const unresolvedTargets = results.filter((entry) => entry.reason === 'workspace_unresolved');
+  const configurationRequiredTargets = results.filter((entry) => entry.reason === 'workspace_needs_configuration');
+  const issues = [];
+  let status = 'verified';
+  let summary = 'Upgrade-sessions recheck passed.';
+
+  if (remainingAttention.length > 0) {
+    issues.push('upgraded_session_not_materialized');
+    status = 'needs_attention';
+  }
+  if (unresolvedTargets.length > 0) {
+    issues.push('workspace_unresolved');
+    status = 'needs_attention';
+  }
+  if (configurationRequiredTargets.length > 0) {
+    issues.push('workspace_needs_configuration');
+    status = 'needs_attention';
+  }
+
+  if (status === 'needs_attention') {
+    if (remainingAttention.length > 0) {
+      summary = `${remainingAttention.length} upgraded session(s) still did not materialize into context-anchor state after recheck.`;
+    } else if (configurationRequiredTargets.length > 0) {
+      summary = `${configurationRequiredTargets.length} session target(s) still need workspace configuration before they can be upgraded.`;
+    } else {
+      summary = `${unresolvedTargets.length} session target(s) still have unresolved workspace paths.`;
+    }
+  } else if (upgradedResults.length === 0) {
+    summary = 'No sessions were upgraded in this run, so only the current status snapshot was rechecked.';
+  }
+
+  return {
+    status,
+    summary,
+    issues,
+    upgraded_sessions: upgradedResults.length,
+    verified_sessions: verifiedSessions.length,
+    remaining_attention_sessions: remainingAttention.length,
+    unresolved_targets: unresolvedTargets.length,
+    configuration_required_targets: configurationRequiredTargets.length,
+    session_report_status: sessionReport.status,
+    recheck_command: buildUpgradeRecheckCommand(openClawHome, skillsRoot, {
+      workspace: options.workspace || null,
+      sessionKey: options.sessionKey || null
+    })
+  };
 }
 
 function askYesNo(prompt, defaultYes = true) {
@@ -486,10 +571,22 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
     results.find((entry) => entry.workspace && entry.action === 'upgraded')?.workspace ||
     results.find((entry) => entry.workspace)?.workspace ||
     null;
-  const takeoverAudit = runTakeoverAudit({
+  const doctorAudit = runDoctor({
     openClawHome,
     skillsRoot,
     workspace: auditWorkspace
+  });
+  const takeoverAudit = buildTakeoverAudit(doctorAudit);
+  const verificationReport = buildOpenClawSessionStatusReport(openClawHome, skillsRoot, {
+    workspace: options.workspace || null,
+    sessionKey: options.sessionKey || null
+  });
+  const verification = buildUpgradeVerification({
+    openClawHome,
+    skillsRoot,
+    options,
+    results,
+    sessionReport: verificationReport
   });
   const summary = {
     status: 'ok',
@@ -501,7 +598,11 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
     configuration_required_sessions: results.filter((entry) => entry.reason === 'workspace_needs_configuration').length,
     mirror_rebuild: mirrorRebuild,
     governance_runs: governanceRuns,
+    verification,
+    verification_report: verificationReport,
     takeover_audit: takeoverAudit,
+    host_takeover_audit: doctorAudit.host_takeover_audit,
+    profile_takeover_audit: doctorAudit.profile_takeover_audit,
     results
   };
   if (takeoverAudit.status !== 'ok') {
@@ -509,6 +610,20 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
       type: 'takeover:audit',
       status: takeoverAudit.status,
       message: `[upgrade] takeover audit: ${takeoverAudit.summary}`
+    });
+  }
+  if (doctorAudit.host_takeover_audit.status !== 'ok') {
+    emitProgress(progress, {
+      type: 'host:audit',
+      status: doctorAudit.host_takeover_audit.status,
+      message: `[upgrade] host audit: ${doctorAudit.host_takeover_audit.summary}`
+    });
+  }
+  if (doctorAudit.profile_takeover_audit.status !== 'ok') {
+    emitProgress(progress, {
+      type: 'profile:audit',
+      status: doctorAudit.profile_takeover_audit.status,
+      message: `[upgrade] profile audit: ${doctorAudit.profile_takeover_audit.summary}`
     });
   }
   emitProgress(progress, {

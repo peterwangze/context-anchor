@@ -255,6 +255,46 @@ function createCliProgressReporter(stream = process.stderr) {
   };
 }
 
+function buildInstallVerification(configuration, sessionUpgrade) {
+  const configurationVerification = configuration?.verification || null;
+  const sessionUpgradeVerification = sessionUpgrade?.verification || null;
+  const issues = [];
+  let status = 'verified';
+  let summary = 'Install recheck passed.';
+  let recheckCommand = null;
+
+  if (configurationVerification?.status === 'needs_attention') {
+    status = 'needs_attention';
+    issues.push('configuration_verification_failed');
+    summary = configurationVerification.summary;
+    recheckCommand = configurationVerification.recheck_command || recheckCommand;
+  }
+
+  if (sessionUpgradeVerification?.status === 'needs_attention') {
+    status = 'needs_attention';
+    issues.push('session_upgrade_verification_failed');
+    summary = sessionUpgradeVerification.summary;
+    recheckCommand = sessionUpgradeVerification.recheck_command || recheckCommand;
+  }
+
+  if (status === 'verified') {
+    if (sessionUpgradeVerification) {
+      summary = sessionUpgradeVerification.summary;
+      recheckCommand = sessionUpgradeVerification.recheck_command || recheckCommand;
+    } else if (configurationVerification) {
+      summary = configurationVerification.summary;
+      recheckCommand = configurationVerification.recheck_command || recheckCommand;
+    }
+  }
+
+  return {
+    status,
+    summary,
+    issues,
+    recheck_command: recheckCommand
+  };
+}
+
 function dirHasFiles(targetDir) {
   if (!pathExists(targetDir)) {
     return false;
@@ -436,6 +476,20 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
         message: `[install] takeover audit: ${configuration.takeover_audit.summary}`
       });
     }
+    if (configuration?.host_takeover_audit?.status && configuration.host_takeover_audit.status !== 'ok') {
+      emitProgress(progress, {
+        type: 'install:config:host-audit',
+        status: configuration.host_takeover_audit.status,
+        message: `[install] host audit: ${configuration.host_takeover_audit.summary}`
+      });
+    }
+    if (configuration?.profile_takeover_audit?.status && configuration.profile_takeover_audit.status !== 'ok') {
+      emitProgress(progress, {
+        type: 'install:config:profile-audit',
+        status: configuration.profile_takeover_audit.status,
+        message: `[install] profile audit: ${configuration.profile_takeover_audit.summary}`
+      });
+    }
   }
   const upgradeRunGovernance =
     typeof options.runGovernance === 'boolean' ? options.runGovernance : options.upgradeSessions && preserveMemories !== false;
@@ -535,6 +589,20 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
         message: `[install] takeover audit: ${sessionUpgrade.takeover_audit.summary}`
       });
     }
+    if (sessionUpgrade?.host_takeover_audit?.status && sessionUpgrade.host_takeover_audit.status !== 'ok') {
+      emitProgress(progress, {
+        type: 'install:upgrade:host-audit',
+        status: sessionUpgrade.host_takeover_audit.status,
+        message: `[install] host audit: ${sessionUpgrade.host_takeover_audit.summary}`
+      });
+    }
+    if (sessionUpgrade?.profile_takeover_audit?.status && sessionUpgrade.profile_takeover_audit.status !== 'ok') {
+      emitProgress(progress, {
+        type: 'install:upgrade:profile-audit',
+        status: sessionUpgrade.profile_takeover_audit.status,
+        message: `[install] profile audit: ${sessionUpgrade.profile_takeover_audit.summary}`
+      });
+    }
   }
   const mirrorRebuild =
     !options.upgradeSessions && preserveMemories !== false && state.has_memory_data
@@ -558,7 +626,10 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
     configuration,
     session_upgrade: sessionUpgrade,
     mirror_rebuild: mirrorRebuild,
-    takeover_audit: sessionUpgrade?.takeover_audit || configuration?.takeover_audit || null
+    verification: buildInstallVerification(configuration, sessionUpgrade),
+    takeover_audit: sessionUpgrade?.takeover_audit || configuration?.takeover_audit || null,
+    host_takeover_audit: sessionUpgrade?.host_takeover_audit || configuration?.host_takeover_audit || null,
+    profile_takeover_audit: sessionUpgrade?.profile_takeover_audit || configuration?.profile_takeover_audit || null
   };
 }
 

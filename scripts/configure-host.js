@@ -7,7 +7,7 @@ const path = require('path');
 const readline = require('readline');
 const { execFileSync } = require('child_process');
 const { ensureDir, getOpenClawHome, writeJson, writeText } = require('./lib/context-anchor');
-const { runTakeoverAudit } = require('./doctor');
+const { buildTakeoverAudit, runDoctor } = require('./doctor');
 const {
   DEFAULT_USER_ID,
   getHostConfigFile,
@@ -154,6 +154,72 @@ function quoteArg(value) {
   return `"${String(value).replace(/"/g, '\\"')}"`;
 }
 
+function buildDoctorRecheckCommand(openClawHome, skillsRoot, workspace) {
+  const forwarded = [
+    '--openclaw-home',
+    quoteArg(openClawHome),
+    '--skills-root',
+    quoteArg(skillsRoot)
+  ];
+
+  if (workspace) {
+    forwarded.push('--workspace', quoteArg(workspace));
+  }
+
+  return `npm run doctor -- ${forwarded.join(' ')}`;
+}
+
+function buildConfigureHostVerification({ doctorAudit, takeoverAudit, memoryTakeover, workspace, openClawHome, skillsRoot }) {
+  const issues = [];
+  let status = 'verified';
+  let summary = 'Configure-host recheck passed.';
+
+  if (!doctorAudit.installation.ready || !doctorAudit.configuration.ready) {
+    issues.push('profile_not_ready');
+    status = 'needs_attention';
+  }
+
+  if (memoryTakeover && takeoverAudit.status === 'warning') {
+    issues.push(...takeoverAudit.issues);
+    status = 'needs_attention';
+  }
+
+  if (doctorAudit.host_takeover_audit.status === 'warning') {
+    issues.push(...doctorAudit.host_takeover_audit.issues);
+    status = 'needs_attention';
+  }
+
+  if (doctorAudit.profile_takeover_audit.status === 'warning') {
+    issues.push(...doctorAudit.profile_takeover_audit.issues);
+    status = 'needs_attention';
+  }
+
+  if (!memoryTakeover && status === 'verified') {
+    summary = 'Configure-host completed and the profile is intentionally left in best-effort takeover mode.';
+  } else if (status === 'needs_attention') {
+    const primarySummary =
+      memoryTakeover && takeoverAudit.status === 'warning'
+        ? takeoverAudit.summary
+        : !doctorAudit.installation.ready || !doctorAudit.configuration.ready
+          ? 'Host configuration is still not fully ready after the repair run.'
+          : doctorAudit.host_takeover_audit.status === 'warning'
+            ? doctorAudit.host_takeover_audit.summary
+            : doctorAudit.profile_takeover_audit.summary;
+    summary = `Configure-host recheck still needs attention: ${primarySummary}`;
+  }
+
+  return {
+    status,
+    summary,
+    issues: [...new Set(issues)],
+    doctor_status: doctorAudit.status,
+    takeover_audit_status: takeoverAudit.status,
+    host_takeover_audit_status: doctorAudit.host_takeover_audit.status,
+    profile_takeover_audit_status: doctorAudit.profile_takeover_audit.status,
+    recheck_command: buildDoctorRecheckCommand(openClawHome, skillsRoot, workspace)
+  };
+}
+
 function quoteVbs(value) {
   return `"${String(value).replace(/"/g, '""')}"`;
 }
@@ -255,6 +321,12 @@ function buildHostPaths(openClawHome, skillsRoot) {
     'context-anchor',
     'workspace-monitor.js'
   );
+  const externalMemoryWatchScript = path.join(
+    openClawHome,
+    'automation',
+    'context-anchor',
+    'external-memory-watch.js'
+  );
 
   return {
     openclaw_home: openClawHome,
@@ -266,6 +338,7 @@ function buildHostPaths(openClawHome, skillsRoot) {
     hook_handler: hookHandler,
     monitor_script: monitorScript,
     workspace_monitor_script: workspaceMonitorScript,
+    external_memory_watch_script: externalMemoryWatchScript,
     host_config_file: getHostConfigFile(openClawHome)
   };
 }
@@ -994,10 +1067,19 @@ async function runConfigureHost(openClawHomeArg, skillsRootArg, options = {}) {
     options.defaultWorkspace ||
     ownership.added_workspaces?.[0]?.workspace ||
     null;
-  const takeoverAudit = runTakeoverAudit({
+  const doctorAudit = runDoctor({
     openClawHome,
     skillsRoot,
     workspace: auditWorkspace
+  });
+  const takeoverAudit = buildTakeoverAudit(doctorAudit);
+  const verification = buildConfigureHostVerification({
+    doctorAudit,
+    takeoverAudit,
+    memoryTakeover,
+    workspace: auditWorkspace,
+    openClawHome,
+    skillsRoot
   });
 
   return {
@@ -1016,7 +1098,10 @@ async function runConfigureHost(openClawHomeArg, skillsRootArg, options = {}) {
     },
     ownership,
     scheduler,
-    takeover_audit: takeoverAudit
+    verification,
+    takeover_audit: takeoverAudit,
+    host_takeover_audit: doctorAudit.host_takeover_audit,
+    profile_takeover_audit: doctorAudit.profile_takeover_audit
   };
 }
 

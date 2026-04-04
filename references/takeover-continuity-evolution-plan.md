@@ -66,6 +66,32 @@
   - 强制接管模式下，如外部记忆源在最近同步后仍发生变化，会明确返回 warning
   - install / upgrade 的进度输出已可回显 takeover audit 摘要
   - 已补充 Stage 2 自动化测试，覆盖 enforced drift warning 与 install / upgrade audit 回读
+- `2026-04-03`
+  - `doctor` 已增加 `host_takeover_audit`
+  - `configure-host / install-one-click / upgrade-sessions` 已透传 `host_takeover_audit`
+  - 已支持对多 registered workspace 做 host-level drift audit
+  - 已补充 Stage 2 自动化测试，覆盖多 workspace drift host audit
+- `2026-04-03`
+  - `doctor` 已增加 `profile_takeover_audit`
+  - `configure-host / install-one-click / upgrade-sessions` 已透传 `profile_takeover_audit`
+  - 已支持对同级 OpenClaw profile 做 peer-profile drift audit
+  - `workspace-monitor` 在 idle 且检测到外部记忆漂移时，会自动触发一次低噪声 legacy memory sync
+  - 已补充 Stage 2 自动化测试，覆盖 sibling profile drift audit 与 idle workspace auto-sync
+- `2026-04-04`
+  - `configure-host` 已增加显式 `verification`
+  - `configure-sessions` 已增加显式 `verification` 与 `verification_report`
+  - repair 命令执行后已可自动回读当前状态，并返回 `recheck_command`
+  - 已补充自动化测试，覆盖 host repair verification 与 session repair verification
+- `2026-04-04`
+  - `upgrade-sessions` 已增加显式 `verification` 与 `verification_report`
+  - `install-one-click` 已增加顶层 `verification`
+  - install / upgrade 执行后已可直接返回 recheck 结论，而不只是返回 audit
+  - 已补充自动化测试，覆盖 upgrade verification 与 install top-level verification
+- `2026-04-04`
+  - 已新增 `external-memory-watch` 核心脚本
+  - host install 产物中已增加 `automation/context-anchor/external-memory-watch.js`
+  - `doctor` 已输出 watcher 路径与命令
+  - 已补充自动化测试，覆盖 watcher debounce / skip-sync / installed wrapper
 
 当前仍未完成的重点：
 
@@ -279,9 +305,15 @@
   - `configure-host / install-one-click / upgrade-sessions` 已执行接管一致性回读审计
   - enforced 模式下的 external drift 已提升为明确 warning
   - install / upgrade 已可回显 `takeover_audit` 摘要
+  - `doctor` 已可输出多 workspace `host_takeover_audit`
+  - `configure-host / install-one-click / upgrade-sessions` 已可回传 `host_takeover_audit`
+  - `doctor` 已可输出 `profile_takeover_audit`
+  - `configure-host / install-one-click / upgrade-sessions` 已可回传 `profile_takeover_audit`
+  - `workspace-monitor` 已能在 idle 时自动归并外部记忆变化
+  - `configure-host / configure-sessions` 已形成 repair -> verify 闭环
+  - `upgrade-sessions / install-one-click` 已形成 upgrade/install -> verify 闭环
+  - 已有可选 watcher 运行时，可在文件变化时更快触发 legacy memory sync
 - 仍待完成：
-  - 文件变化 watcher
-  - 多 profile / 多 workspace host audit
   - 更强的 strict-mode repair 闭环
 
 ## Stage 3：收益显性化

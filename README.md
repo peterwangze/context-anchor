@@ -54,6 +54,7 @@
 - 第一次见到新 workspace 时，默认自动登记归属，尽量不打断你
 - 在合适的时候自动做 checkpoint、总结、经验提炼和技能治理
 - 运行中的 heartbeat / workspace monitor 也会持续把 session memory 增量提炼成 session experiences
+- 即使当前没有 recent session，workspace monitor 也会在发现外部 `MEMORY.md` / `memory/*.md` 漂移时自动做一次低噪声归并
 - 同一用户在多个已登记 workspace 里重复验证过的项目经验，会自动汇总成 user experiences 并驱动 user skill 晋升
 
 ### 哪些场景会自动接上
@@ -263,6 +264,9 @@ node scripts/doctor.js --openclaw-home "D:/openclaw-home" --skills-root "D:/open
 - `memory_sources.external_source_count`
 - `memory_sources.last_legacy_sync_at`
 - `memory_sources.health.status`
+- `host_takeover_audit`
+- `paths.external_memory_watch_script`
+- `commands.external_memory_watch`
 
 如果你想明确检查某个 workspace 是否存在外部 `MEMORY.md` / `memory/*.md` 漂移，建议显式带上：
 
@@ -318,8 +322,29 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 
 如果状态查询提示异常，先跑 `sessions-diagnose.js`，再按输出里的诊断命令和修复命令处理。`sessions-status.js` 支持 `--json`，`configure-sessions.js` 和 `upgrade-sessions.js` 也支持 `--workspace` / `--session-key` 只处理一个 workspace 或 session。
 
-`configure-host.js`、`install-one-click.js` 和 `upgrade-sessions.js` 的 JSON 结果里现在也会带 `takeover_audit`。  
-如果你已经开启强制接管，但外部记忆文件还在最近一次归并后继续变化，audit 会直接返回 warning 和推荐修复命令。
+`configure-host.js`、`install-one-click.js` 和 `upgrade-sessions.js` 的 JSON 结果里现在也会带 `takeover_audit` 和 `host_takeover_audit`。  
+如果你已经开启强制接管，但外部记忆文件还在最近一次归并后继续变化，audit 会直接返回 warning 和推荐修复命令。  
+如果问题不在当前 workspace，而是在另一个已登记 workspace，`host_takeover_audit` 也会把它显示出来。
+
+现在 `doctor.js` 还会输出 `profile_takeover_audit`，用来提示同级 OpenClaw profile 是否仍处于 `best_effort`、未完成配置，或者仍存在外部记忆漂移。
+
+`configure-host.js` 和 `configure-sessions.js` 现在还会返回 `verification`。  
+如果这次 repair 没有真正把目标状态修到位，结果里会直接显示 `verification.status = needs_attention`，并附带 `recheck_command`，避免用户执行完修复后还要自己猜有没有生效。
+
+`upgrade-sessions.js` 现在也会返回 `verification` 和 `verification_report`，`install-one-click.js` 会在顶层聚合成自己的 `verification`。  
+这样升级或一键安装结束后，你可以直接看“这轮是否已经验证通过”，而不是只看到 audit 告警再自己手工补检查。
+
+如果你希望比定时 workspace monitor 更快地收敛外部 `MEMORY.md` / `memory/*.md` 变化，现在还可以直接运行：
+
+```bash
+npm run watch:memory -- --workspace "<workspace>" --project-id "<project-id>"
+```
+
+安装后的托管路径也会包含：
+
+- `<openclaw-home>/automation/context-anchor/external-memory-watch.js`
+
+这个 watcher 会在文件变化后做 debounce，再触发一次低噪声 legacy memory sync；如果变化已经归并过，不会重复刷同步。
 
 `upgrade-sessions.js` 会一次性刷新已发现或已登记的存量 session，重新生成 bootstrap cache，并让这些 session 在下一次 hook / bootstrap 时直接使用最新 runtime 行为；默认跳过已关闭 session，传 `--include-closed` 才会连已关闭 session 一起刷新。传 `--rebuild-mirror` 时，还会顺手把已有 JSON 资产回填到 SQLite mirror。传 `--run-governance` 时，还会在 mirror 回填之后立刻对升级到的 session 运行一次 storage governance。
 
