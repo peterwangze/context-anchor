@@ -961,6 +961,13 @@ node "<installed-skill-dir>/scripts/memory-search.js" "<workspace>" "<session-ke
   - `tier`
   - `from_archive`
   - `retrieval_cost`
+  - `why_matched`
+  - `why_from_archive`
+
+现在返回结果会更明确解释：
+
+- 为什么这条被命中，比如命中了 `summary/details/tags` 哪些字段
+- 为什么这条来自 archive，比如是因为 active 没有足够结果，还是 active 候选不够强
 
 如果你需要临时关闭数据库镜像，可以设置 `CONTEXT_ANCHOR_DISABLE_DB=1`。
 

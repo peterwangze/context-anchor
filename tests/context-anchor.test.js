@@ -4831,6 +4831,10 @@ test('session-close writes summary, compact packet, and session skill draft', ()
       assert.equal(compactMirror.data.session_key, 'session-close');
       assert.equal(summaryMirror.status, 'available');
       assert.equal(summaryMirror.data.session_key, 'session-close');
+      assert.equal(result.captured_summary.visible, true);
+      assert.ok(result.captured_summary.summary_lines.some((line) => line.includes('captured 1 new lesson')));
+      assert.ok(summaryMirror.data.benefit_summary);
+      assert.ok(summaryMirror.data.benefit_summary.summary_lines.some((line) => line.includes('updated draft')));
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -5013,6 +5017,8 @@ test('heartbeat promotes validated project experiences into active project skill
       ).skills;
 
       assert.equal(result.promotions.project_promotions, 1);
+      assert.equal(result.captured_summary.visible, true);
+      assert.ok(result.captured_summary.summary_lines.some((line) => line.includes('promoted 1 project skill')));
       assert.equal(projectSkills.length, 1);
       assert.equal(projectSkills[0].scope, 'project');
       assert.equal(projectSkills[0].source_experience, saved.id);
@@ -5171,6 +5177,7 @@ test('heartbeat aggregates validated project experiences across user workspaces 
       ).skills;
 
       assert.equal(result.promotions.user_promotions, 1);
+      assert.ok(result.captured_summary.summary_lines.some((line) => line.includes('promoted 1 user skill')));
       assert.equal(userExperiences.length, 1);
       assert.equal(userExperiences[0].source, 'project-experience-rollup');
       assert.equal(userExperiences[0].validation.cross_project_count, 2);

@@ -23,6 +23,7 @@ const { runScopePromote } = require('./scope-promote');
 const { runSkillDraftCreate } = require('./skill-draft-create');
 const { runSkillificationScore } = require('./skillification-score');
 const { runStorageGovernance } = require('./storage-governance');
+const { buildVisibleBenefitSummary } = require('./lib/visible-benefit-summary');
 
 function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
   const paths = createPaths(workspaceArg);
@@ -97,6 +98,21 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
       status: skillDraft.status
     } : null
   };
+  summary.benefit_summary = buildVisibleBenefitSummary({
+    session_experiences_created: sessionExperiences.created,
+    session_experiences_updated: sessionExperiences.updated,
+    session_experiences_archived: sessionExperiences.archived,
+    legacy_synced_entries: legacy_memory_sync.synced_entries,
+    promoted_project_skills: promotions.project_promotions,
+    promoted_user_skills: promotions.user_promotions,
+    archived_project_skills: reconcile.project_archived,
+    archived_user_skills: reconcile.user_archived,
+    deactivated_project_skills: reconcile.project_deactivated,
+    deactivated_user_skills: reconcile.user_deactivated,
+    reactivated_project_skills: reconcile.project_reactivated,
+    reactivated_user_skills: reconcile.user_reactivated,
+    skill_draft: summary.skill_draft
+  });
   writeSessionSummary(paths, sessionKey, summary);
 
   sessionState.closed_at = new Date().toISOString();
@@ -123,6 +139,7 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
     project_id: sessionState.project_id,
     checkpoint,
     compact,
+    captured_summary: summary.benefit_summary,
     legacy_memory_sync,
     flow,
     session_experience_sync: sessionExperiences,

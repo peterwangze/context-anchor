@@ -358,9 +358,10 @@
   - bootstrap 已增加 `Recovered Continuity` 摘要
   - `session-start` 已输出结构化 `continuity_summary`
   - bootstrap 现已显式展示恢复来源、restored goal、latest result、next step
+  - `memory-search` 已输出 `why_matched`
+  - `memory-search` 已输出 `why_from_archive`
   - 已补充自动化测试，覆盖 session-start continuity summary 与 bootstrap 注入摘要
 - 仍待完成：
-  - `memory-search` 的 why matched / why from archive
   - `heartbeat / session-close` 的 newly captured summary
 
 ## Stage 4：任务连续性模型
