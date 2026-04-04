@@ -874,6 +874,7 @@ node "<installed-skill-dir>/scripts/status-report.js" "<workspace>" [session-key
 报告会输出：
 
 - user/project/session 的 memory/experience/skill 计数
+- session 的 `task_state_summary`，直接显示 current goal / latest result / next step / blocked by
 - governance 统计：`active / shadowed / superseded / budgeted_out`
 - `storage_governance` 摘要：
   - active item count

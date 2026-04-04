@@ -40,6 +40,7 @@ const {
 } = require('./lib/context-anchor');
 const { describeCollectionFile, readLatestGovernanceRun } = require('./lib/context-anchor-db');
 const { resolveOwnership } = require('./lib/host-config');
+const { buildTaskStateSummary } = require('./lib/task-state');
 const {
   classifyMemorySourceHealth,
   summarizeExternalMemorySources
@@ -301,7 +302,9 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
     session: {
       key: sessionKey,
       active_task:
-        Object.prototype.hasOwnProperty.call(runtimeState || {}, 'active_task')
+        Object.prototype.hasOwnProperty.call(runtimeState || {}, 'current_goal')
+          ? runtimeState?.current_goal || null
+          : Object.prototype.hasOwnProperty.call(runtimeState || {}, 'active_task')
           ? runtimeState?.active_task || null
           : sessionState.active_task,
       pending_commitments: Array.isArray(runtimeState?.pending_commitments)
@@ -312,6 +315,7 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
       skills: sessionSkills.length,
       last_checkpoint: runtimeState?.last_checkpoint || sessionState.last_checkpoint,
       last_summary: runtimeState?.last_summary || sessionState.last_summary,
+      task_state_summary: buildTaskStateSummary(runtimeState || {}),
       last_summary_snapshot: sessionSummary.created_at ? {
         created_at: sessionSummary.created_at,
         promoted_project_skills: (sessionSummary.promoted_project_skills || []).length,

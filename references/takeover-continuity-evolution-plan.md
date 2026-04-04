@@ -411,6 +411,7 @@
   - `heartbeat / session-close / runtime-state-update` 已开始写入任务态字段
   - `session-start` 已优先读取任务态字段恢复 continuity summary
   - `session:compact:after` 已显式返回 `task_state_summary`
+  - `status-report` 已显式输出 `task_state_summary`
   - 已补充自动化测试，覆盖 runtime task-state update 与 continuity restore
 - 仍待完成：
   - `command:new/reset/stop` 的任务态一致性

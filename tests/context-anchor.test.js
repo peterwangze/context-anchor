@@ -6083,6 +6083,22 @@ test('status report summarizes user project session counts and governance', () =
   try {
     withOpenClawHome(workspace, () => {
       runSessionStart(workspace, 'report-session', 'demo');
+      const paths = createPaths(workspace);
+      const stateFile = sessionStateFile(paths, 'report-session');
+      const state = readJson(stateFile, {});
+      state.active_task = 'stabilize checkout retries';
+      state.commitments = [
+        {
+          id: 'report-1',
+          what: 'ship checkout retry fix',
+          status: 'pending'
+        }
+      ];
+      state.metadata = {
+        ...(state.metadata || {}),
+        blocked_by: 'waiting for CI rerun'
+      };
+      writeJson(stateFile, state);
       runMemorySave(
         workspace,
         'report-session',
@@ -6116,6 +6132,10 @@ test('status report summarizes user project session counts and governance', () =
       assert.equal(report.project.id, 'demo');
       assert.equal(report.session.key, 'report-session');
       assert.ok(report.session.last_summary_snapshot);
+      assert.equal(report.session.active_task, 'stabilize checkout retries');
+      assert.equal(report.session.task_state_summary.current_goal, 'stabilize checkout retries');
+      assert.equal(report.session.task_state_summary.next_step, 'ship checkout retry fix');
+      assert.equal(report.session.task_state_summary.blocked_by, 'waiting for CI rerun');
       assert.ok(typeof report.governance.active === 'number');
       assert.ok(report.storage_governance.active_item_count >= 3);
       assert.ok(typeof report.storage_governance.archive_item_count === 'number');
