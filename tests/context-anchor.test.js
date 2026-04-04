@@ -2653,6 +2653,7 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
       assert.ok(result.verification.readiness_transition);
       assert.equal(typeof result.verification.readiness_transition.changed, 'boolean');
       assert.equal(typeof result.verification.readiness_transition.improved, 'boolean');
+      assert.equal(result.verification.repair_strategy.type, 'recheck_upgrade_state');
       assert.equal(result.verification.readiness_transition.after.target_sessions, 1);
       assert.equal(result.verification.upgraded_sessions, 1);
       assert.equal(result.verification.remaining_attention_sessions, 0);
@@ -2899,6 +2900,8 @@ test('one-click install can upgrade existing sessions after refreshing runtime a
       assert.equal(result.mirror_rebuild, null);
       assert.equal(result.verification.status, 'needs_attention');
       assert.match(result.verification.recheck_command, /npm run doctor/);
+      assert.ok(Array.isArray(result.verification.repair_strategies.all));
+      assert.ok(result.verification.repair_strategies.configuration.length >= 1);
       assert.equal(result.session_upgrade.verification.status, 'verified');
       assert.ok(fs.existsSync(bootstrapFile));
       assert.match(fs.readFileSync(bootstrapFile, 'utf8'), /refresh runtime for stored session/);

@@ -228,13 +228,13 @@ function createCliProgressReporter(stream = process.stderr) {
         line = '[install] applying host configuration';
         break;
       case 'install:config:done':
-        line = `[install] host configuration ${event.status || 'completed'}`;
+        line = `[install] host configuration ${event.status || 'completed'}${event.strategy_labels?.length ? ` | strategies=${event.strategy_labels.join(', ')}` : ''}`;
         break;
       case 'install:upgrade:start':
         line = '[install] running session upgrade chain';
         break;
       case 'install:upgrade:done':
-        line = `[install] session upgrade chain completed upgraded=${event.upgraded_sessions || 0}`;
+        line = `[install] session upgrade chain completed upgraded=${event.upgraded_sessions || 0}${event.strategy_labels?.length ? ` | strategies=${event.strategy_labels.join(', ')}` : ''}`;
         break;
       case 'install:mirror:start':
         line = '[install] running mirror rebuild';
@@ -252,6 +252,53 @@ function createCliProgressReporter(stream = process.stderr) {
     if (line) {
       stream.write(`${line}\n`);
     }
+  };
+}
+
+function collectStrategyEntries(...values) {
+  return values
+    .flatMap((value) => {
+      if (!value) {
+        return [];
+      }
+      if (Array.isArray(value)) {
+        return value;
+      }
+      return [value];
+    })
+    .filter((entry) => entry && typeof entry === 'object' && entry.type && entry.label);
+}
+
+function dedupeStrategies(entries = []) {
+  const seen = new Set();
+  return collectStrategyEntries(entries).filter((entry) => {
+    const key = `${entry.type}::${entry.label}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function extractInstallRepairStrategies(configuration, sessionUpgrade) {
+  const configurationStrategies = collectStrategyEntries(
+    configuration?.verification?.repair_strategy,
+    configuration?.takeover_audit?.recommended_action?.repair_strategy,
+    configuration?.host_takeover_audit?.recommended_action?.repair_strategy,
+    configuration?.profile_takeover_audit?.recommended_action?.repair_strategy
+  );
+  const upgradeStrategies = collectStrategyEntries(
+    sessionUpgrade?.verification?.repair_strategy,
+    sessionUpgrade?.takeover_audit?.recommended_action?.repair_strategy,
+    sessionUpgrade?.host_takeover_audit?.recommended_action?.repair_strategy,
+    sessionUpgrade?.profile_takeover_audit?.recommended_action?.repair_strategy
+  );
+
+  return {
+    configuration: dedupeStrategies(configurationStrategies),
+    sessions: dedupeStrategies(upgradeStrategies),
+    all: dedupeStrategies([...configurationStrategies, ...upgradeStrategies])
   };
 }
 
@@ -292,6 +339,7 @@ function buildInstallVerification(configuration, sessionUpgrade) {
     summary,
     issues,
     recheck_command: recheckCommand,
+    repair_strategies: extractInstallRepairStrategies(configuration, sessionUpgrade),
     readiness_transition: {
       configuration: configurationVerification?.readiness_transition || null,
       sessions: sessionUpgradeVerification?.readiness_transition || null
@@ -469,9 +517,11 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
     schedulerRegistrar: options.schedulerRegistrar
   });
   if (shouldReportInstallStages) {
+    const configurationStrategies = extractInstallRepairStrategies(configuration, null).configuration;
     emitProgress(progress, {
       type: 'install:config:done',
-      status: configuration?.config?.status || configuration?.status || 'completed'
+      status: configuration?.config?.status || configuration?.status || 'completed',
+      strategy_labels: configurationStrategies.map((entry) => entry.label)
     });
     if (configuration?.takeover_audit?.status && configuration.takeover_audit.status !== 'ok') {
       emitProgress(progress, {
@@ -575,16 +625,25 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
           if (event.type === 'finish') {
             emitProgress(progress, {
               type: 'upgrade:forwarded',
-              message: `[upgrade] complete upgraded=${event.upgraded_sessions || 0} skipped=${event.skipped_sessions || 0} unresolved=${event.unresolved_sessions || 0}`
+              message: `[upgrade] complete upgraded=${event.upgraded_sessions || 0} skipped=${event.skipped_sessions || 0} unresolved=${event.unresolved_sessions || 0}${event.strategy_label ? ` | strategy=${event.strategy_label}` : ''}`
+            });
+            return;
+          }
+          if (event.type === 'verification:strategy') {
+            emitProgress(progress, {
+              type: 'upgrade:forwarded',
+              message: `[upgrade] verification strategy: ${event.label}${event.summary ? ` - ${event.summary}` : ''}`
             });
           }
         }
       }))
     : null;
   if (sessionUpgrade) {
+    const upgradeStrategies = extractInstallRepairStrategies(null, sessionUpgrade).sessions;
     emitProgress(progress, {
       type: 'install:upgrade:done',
-      upgraded_sessions: sessionUpgrade.upgraded_sessions
+      upgraded_sessions: sessionUpgrade.upgraded_sessions,
+      strategy_labels: upgradeStrategies.map((entry) => entry.label)
     });
     if (sessionUpgrade?.takeover_audit?.status && sessionUpgrade.takeover_audit.status !== 'ok') {
       emitProgress(progress, {

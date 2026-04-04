@@ -141,6 +141,38 @@ function buildUpgradeRecheckCommand(openClawHome, skillsRoot, options = {}) {
   return `npm run status:sessions -- ${forwarded.join(' ')}`;
 }
 
+function buildUpgradeRepairStrategy(verification = {}) {
+  if (verification.configuration_required_targets > 0) {
+    return {
+      type: 'configure_sessions_then_recheck',
+      label: 'configure sessions -> recheck',
+      summary: 'Workspace configuration is still missing; repair session linkage first, then rerun session status.'
+    };
+  }
+
+  if (verification.unresolved_targets > 0) {
+    return {
+      type: 'resolve_workspace_then_recheck',
+      label: 'resolve workspace -> recheck',
+      summary: 'Resolve the missing workspace paths first, then rerun session status.'
+    };
+  }
+
+  if (verification.remaining_attention_sessions > 0) {
+    return {
+      type: 'repair_sessions_then_recheck',
+      label: 'repair sessions -> recheck',
+      summary: 'Repair the remaining session linkage issues, then rerun session status.'
+    };
+  }
+
+  return {
+    type: 'recheck_upgrade_state',
+    label: 'recheck upgraded sessions',
+    summary: 'The upgrade path is currently healthy; rerun session status after the next environment change.'
+  };
+}
+
 function summarizeUpgradeVerificationState(sessionReport = {}) {
   const summary = sessionReport.summary || {};
   return {
@@ -240,6 +272,11 @@ function buildUpgradeVerification({
     status,
     summary,
     issues,
+    repair_strategy: buildUpgradeRepairStrategy({
+      remaining_attention_sessions: remainingAttention.length,
+      unresolved_targets: unresolvedTargets.length,
+      configuration_required_targets: configurationRequiredTargets.length
+    }),
     readiness_transition: {
       changed,
       improved:
@@ -343,7 +380,10 @@ function createCliProgressReporter(stream = process.stderr) {
         line = `[upgrade] governance ${event.index}/${event.total}: archived=${event.result?.totals?.archived || 0} pruned=${event.result?.totals?.pruned || 0}`;
         break;
       case 'finish':
-        line = `[upgrade] complete upgraded=${event.upgraded_sessions || 0} skipped=${event.skipped_sessions || 0} unresolved=${event.unresolved_sessions || 0}`;
+        line = `[upgrade] complete upgraded=${event.upgraded_sessions || 0} skipped=${event.skipped_sessions || 0} unresolved=${event.unresolved_sessions || 0}${event.strategy_label ? ` | strategy=${event.strategy_label}` : ''}`;
+        break;
+      case 'verification:strategy':
+        line = `[upgrade] verification strategy: ${event.label}${event.summary ? ` - ${event.summary}` : ''}`;
         break;
       default:
         break;
@@ -616,8 +656,16 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
     type: 'finish',
     upgraded_sessions: summary.upgraded_sessions,
     skipped_sessions: summary.skipped_sessions,
-    unresolved_sessions: summary.unresolved_sessions
+    unresolved_sessions: summary.unresolved_sessions,
+    strategy_label: verification?.repair_strategy?.label || null
   });
+  if (verification?.repair_strategy?.label) {
+    emitProgress(progress, {
+      type: 'verification:strategy',
+      label: verification.repair_strategy.label,
+      summary: verification.repair_strategy.summary
+    });
+  }
   return summary;
 }
 

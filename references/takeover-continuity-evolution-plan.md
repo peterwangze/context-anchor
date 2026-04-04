@@ -112,6 +112,11 @@
   - `doctor` 的 `recommended_action` 已增加 `repair_strategy`
   - `sessions-diagnose` 已显式展示 `Strategy`
   - 已补充自动化测试，覆盖 strict repair strategy 可见性
+- `2026-04-05`
+  - `upgrade-sessions` 的 `verification` 已增加 `repair_strategy`
+  - `install-one-click` 已聚合 config/session 的 `repair_strategies`
+  - install / upgrade 进度输出现在可直接回显 strategy 标签
+  - 已补充自动化测试，覆盖 install / upgrade strategy 聚合
 
 当前仍未完成的重点：
 
@@ -472,6 +477,7 @@
   - repair / upgrade 结果现在可以显式判断“是否真的修好”还是“只是执行过命令”
   - `doctor / sessions-diagnose` 已开始显式串联 repair -> follow-up -> recheck 路径
   - `doctor / sessions-diagnose` 已开始显式区分 strict repair strategy，减少手工判断先后顺序
+  - `install-one-click / upgrade-sessions` 已开始把 strict repair strategy 汇总到长流程输出
 - 仍待完成：
   - `doctor` / `sessions-diagnose` 还需要给出更细粒度 strict-mode auto-fix 路径
 
