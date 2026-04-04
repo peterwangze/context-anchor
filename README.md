@@ -348,6 +348,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 现在 `upgrade-sessions.js` 的 `verification` 也会带 `repair_strategy`，`install-one-click.js` 会把 config/session 两段的 strategy 聚合到 `verification.repair_strategies`，长流程里也能直接看到下一步应该怎么收口。
 `install-one-click.js` 聚合后的 `verification.repair_strategies` 现在也会按 `automatic` / `manual` 分类，方便在长流程结束后直接判断自助修复边界。
 本轮开始，`doctor.js`、`sessions-status.js` / `sessions-diagnose.js`、`status-report.js`、`upgrade-sessions.js`、`install-one-click.js` 都会返回统一的 `remediation_summary` 结构，便于用一套逻辑读取 next step、automatic/manual count 和 recheck commands。
+现在 `sessions-status.js` / `sessions-diagnose.js` 以及 install/upgrade 的进度输出，也会直接把 `remediation_summary.next_step` 渲染出来，用户不用再自己从多条 strategy 里猜下一步。
 
 如果你希望比定时 workspace monitor 更快地收敛外部 `MEMORY.md` / `memory/*.md` 变化，现在还可以直接运行：
 

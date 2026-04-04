@@ -2657,6 +2657,7 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
       assert.equal(result.verification.repair_strategy.execution_mode, 'automatic');
       assert.ok(result.verification.remediation_summary);
       assert.equal(result.verification.remediation_summary.status, 'automatic_available');
+      assert.equal(result.verification.remediation_summary.next_step.label, 'recheck upgraded sessions');
       assert.equal(result.verification.readiness_transition.after.target_sessions, 1);
       assert.equal(result.verification.upgraded_sessions, 1);
       assert.equal(result.verification.remaining_attention_sessions, 0);
@@ -2908,6 +2909,7 @@ test('one-click install can upgrade existing sessions after refreshing runtime a
       assert.ok(Array.isArray(result.verification.repair_strategies.automatic));
       assert.ok(result.verification.remediation_summary);
       assert.ok(typeof result.verification.remediation_summary.manual_count === 'number');
+      assert.ok(result.verification.remediation_summary.next_step);
       assert.equal(result.session_upgrade.verification.status, 'verified');
       assert.ok(fs.existsSync(bootstrapFile));
       assert.match(fs.readFileSync(bootstrapFile, 'utf8'), /refresh runtime for stored session/);
@@ -3471,6 +3473,7 @@ test('session status surfaces external memory drift and recommends migrate-memor
       assert.match(rendered, /Memory sources: SINGLE_SOURCE/);
       assert.match(rendered, /DRIFT 1/);
       assert.match(rendered, /Memory: DRIFT_DETECTED/);
+      assert.match(diagnosisRendered, /Next step: \[auto\] migrate -> enforce -> recheck/);
       assert.match(diagnosisRendered, /external memory source has not been centralized yet/);
       assert.match(diagnosisRendered, /Follow-up:/);
       assert.match(diagnosisRendered, /Recheck:/);

@@ -415,7 +415,7 @@ function createCliProgressReporter(stream = process.stderr) {
         line = `[upgrade] governance ${event.index}/${event.total}: archived=${event.result?.totals?.archived || 0} pruned=${event.result?.totals?.pruned || 0}`;
         break;
       case 'finish':
-        line = `[upgrade] complete upgraded=${event.upgraded_sessions || 0} skipped=${event.skipped_sessions || 0} unresolved=${event.unresolved_sessions || 0}${event.strategy_label ? ` | strategy=${event.strategy_label}` : ''}`;
+        line = `[upgrade] complete upgraded=${event.upgraded_sessions || 0} skipped=${event.skipped_sessions || 0} unresolved=${event.unresolved_sessions || 0}${event.strategy_label ? ` | strategy=${event.strategy_label}` : ''}${event.next_step_label ? ` | next=${event.next_step_label}` : ''}`;
         break;
       case 'verification:strategy':
         line = `[upgrade] verification strategy: ${event.label}${event.summary ? ` - ${event.summary}` : ''}`;
@@ -692,7 +692,8 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
     upgraded_sessions: summary.upgraded_sessions,
     skipped_sessions: summary.skipped_sessions,
     unresolved_sessions: summary.unresolved_sessions,
-    strategy_label: formatUpgradeStrategyLabel(verification?.repair_strategy) || null
+    strategy_label: formatUpgradeStrategyLabel(verification?.repair_strategy) || null,
+    next_step_label: verification?.remediation_summary?.next_step?.label || null
   });
   if (verification?.repair_strategy?.label) {
     emitProgress(progress, {

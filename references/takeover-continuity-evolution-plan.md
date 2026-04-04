@@ -125,6 +125,10 @@
   - `doctor / sessions-status / sessions-diagnose / status-report / upgrade-sessions / install-one-click` 已开始返回统一的 `remediation_summary`
   - `remediation_summary` 已统一包含 next step、automatic/manual count 与 recheck commands
   - 已补充自动化测试，覆盖 unified remediation summary
+- `2026-04-05`
+  - `sessions-status / sessions-diagnose` 已开始直接展示 `remediation_summary.next_step`
+  - install / upgrade 进度输出已开始直接展示 remediation next step
+  - 已补充自动化测试，覆盖 next step 文本可见性
 
 当前仍未完成的重点：
 
@@ -488,6 +492,7 @@
   - `install-one-click / upgrade-sessions` 已开始把 strict repair strategy 汇总到长流程输出
   - strict repair strategy 已开始区分可自动执行与需要人工确认的步骤
   - 多入口 remediation 输出已开始收敛到统一结构
+  - remediation 的 next step 已开始直接进入文本输出
 - 仍待完成：
   - `doctor` / `sessions-diagnose` 还需要给出更细粒度 strict-mode auto-fix 路径
 

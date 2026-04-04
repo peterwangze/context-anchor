@@ -228,13 +228,13 @@ function createCliProgressReporter(stream = process.stderr) {
         line = '[install] applying host configuration';
         break;
       case 'install:config:done':
-        line = `[install] host configuration ${event.status || 'completed'}${event.strategy_labels?.length ? ` | strategies=${event.strategy_labels.join(', ')}` : ''}`;
+        line = `[install] host configuration ${event.status || 'completed'}${event.strategy_labels?.length ? ` | strategies=${event.strategy_labels.join(', ')}` : ''}${event.next_step_label ? ` | next=${event.next_step_label}` : ''}`;
         break;
       case 'install:upgrade:start':
         line = '[install] running session upgrade chain';
         break;
       case 'install:upgrade:done':
-        line = `[install] session upgrade chain completed upgraded=${event.upgraded_sessions || 0}${event.strategy_labels?.length ? ` | strategies=${event.strategy_labels.join(', ')}` : ''}`;
+        line = `[install] session upgrade chain completed upgraded=${event.upgraded_sessions || 0}${event.strategy_labels?.length ? ` | strategies=${event.strategy_labels.join(', ')}` : ''}${event.next_step_label ? ` | next=${event.next_step_label}` : ''}`;
         break;
       case 'install:mirror:start':
         line = '[install] running mirror rebuild';
@@ -565,10 +565,12 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
   });
   if (shouldReportInstallStages) {
     const configurationStrategies = extractInstallRepairStrategies(configuration, null).configuration.all;
+    const configurationVerification = buildInstallVerification(configuration, null);
     emitProgress(progress, {
       type: 'install:config:done',
       status: configuration?.config?.status || configuration?.status || 'completed',
-      strategy_labels: configurationStrategies.map(formatStrategyLabel).filter(Boolean)
+      strategy_labels: configurationStrategies.map(formatStrategyLabel).filter(Boolean),
+      next_step_label: configurationVerification.remediation_summary?.next_step?.label || null
     });
     if (configuration?.takeover_audit?.status && configuration.takeover_audit.status !== 'ok') {
       emitProgress(progress, {
@@ -687,10 +689,12 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
     : null;
   if (sessionUpgrade) {
     const upgradeStrategies = extractInstallRepairStrategies(null, sessionUpgrade).sessions.all;
+    const installVerification = buildInstallVerification(configuration, sessionUpgrade);
     emitProgress(progress, {
       type: 'install:upgrade:done',
       upgraded_sessions: sessionUpgrade.upgraded_sessions,
-      strategy_labels: upgradeStrategies.map(formatStrategyLabel).filter(Boolean)
+      strategy_labels: upgradeStrategies.map(formatStrategyLabel).filter(Boolean),
+      next_step_label: installVerification.remediation_summary?.next_step?.label || null
     });
     if (sessionUpgrade?.takeover_audit?.status && sessionUpgrade.takeover_audit.status !== 'ok') {
       emitProgress(progress, {

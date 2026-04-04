@@ -1006,6 +1006,10 @@ function renderCommandSummary(report) {
   if (strategyLine) {
     lines.push(strategyLine);
   }
+  const nextStepLine = renderRemediationNextStep(report.remediation_summary);
+  if (nextStepLine) {
+    lines.push(nextStepLine);
+  }
   if (report.summary.drift_workspaces > 0) {
     lines.push(`Memory drift detected in ${report.summary.drift_workspaces} workspace(s); prefer the per-workspace repair command shown below.`);
   }
@@ -1036,6 +1040,16 @@ function renderRepairStrategy(strategy) {
 
   const mode = strategy.execution_mode === 'manual' ? 'manual' : 'auto';
   return `Strategy: [${mode}] ${strategy.label}${strategy.summary ? ` (${strategy.summary})` : ''}`;
+}
+
+function renderRemediationNextStep(remediationSummary) {
+  const nextStep = remediationSummary?.next_step;
+  if (!nextStep?.label) {
+    return null;
+  }
+
+  const mode = nextStep.execution_mode === 'manual' ? 'manual' : 'auto';
+  return `Next step: [${mode}] ${nextStep.label}${nextStep.summary ? ` (${nextStep.summary})` : ''}`;
 }
 
 function renderOpenClawSessionStatusReport(report) {
@@ -1118,6 +1132,10 @@ function renderOpenClawSessionStatusReport(report) {
       if (strategyLine) {
         lines.push(`  ${strategyLine}`);
       }
+      const nextStepLine = renderRemediationNextStep(group.remediation_summary);
+      if (nextStepLine) {
+        lines.push(`  ${nextStepLine}`);
+      }
       const repairPath = renderRepairSequence(group.repair_sequence);
       if (repairPath) {
         lines.push(`  Repair path: ${repairPath}`);
@@ -1185,6 +1203,10 @@ function renderOpenClawSessionDiagnosisReport(report) {
       if (strategyLine) {
         lines.push(`  ${strategyLine}`);
       }
+      const nextStepLine = renderRemediationNextStep(group.remediation_summary);
+      if (nextStepLine) {
+        lines.push(`  ${nextStepLine}`);
+      }
       const repairPath = renderRepairSequence(group.repair_sequence);
       if (repairPath) {
         lines.push(`  Repair path: ${repairPath}`);
@@ -1235,6 +1257,10 @@ function renderOpenClawSessionDiagnosisReport(report) {
     const strategyLine = renderRepairStrategy(group.repair_strategy);
     if (strategyLine) {
       lines.push(`  ${strategyLine}`);
+    }
+    const nextStepLine = renderRemediationNextStep(group.remediation_summary);
+    if (nextStepLine) {
+      lines.push(`  ${nextStepLine}`);
     }
     const repairPath = renderRepairSequence(group.repair_sequence);
     if (repairPath) {
