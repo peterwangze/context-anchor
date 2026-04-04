@@ -1743,6 +1743,10 @@ test('configure-host writes recommended hooks and workspace monitor entries and 
       assert.equal(result.memory_takeover.mode, 'enforced');
       assert.equal(result.ownership.onboarding.memory_takeover_mode, 'enforced');
       assert.equal(result.verification.status, 'verified');
+      assert.equal(result.verification.readiness_transition.changed, true);
+      assert.equal(result.verification.readiness_transition.improved, true);
+      assert.equal(result.verification.readiness_transition.before.installation_ready, false);
+      assert.equal(result.verification.readiness_transition.after.installation_ready, true);
       assert.match(result.verification.recheck_command, /npm run doctor/);
     });
   } finally {
@@ -2646,6 +2650,10 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
       assert.equal(result.host_takeover_audit.status, 'notice');
       assert.equal(result.profile_takeover_audit.total_profiles, 1);
       assert.equal(result.verification.status, 'verified');
+      assert.ok(result.verification.readiness_transition);
+      assert.equal(typeof result.verification.readiness_transition.changed, 'boolean');
+      assert.equal(typeof result.verification.readiness_transition.improved, 'boolean');
+      assert.equal(result.verification.readiness_transition.after.target_sessions, 1);
       assert.equal(result.verification.upgraded_sessions, 1);
       assert.equal(result.verification.remaining_attention_sessions, 0);
       assert.match(result.verification.recheck_command, /status:sessions/);
@@ -3026,6 +3034,10 @@ test('configure-sessions prompts per session and preserves configured sessions w
       assert.equal(result.results.find((entry) => entry.session_key === 'agent:main:new').workspace_setup.status, 'auto_registered');
       assert.equal(schedulerCalls.length, 0);
       assert.equal(result.verification.status, 'verified');
+      assert.equal(result.verification.readiness_transition.changed, true);
+      assert.equal(result.verification.readiness_transition.improved, true);
+      assert.ok(result.verification.readiness_transition.before.target_attention_sessions >= 1);
+      assert.equal(result.verification.readiness_transition.after.target_attention_sessions, 0);
       assert.equal(result.verification.configured_sessions, 1);
       assert.equal(result.verification.verified_sessions, 1);
       assert.equal(result.verification.remaining_attention_sessions, 0);

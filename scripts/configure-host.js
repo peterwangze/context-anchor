@@ -169,10 +169,38 @@ function buildDoctorRecheckCommand(openClawHome, skillsRoot, workspace) {
   return `npm run doctor -- ${forwarded.join(' ')}`;
 }
 
-function buildConfigureHostVerification({ doctorAudit, takeoverAudit, memoryTakeover, workspace, openClawHome, skillsRoot }) {
+function summarizeDoctorVerificationState(doctorAudit = {}, takeoverAudit = {}) {
+  return {
+    doctor_status: doctorAudit.status || 'warning',
+    installation_ready: doctorAudit.installation?.ready === true,
+    configuration_ready: doctorAudit.configuration?.ready === true,
+    takeover_status: takeoverAudit.status || 'warning',
+    host_takeover_audit_status: doctorAudit.host_takeover_audit?.status || 'notice',
+    profile_takeover_audit_status: doctorAudit.profile_takeover_audit?.status || 'notice'
+  };
+}
+
+function buildConfigureHostVerification({
+  beforeDoctorAudit,
+  beforeTakeoverAudit,
+  doctorAudit,
+  takeoverAudit,
+  memoryTakeover,
+  workspace,
+  openClawHome,
+  skillsRoot
+}) {
   const issues = [];
   let status = 'verified';
   let summary = 'Configure-host recheck passed.';
+  const before = summarizeDoctorVerificationState(beforeDoctorAudit, beforeTakeoverAudit);
+  const after = summarizeDoctorVerificationState(doctorAudit, takeoverAudit);
+  const changed =
+    before.installation_ready !== after.installation_ready ||
+    before.configuration_ready !== after.configuration_ready ||
+    before.takeover_status !== after.takeover_status ||
+    before.host_takeover_audit_status !== after.host_takeover_audit_status ||
+    before.profile_takeover_audit_status !== after.profile_takeover_audit_status;
 
   if (!doctorAudit.installation.ready || !doctorAudit.configuration.ready) {
     issues.push('profile_not_ready');
@@ -208,10 +236,27 @@ function buildConfigureHostVerification({ doctorAudit, takeoverAudit, memoryTake
     summary = `Configure-host recheck still needs attention: ${primarySummary}`;
   }
 
+  if (status === 'needs_attention' && !changed) {
+    summary = `${summary} Recheck did not show a meaningful readiness change yet.`;
+  } else if (status === 'verified' && changed) {
+    summary = `${summary} Recheck confirms host readiness improved.`;
+  }
+
   return {
     status,
     summary,
     issues: [...new Set(issues)],
+    readiness_transition: {
+      changed,
+      improved:
+        !before.installation_ready && after.installation_ready ||
+        !before.configuration_ready && after.configuration_ready ||
+        before.takeover_status !== 'ok' && after.takeover_status === 'ok' ||
+        before.host_takeover_audit_status !== 'ok' && after.host_takeover_audit_status === 'ok' ||
+        before.profile_takeover_audit_status !== 'ok' && after.profile_takeover_audit_status === 'ok',
+      before,
+      after
+    },
     doctor_status: doctorAudit.status,
     takeover_audit_status: takeoverAudit.status,
     host_takeover_audit_status: doctorAudit.host_takeover_audit.status,
@@ -979,6 +1024,12 @@ async function runConfigureHost(openClawHomeArg, skillsRootArg, options = {}) {
   const assumeYes = Boolean(options.assumeYes);
   const ask = options.ask || null;
   const askInput = options.askText || null;
+  const beforeDoctorAudit = runDoctor({
+    openClawHome,
+    skillsRoot,
+    workspace: options.schedulerWorkspace || options.defaultWorkspace || null
+  });
+  const beforeTakeoverAudit = buildTakeoverAudit(beforeDoctorAudit);
   let memoryTakeover = options.memoryTakeover;
   if (typeof memoryTakeover !== 'boolean') {
     if (typeof options.applyConfig === 'boolean') {
@@ -1074,6 +1125,8 @@ async function runConfigureHost(openClawHomeArg, skillsRootArg, options = {}) {
   });
   const takeoverAudit = buildTakeoverAudit(doctorAudit);
   const verification = buildConfigureHostVerification({
+    beforeDoctorAudit,
+    beforeTakeoverAudit,
     doctorAudit,
     takeoverAudit,
     memoryTakeover,

@@ -100,6 +100,10 @@
   - `sessions-status / sessions-diagnose` 已按 workspace 显式展示 `task continuity`
   - `sessions-status / sessions-diagnose` 已按 workspace 显式展示最近一次 `last benefit`
   - 已补充自动化测试，覆盖 continuity / benefit 在 session status 与 diagnose 输出中的可见性
+- `2026-04-04`
+  - `configure-host / configure-sessions / upgrade-sessions / install-one-click` 的 `verification` 已增加 `readiness_transition.before / after`
+  - repair / upgrade 完成后现在可以直接看到 attention session、drift workspace、host readiness 是否真的改善
+  - 已补充自动化测试，覆盖 host / session / upgrade 的 readiness transition
 
 当前仍未完成的重点：
 
@@ -452,9 +456,14 @@
 
 状态：
 
-- `未开始`
-- 已有铺垫：
+- `进行中`
+- 已完成部分：
   - repair 命令分流已开始按问题类型区分
+  - `configure-host / configure-sessions / upgrade-sessions` 已形成 repair -> verify -> recheck 主链路
+  - `verification` 已增加 `readiness_transition.before / after`
+  - repair / upgrade 结果现在可以显式判断“是否真的修好”还是“只是执行过命令”
+- 仍待完成：
+  - `doctor` / `sessions-diagnose` 还需要给出更细粒度 strict-mode auto-fix 路径
 
 ## 测试设计
 

@@ -93,12 +93,42 @@ function buildSessionsRecheckCommand(openClawHome, skillsRoot, options = {}) {
   return `npm run status:sessions -- ${forwarded.join(' ')}`;
 }
 
+function summarizeSessionVerificationState(sessionReport = {}) {
+  const summary = sessionReport.summary || {};
+  return {
+    report_status: sessionReport.status || 'warning',
+    ready_sessions: Number(summary.ready_sessions || 0),
+    attention_sessions: Number(summary.attention_sessions || 0),
+    unresolved_sessions: Number(summary.unresolved_sessions || 0),
+    drift_workspaces: Number(summary.drift_workspaces || 0),
+    task_visible_workspaces: Number(summary.task_visible_workspaces || 0),
+    benefit_visible_workspaces: Number(summary.benefit_visible_workspaces || 0)
+  };
+}
+
+function summarizeTargetSessionState(sessionReport = {}, sessionKeys = new Set()) {
+  const scopedSessions = Array.isArray(sessionReport.sessions)
+    ? sessionReport.sessions.filter((entry) => sessionKeys.has(sanitizeKey(entry.session_key)))
+    : [];
+  const targetAttention = scopedSessions.filter((entry) => {
+    const classification = entry.classification || {};
+    return classification.skill !== 'ready' || classification.hook !== 'on';
+  }).length;
+
+  return {
+    target_sessions: scopedSessions.length,
+    target_ready_sessions: scopedSessions.length - targetAttention,
+    target_attention_sessions: targetAttention
+  };
+}
+
 function buildConfigureSessionsVerification({
   openClawHome,
   skillsRoot,
   options,
   results,
   doctor,
+  beforeSessionReport,
   sessionReport
 }) {
   const configuredResults = results.filter((entry) => entry.action === 'configured' || entry.action === 'reconfigured');
@@ -111,6 +141,19 @@ function buildConfigureSessionsVerification({
   const issues = [];
   let status = 'verified';
   let summary = 'Configure-sessions recheck passed.';
+  const before = {
+    ...summarizeSessionVerificationState(beforeSessionReport),
+    ...summarizeTargetSessionState(beforeSessionReport, configuredKeys)
+  };
+  const after = {
+    ...summarizeSessionVerificationState(sessionReport),
+    ...summarizeTargetSessionState(sessionReport, configuredKeys)
+  };
+  const changed =
+    before.target_ready_sessions !== after.target_ready_sessions ||
+    before.target_attention_sessions !== after.target_attention_sessions ||
+    before.unresolved_sessions !== after.unresolved_sessions ||
+    before.drift_workspaces !== after.drift_workspaces;
 
   if (!doctor.installation.ready || !doctor.configuration.ready) {
     issues.push('profile_not_ready');
@@ -130,10 +173,28 @@ function buildConfigureSessionsVerification({
     summary = 'No sessions were configured in this run, so only the current status snapshot was rechecked.';
   }
 
+  if (status === 'needs_attention' && !changed) {
+    summary = `${summary} Recheck did not reduce the visible session issues yet.`;
+  } else if (status === 'verified' && changed) {
+    summary = `${summary} Recheck confirms session readiness improved.`;
+  } else if (status === 'verified' && configuredResults.length > 0 && !changed) {
+    summary = `${summary} Recheck did not show a visible delta because the target sessions already looked ready in status checks.`;
+  }
+
   return {
     status,
     summary,
     issues,
+    readiness_transition: {
+      changed,
+      improved:
+        after.target_attention_sessions < before.target_attention_sessions ||
+        after.target_ready_sessions > before.target_ready_sessions ||
+        after.unresolved_sessions < before.unresolved_sessions ||
+        after.drift_workspaces < before.drift_workspaces,
+      before,
+      after
+    },
     configured_sessions: configuredResults.length,
     verified_sessions: verifiedSessions.length,
     remaining_attention_sessions: remainingAttention.length,
@@ -303,6 +364,10 @@ async function runConfigureSessions(openClawHomeArg, skillsRootArg, options = {}
   );
   const assumeYes = Boolean(options.assumeYes);
   const ask = options.ask || null;
+  const beforeSessionReport = buildOpenClawSessionStatusReport(openClawHome, skillsRoot, {
+    workspace: options.workspace || null,
+    sessionKey: options.sessionKey || null
+  });
 
   let doctor = runDoctor({ openclawHome: openClawHome, skillsRoot });
   let repair = null;
@@ -451,6 +516,7 @@ async function runConfigureSessions(openClawHomeArg, skillsRootArg, options = {}
     options,
     results,
     doctor,
+    beforeSessionReport,
     sessionReport: verificationReport
   });
 

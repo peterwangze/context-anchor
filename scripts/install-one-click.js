@@ -291,7 +291,11 @@ function buildInstallVerification(configuration, sessionUpgrade) {
     status,
     summary,
     issues,
-    recheck_command: recheckCommand
+    recheck_command: recheckCommand,
+    readiness_transition: {
+      configuration: configurationVerification?.readiness_transition || null,
+      sessions: sessionUpgradeVerification?.readiness_transition || null
+    }
   };
 }
 

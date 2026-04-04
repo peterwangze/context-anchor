@@ -336,6 +336,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 
 `configure-host.js` 和 `configure-sessions.js` 现在还会返回 `verification`。  
 如果这次 repair 没有真正把目标状态修到位，结果里会直接显示 `verification.status = needs_attention`，并附带 `recheck_command`，避免用户执行完修复后还要自己猜有没有生效。
+现在 `verification` 里还会带 `readiness_transition.before / after`，直接告诉你这次 repair 前后到底有没有把 attention session、drift workspace 或 host readiness 改善掉。
 
 `upgrade-sessions.js` 现在也会返回 `verification` 和 `verification_report`，`install-one-click.js` 会在顶层聚合成自己的 `verification`。  
 这样升级或一键安装结束后，你可以直接看“这轮是否已经验证通过”，而不是只看到 audit 告警再自己手工补检查。

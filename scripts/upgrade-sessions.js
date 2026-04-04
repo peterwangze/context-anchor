@@ -141,11 +141,40 @@ function buildUpgradeRecheckCommand(openClawHome, skillsRoot, options = {}) {
   return `npm run status:sessions -- ${forwarded.join(' ')}`;
 }
 
+function summarizeUpgradeVerificationState(sessionReport = {}) {
+  const summary = sessionReport.summary || {};
+  return {
+    report_status: sessionReport.status || 'warning',
+    total_sessions: Number(summary.total_sessions || 0),
+    ready_sessions: Number(summary.ready_sessions || 0),
+    attention_sessions: Number(summary.attention_sessions || 0),
+    unresolved_sessions: Number(summary.unresolved_sessions || 0),
+    drift_workspaces: Number(summary.drift_workspaces || 0)
+  };
+}
+
+function summarizeUpgradeTargetState(sessionReport = {}, sessionKeys = new Set()) {
+  const scopedSessions = Array.isArray(sessionReport.sessions)
+    ? sessionReport.sessions.filter((entry) => sessionKeys.has(sanitizeKey(entry.session_key)))
+    : [];
+  const targetAttention = scopedSessions.filter((entry) => {
+    const skill = entry.classification?.skill || 'missing';
+    return skill === 'missing' || skill === 'unknown';
+  }).length;
+
+  return {
+    target_sessions: scopedSessions.length,
+    target_ready_sessions: scopedSessions.length - targetAttention,
+    target_attention_sessions: targetAttention
+  };
+}
+
 function buildUpgradeVerification({
   openClawHome,
   skillsRoot,
   options,
   results,
+  beforeSessionReport,
   sessionReport
 }) {
   const upgradedResults = results.filter((entry) => entry.action === 'upgraded');
@@ -160,6 +189,19 @@ function buildUpgradeVerification({
   const issues = [];
   let status = 'verified';
   let summary = 'Upgrade-sessions recheck passed.';
+  const before = {
+    ...summarizeUpgradeVerificationState(beforeSessionReport),
+    ...summarizeUpgradeTargetState(beforeSessionReport, upgradedKeys)
+  };
+  const after = {
+    ...summarizeUpgradeVerificationState(sessionReport),
+    ...summarizeUpgradeTargetState(sessionReport, upgradedKeys)
+  };
+  const changed =
+    before.target_ready_sessions !== after.target_ready_sessions ||
+    before.target_attention_sessions !== after.target_attention_sessions ||
+    before.unresolved_sessions !== after.unresolved_sessions ||
+    before.drift_workspaces !== after.drift_workspaces;
 
   if (remainingAttention.length > 0) {
     issues.push('upgraded_session_not_materialized');
@@ -186,10 +228,28 @@ function buildUpgradeVerification({
     summary = 'No sessions were upgraded in this run, so only the current status snapshot was rechecked.';
   }
 
+  if (status === 'needs_attention' && !changed) {
+    summary = `${summary} Recheck did not improve the visible upgrade issues yet.`;
+  } else if (status === 'verified' && changed) {
+    summary = `${summary} Recheck confirms session availability improved.`;
+  } else if (status === 'verified' && upgradedResults.length > 0 && !changed) {
+    summary = `${summary} Recheck did not show a visible delta because the upgraded targets already looked materialized in status checks.`;
+  }
+
   return {
     status,
     summary,
     issues,
+    readiness_transition: {
+      changed,
+      improved:
+        after.target_attention_sessions < before.target_attention_sessions ||
+        after.target_ready_sessions > before.target_ready_sessions ||
+        after.unresolved_sessions < before.unresolved_sessions ||
+        after.drift_workspaces < before.drift_workspaces,
+      before,
+      after
+    },
     upgraded_sessions: upgradedResults.length,
     verified_sessions: verifiedSessions.length,
     remaining_attention_sessions: remainingAttention.length,
@@ -413,6 +473,11 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
     selected: candidates.length,
     excluded_subagent_sessions: collected.excluded_subagent_sessions.length
   });
+  const beforeSessionReport = buildOpenClawSessionStatusReport(openClawHome, skillsRoot, {
+    workspace: options.workspace || null,
+    sessionKey: options.sessionKey || null,
+    includeSubagents: Boolean(options.includeSubagents)
+  });
   const results = candidates.map((candidate, index) => {
     emitProgress(progress, {
       type: 'session:start',
@@ -505,6 +570,7 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
     skillsRoot,
     options,
     results,
+    beforeSessionReport,
     sessionReport: verificationReport
   });
   const summary = {
