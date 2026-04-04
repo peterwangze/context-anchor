@@ -2560,6 +2560,7 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
       const result = runUpgradeSessions(openClawHome, path.join(openClawHome, 'skills'), {
         rebuildMirror: true
       });
+      const statusReport = buildOpenClawSessionStatusReport(openClawHome, path.join(openClawHome, 'skills'));
       const activeResult = result.results.find((entry) => entry.session_key === 'active-session');
       const closedResult = result.results.find((entry) => entry.session_key === 'closed-session');
       const subagentResult = result.results.find((entry) => entry.session_key === 'agent-main-subagent');
@@ -2574,6 +2575,8 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
       assert.equal(result.status, 'ok');
       assert.equal(result.selected_sessions, 2);
       assert.equal(result.excluded_subagent_sessions, 2);
+      assert.equal(statusReport.summary.total_sessions, result.selected_sessions);
+      assert.equal(statusReport.summary.excluded_subagent_sessions, result.excluded_subagent_sessions);
       assert.equal(result.upgraded_sessions, 1);
       assert.equal(result.mirror_rebuild.status, 'ok');
       assert.deepEqual(result.governance_runs, []);

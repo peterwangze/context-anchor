@@ -10,7 +10,7 @@ const {
   classifyMemorySourceHealth,
   summarizeExternalMemorySources
 } = require('../legacy-memory-sync');
-const { discoverOpenClawSessions } = require('./openclaw-session-discovery');
+const { collectSessionCandidates } = require('./openclaw-session-candidates');
 const {
   findSession,
   getWorkspaceRegistrationStatus,
@@ -615,7 +615,10 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
   };
   const doctor = runDoctor({ openclawHome: resolvedOpenClawHome, skillsRoot });
   const hostConfig = readHostConfig(resolvedOpenClawHome);
-  const sessions = discoverOpenClawSessions(resolvedOpenClawHome)
+  const collected = collectSessionCandidates(resolvedOpenClawHome, {
+    includeSubagents: Boolean(options.includeSubagents)
+  });
+  const sessions = collected.candidates
     .filter((session) => {
       if (scope.workspace && normalizeScopeWorkspace(session.workspace) !== scope.workspace) {
         return false;
@@ -714,6 +717,7 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
   });
   const summary = {
     total_sessions: sessions.length,
+    excluded_subagent_sessions: collected.excluded_subagent_sessions.length,
     workspaces: groups.length,
     skill_ready_sessions: sessions.filter((entry) => entry.classification.skill === 'ready').length,
     ready_sessions: sessions.filter((entry) => entry.classification.overall === 'ready').length,
@@ -803,6 +807,9 @@ function renderOpenClawSessionStatusReport(report) {
       `Needs attention: ${report.summary.attention_sessions} | ` +
       `Unresolved: ${report.summary.unresolved_sessions}`
   );
+  if (report.summary.excluded_subagent_sessions > 0) {
+    lines.push(`Excluded subagent sessions: ${report.summary.excluded_subagent_sessions}`);
+  }
   lines.push(
     `Memory sources: SINGLE_SOURCE ${report.summary.single_source_workspaces} | ` +
       `BEST_EFFORT ${report.summary.best_effort_workspaces} | ` +

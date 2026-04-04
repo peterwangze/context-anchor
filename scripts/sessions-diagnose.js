@@ -11,6 +11,7 @@ function parseArgs(argv) {
     skillsRoot: null,
     workspace: null,
     sessionKey: null,
+    includeSubagents: false,
     json: false
   };
 
@@ -38,6 +39,11 @@ function parseArgs(argv) {
     if (arg === '--session-key') {
       options.sessionKey = argv[index + 1] || null;
       index += 1;
+      continue;
+    }
+
+    if (arg === '--include-subagents') {
+      options.includeSubagents = true;
       continue;
     }
 
