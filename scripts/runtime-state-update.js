@@ -8,6 +8,7 @@ const {
   syncRuntimeStateFromSessionState
 } = require('./lib/context-anchor');
 const { resolveOwnership } = require('./lib/host-config');
+const { buildTaskStateSummary } = require('./lib/task-state');
 
 function runRuntimeStateUpdate(workspaceArg, sessionKeyArg, options = {}) {
   const paths = createPaths(workspaceArg);
@@ -46,7 +47,8 @@ function runRuntimeStateUpdate(workspaceArg, sessionKeyArg, options = {}) {
     project_id: sessionState.project_id,
     user_id: sessionState.user_id,
     runtime_state_file: runtimeStateFile(paths, sessionKey),
-    runtime_state: runtimeState
+    runtime_state: runtimeState,
+    task_state_summary: buildTaskStateSummary(runtimeState)
   };
 }
 

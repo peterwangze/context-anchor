@@ -488,8 +488,14 @@ test('session-compact after refreshes runtime state metadata', () => {
 
       assert.equal(result.status, 'handled');
       assert.ok(result.actions.includes('runtime_state_refreshed'));
+      assert.ok(result.actions.includes('task_state_summarized'));
       assert.equal(runtimeState.active_task, 'refresh runtime after compact');
       assert.equal(runtimeState.pending_commitments.length, 1);
+      assert.equal(runtimeState.current_goal, 'refresh runtime after compact');
+      assert.equal(runtimeState.next_step, 'keep pending work visible');
+      assert.equal(result.task_state_summary.current_goal, 'refresh runtime after compact');
+      assert.equal(result.task_state_summary.next_step, 'keep pending work visible');
+      assert.equal(result.task_state_summary.visible, true);
       assert.equal(runtimeState.metadata.last_compaction_event, 'after');
       assert.ok(runtimeState.metadata.last_compaction_at);
       assert.equal(runtimeState.metadata.runtime_state_reason, 'compact-after');

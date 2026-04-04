@@ -138,12 +138,23 @@ function runSessionCompact(workspaceArg, sessionKeyArg, options = {}) {
   }
 
   if (phase === 'after') {
-    result.runtime_state = runRuntimeStateUpdate(paths.workspace, sessionKey, {
+    const runtimeStateUpdate = runRuntimeStateUpdate(paths.workspace, sessionKey, {
       projectId: ownership.projectId,
       userId: ownership.userId,
-      reason: 'compact-after'
-    }).runtime_state;
+      reason: 'compact-after',
+      currentGoal: sessionState.active_task,
+      nextStep:
+        (Array.isArray(sessionState.commitments)
+          ? sessionState.commitments.find((entry) => entry.status === 'pending')?.what
+          : null) || null,
+      blockedBy: sessionState.metadata?.blocked_by || null
+    });
+    result.runtime_state = runtimeStateUpdate.runtime_state;
+    result.task_state_summary = runtimeStateUpdate.task_state_summary;
     actions.push('runtime_state_refreshed');
+    if (runtimeStateUpdate.task_state_summary) {
+      actions.push('task_state_summarized');
+    }
   }
 
   const persistedState = loadSessionState(paths, sessionKey, ownership.projectId, {

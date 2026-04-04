@@ -49,8 +49,40 @@ function buildTaskStateFields(sessionState = {}, existing = {}, options = {}) {
   };
 }
 
+function buildTaskStateSummary(state = {}) {
+  const currentGoal = normalizeTaskStateText(state.current_goal);
+  const latestVerifiedResult = normalizeTaskStateText(state.latest_verified_result);
+  const nextStep = normalizeTaskStateText(state.next_step);
+  const blockedBy = normalizeTaskStateText(state.blocked_by);
+  const lastUserVisibleProgress = normalizeTaskStateText(state.last_user_visible_progress);
+  const visible =
+    Boolean(currentGoal) ||
+    Boolean(latestVerifiedResult) ||
+    Boolean(nextStep) ||
+    Boolean(blockedBy) ||
+    Boolean(lastUserVisibleProgress);
+
+  return {
+    visible,
+    current_goal: currentGoal,
+    latest_verified_result: latestVerifiedResult,
+    next_step: nextStep,
+    blocked_by: blockedBy,
+    last_user_visible_progress: lastUserVisibleProgress,
+    summary: visible
+      ? [
+          currentGoal ? `goal=${currentGoal}` : null,
+          latestVerifiedResult ? `result=${latestVerifiedResult}` : null,
+          nextStep ? `next=${nextStep}` : null,
+          blockedBy ? `blocked_by=${blockedBy}` : null
+        ].filter(Boolean).join(' ; ')
+      : 'No task-state continuity summary available.'
+  };
+}
+
 module.exports = {
   buildTaskStateFields,
+  buildTaskStateSummary,
   extractNextStepFromSessionState,
   normalizeTaskStateText
 };
