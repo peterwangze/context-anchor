@@ -361,12 +361,32 @@ function buildInstallVerification(configuration, sessionUpgrade) {
     }
   }
 
+  const repairStrategies = extractInstallRepairStrategies(configuration, sessionUpgrade);
+
   return {
     status,
     summary,
     issues,
     recheck_command: recheckCommand,
-    repair_strategies: extractInstallRepairStrategies(configuration, sessionUpgrade),
+    repair_strategies: repairStrategies,
+    remediation_summary: {
+      total: repairStrategies.all.length,
+      status:
+        repairStrategies.manual.length > 0
+          ? 'manual_required'
+          : repairStrategies.automatic.length > 0
+          ? 'automatic_available'
+          : 'none',
+      automatic_count: repairStrategies.automatic.length,
+      manual_count: repairStrategies.manual.length,
+      automatic: repairStrategies.automatic,
+      manual: repairStrategies.manual,
+      next_step: repairStrategies.automatic[0] || repairStrategies.manual[0] || null,
+      recheck_commands: [...new Set([
+        configurationVerification?.recheck_command || null,
+        sessionUpgradeVerification?.recheck_command || null
+      ].filter(Boolean))]
+    },
     readiness_transition: {
       configuration: configurationVerification?.readiness_transition || null,
       sessions: sessionUpgradeVerification?.readiness_transition || null

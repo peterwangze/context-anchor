@@ -20,6 +20,7 @@ const {
 const { collectSessionCandidates, normalizeWorkspaceKey } = require('./lib/openclaw-session-candidates');
 const { runConfigureHost } = require('./configure-host');
 const { buildTakeoverAudit, runDoctor } = require('./doctor');
+const { buildRemediationSummary } = require('./lib/remediation-summary');
 const { runMirrorRebuild } = require('./mirror-rebuild');
 const { runSessionStart } = require('./session-start');
 const { runStorageGovernance } = require('./storage-governance');
@@ -309,6 +310,24 @@ function buildUpgradeVerification({
     unresolved_targets: unresolvedTargets.length,
     configuration_required_targets: configurationRequiredTargets.length,
     session_report_status: sessionReport.status,
+    remediation_summary: buildRemediationSummary([
+      {
+        source: 'upgrade_verification',
+        action: {
+          type: 'upgrade_verification',
+          summary,
+          recheck_command: buildUpgradeRecheckCommand(openClawHome, skillsRoot, {
+            workspace: options.workspace || null,
+            sessionKey: options.sessionKey || null
+          }),
+          repair_strategy: buildUpgradeRepairStrategy({
+            remaining_attention_sessions: remainingAttention.length,
+            unresolved_targets: unresolvedTargets.length,
+            configuration_required_targets: configurationRequiredTargets.length
+          })
+        }
+      }
+    ]),
     recheck_command: buildUpgradeRecheckCommand(openClawHome, skillsRoot, {
       workspace: options.workspace || null,
       sessionKey: options.sessionKey || null

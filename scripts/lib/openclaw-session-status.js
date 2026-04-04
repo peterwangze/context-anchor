@@ -11,6 +11,7 @@ const {
   sanitizeKey
 } = require('./context-anchor');
 const { summarizeCatalogDatabase } = require('./context-anchor-db');
+const { buildRemediationSummary } = require('./remediation-summary');
 const { buildTaskStateSummary } = require('./task-state');
 const {
   classifyMemorySourceHealth,
@@ -898,6 +899,17 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
       recheck_command: commands.recheck_command,
       repair_sequence: commands.repair_sequence,
       repair_strategy: commands.repair_strategy,
+      remediation_summary: buildRemediationSummary([
+        {
+          source: 'session_status',
+          action: {
+            ...commands,
+            command: commands.repair_command,
+            follow_up_command: commands.follow_up_command,
+            recheck_command: commands.recheck_command
+          }
+        }
+      ]),
       task_state_summary: primaryTaskStateSession?.task_state_summary || buildTaskStateSummary({}),
       task_state_session_key: primaryTaskStateSession?.session_key || null,
       last_benefit_summary: primaryBenefitSession?.last_benefit_summary || null,
@@ -942,6 +954,17 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
     },
     summary,
     commands: globalCommands,
+    remediation_summary: buildRemediationSummary([
+      {
+        source: 'session_status_global',
+        action: {
+          ...globalCommands,
+          command: globalCommands.repair_command,
+          follow_up_command: globalCommands.follow_up_command,
+          recheck_command: globalCommands.recheck_command
+        }
+      }
+    ]),
     groups,
     sessions
   };

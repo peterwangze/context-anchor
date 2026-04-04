@@ -8,6 +8,7 @@ const {
   classifyMemorySourceHealth,
   summarizeExternalMemorySources
 } = require('./legacy-memory-sync');
+const { buildRemediationSummary } = require('./lib/remediation-summary');
 
 function parseArgs(argv) {
   const options = {
@@ -1036,7 +1037,12 @@ function runDoctor(options = {}) {
       configuration.memory_takeover_enforced
         ? 'Memory takeover is enforced for this profile: context-anchor is the intended canonical memory manager.'
         : 'Memory takeover is NOT enforced for this profile: some models or profiles may still manage their own memory files, which can fragment memory and weaken continuity.'
-    ]
+    ],
+    remediation_summary: buildRemediationSummary([
+      { source: 'memory_sources', action: memorySourceAction },
+      { source: 'host_takeover_audit', action: hostTakeoverAudit.recommended_action },
+      { source: 'profile_takeover_audit', action: profileTakeoverAudit.recommended_action }
+    ])
   };
 }
 

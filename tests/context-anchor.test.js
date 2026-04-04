@@ -2655,6 +2655,8 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
       assert.equal(typeof result.verification.readiness_transition.improved, 'boolean');
       assert.equal(result.verification.repair_strategy.type, 'recheck_upgrade_state');
       assert.equal(result.verification.repair_strategy.execution_mode, 'automatic');
+      assert.ok(result.verification.remediation_summary);
+      assert.equal(result.verification.remediation_summary.status, 'automatic_available');
       assert.equal(result.verification.readiness_transition.after.target_sessions, 1);
       assert.equal(result.verification.upgraded_sessions, 1);
       assert.equal(result.verification.remaining_attention_sessions, 0);
@@ -2904,6 +2906,8 @@ test('one-click install can upgrade existing sessions after refreshing runtime a
       assert.ok(Array.isArray(result.verification.repair_strategies.all));
       assert.ok(result.verification.repair_strategies.configuration.all.length >= 1);
       assert.ok(Array.isArray(result.verification.repair_strategies.automatic));
+      assert.ok(result.verification.remediation_summary);
+      assert.ok(typeof result.verification.remediation_summary.manual_count === 'number');
       assert.equal(result.session_upgrade.verification.status, 'verified');
       assert.ok(fs.existsSync(bootstrapFile));
       assert.match(fs.readFileSync(bootstrapFile, 'utf8'), /refresh runtime for stored session/);
@@ -3591,6 +3595,8 @@ test('doctor classifies synchronized external memory as single-source when takeo
       assert.equal(Array.isArray(doctor.memory_sources.recommended_action.repair_sequence), true);
       assert.equal(doctor.memory_sources.recommended_action.repair_strategy.type, 'recheck_only');
       assert.equal(doctor.memory_sources.recommended_action.repair_strategy.execution_mode, 'automatic');
+      assert.ok(doctor.remediation_summary);
+      assert.ok(typeof doctor.remediation_summary.automatic_count === 'number');
       assert.equal(doctor.memory_sources.last_legacy_sync_at !== null, true);
     });
   } finally {
@@ -3651,6 +3657,7 @@ test('doctor host audit flags drift in another registered workspace', async () =
       assert.equal(doctor.host_takeover_audit.recommended_action.repair_sequence.at(-1).step, 'recheck');
       assert.equal(doctor.host_takeover_audit.recommended_action.repair_strategy.type, 'migrate_then_recheck');
       assert.equal(doctor.host_takeover_audit.recommended_action.repair_strategy.execution_mode, 'automatic');
+      assert.ok(doctor.remediation_summary.manual_count >= 0);
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -6288,6 +6295,8 @@ test('status report summarizes user project session counts and governance', () =
       assert.equal(report.memory_source_health.status, 'best_effort');
       assert.equal(report.recommended_action.type, 'enforce_memory_takeover');
       assert.match(report.recommended_action.command, /configure:host/);
+      assert.ok(report.remediation_summary);
+      assert.equal(report.remediation_summary.status, 'automatic_available');
       assert.ok(report.evidence.project_skills);
     });
   } finally {

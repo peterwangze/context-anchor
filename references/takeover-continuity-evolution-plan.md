@@ -121,6 +121,10 @@
   - `doctor / sessions-diagnose / upgrade-sessions / install-one-click` 的 strategy 已区分 `automatic` / `manual`
   - strategy 现已显式标记 `requires_manual_confirmation`
   - 已补充自动化测试，覆盖 remediation mode 分类
+- `2026-04-05`
+  - `doctor / sessions-status / sessions-diagnose / status-report / upgrade-sessions / install-one-click` 已开始返回统一的 `remediation_summary`
+  - `remediation_summary` 已统一包含 next step、automatic/manual count 与 recheck commands
+  - 已补充自动化测试，覆盖 unified remediation summary
 
 当前仍未完成的重点：
 
@@ -483,6 +487,7 @@
   - `doctor / sessions-diagnose` 已开始显式区分 strict repair strategy，减少手工判断先后顺序
   - `install-one-click / upgrade-sessions` 已开始把 strict repair strategy 汇总到长流程输出
   - strict repair strategy 已开始区分可自动执行与需要人工确认的步骤
+  - 多入口 remediation 输出已开始收敛到统一结构
 - 仍待完成：
   - `doctor` / `sessions-diagnose` 还需要给出更细粒度 strict-mode auto-fix 路径
 

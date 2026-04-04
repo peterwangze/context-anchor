@@ -40,6 +40,7 @@ const {
 } = require('./lib/context-anchor');
 const { describeCollectionFile, readLatestGovernanceRun } = require('./lib/context-anchor-db');
 const { resolveOwnership } = require('./lib/host-config');
+const { buildRemediationSummary } = require('./lib/remediation-summary');
 const { buildTaskStateSummary } = require('./lib/task-state');
 const {
   classifyMemorySourceHealth,
@@ -78,6 +79,18 @@ function buildNpmScriptCommand(scriptName, options = {}) {
   return forwarded.length > 0
     ? `npm run ${scriptName} -- ${forwarded.join(' ')}`
     : `npm run ${scriptName}`;
+}
+
+function buildStatusReportRecheckCommand(workspace, sessionKey, projectId, userId) {
+  const args = [
+    'node',
+    quoteArg(path.join(__dirname, 'status-report.js')),
+    quoteArg(workspace),
+    quoteArg(sessionKey || DEFAULTS.sessionKey),
+    quoteArg(projectId),
+    quoteArg(userId)
+  ];
+  return args.join(' ');
 }
 
 function summarizeSkillEvidence(skills = []) {
@@ -257,7 +270,17 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
                   applyConfig: true,
                   enforceMemoryTakeover: true,
                   yes: true
-                })
+                }),
+          repair_strategy: {
+            type: memorySourceHealth.memory_takeover_mode === 'enforced' ? 'migrate_then_recheck' : 'migrate_then_enforce_then_recheck',
+            label: memorySourceHealth.memory_takeover_mode === 'enforced' ? 'migrate -> recheck' : 'migrate -> enforce -> recheck',
+            execution_mode: 'automatic',
+            requires_manual_confirmation: false,
+            summary:
+              memorySourceHealth.memory_takeover_mode === 'enforced'
+                ? 'Centralize external memory first, then rerun status-report.'
+                : 'Centralize external memory, enforce takeover, then rerun status-report.'
+          }
         }
       : memorySourceHealth.status === 'best_effort'
         ? {
@@ -271,14 +294,28 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
               enforceMemoryTakeover: true,
               yes: true
             }),
-            follow_up_command: null
+            follow_up_command: null,
+            repair_strategy: {
+              type: 'enforce_then_recheck',
+              label: 'enforce -> recheck',
+              execution_mode: 'automatic',
+              requires_manual_confirmation: false,
+              summary: 'Enforce takeover first, then rerun status-report.'
+            }
           }
         : {
             type: 'none',
             priority: 'low',
             summary: 'No repair action required.',
             command: null,
-            follow_up_command: null
+            follow_up_command: null,
+            repair_strategy: {
+              type: 'recheck_only',
+              label: 'recheck',
+              execution_mode: 'automatic',
+              requires_manual_confirmation: false,
+              summary: 'No repair action is required right now; rerun status-report when the environment changes.'
+            }
           };
 
   const report = {
@@ -346,6 +383,15 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
     external_sources: externalSources,
     memory_source_health: memorySourceHealth,
     recommended_action: recommendedAction,
+    remediation_summary: buildRemediationSummary([
+      {
+        source: 'status_report',
+        action: {
+          ...recommendedAction,
+          recheck_command: buildStatusReportRecheckCommand(paths.workspace, sessionKey, projectId, userId)
+        }
+      }
+    ]),
     storage_governance: summarizeStorageGovernance(paths, sessionKey, projectId, userId),
     skills: skillStatusCounts
   };
