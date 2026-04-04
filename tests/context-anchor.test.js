@@ -4174,6 +4174,7 @@ test('bootstrap cache compacts semantically under a tight budget instead of hard
       assert.doesNotMatch(bootstrap, /truncated to stay within the 10K bootstrap budget/i);
       assert.match(bootstrap, /Context Anchor Session Memory/);
       assert.match(bootstrap, /checkout retry/);
+      assert.match(bootstrap, /Current Task State|task:/i);
       assert.match(bootstrap, /Long-Term Memory/);
       assert.match(bootstrap, /\+\d+ more/);
       assert.match(bootstrap, /lookup:/i);
@@ -4682,7 +4683,12 @@ test('managed bootstrap injects recovered continuity for an unfinished prior ses
       assert.equal(event.context.bootstrapFiles.length, 1);
       assert.equal(event.context.bootstrapFiles[0].name, 'CONTEXT-ANCHOR.md');
       assert.match(event.context.bootstrapFiles[0].content, /Continued from: bootstrap-source/);
+      assert.match(event.context.bootstrapFiles[0].content, /## Current Task State/);
       assert.match(event.context.bootstrapFiles[0].content, /## Recovered Continuity/);
+      assert.ok(
+        event.context.bootstrapFiles[0].content.indexOf('## Current Task State') <
+          event.context.bootstrapFiles[0].content.indexOf('## Recovered Continuity')
+      );
       assert.match(event.context.bootstrapFiles[0].content, /latest result:/);
       assert.match(event.context.bootstrapFiles[0].content, /next step: repair checkout retries/);
       assert.match(event.context.bootstrapFiles[0].content, /repair checkout retries/);

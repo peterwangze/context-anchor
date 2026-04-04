@@ -205,6 +205,33 @@ function buildContinuitySummary(sessionState = {}, continuationSource = null, co
   };
 }
 
+function buildCurrentTaskStateSummary(sessionState = {}, continuitySummary = null) {
+  const pendingCommitments = Array.isArray(sessionState.commitments)
+    ? sessionState.commitments.filter((entry) => entry.status === 'pending')
+    : [];
+  const nextStep = pendingCommitments[0]?.what || continuitySummary?.next_step || null;
+  const blockedBy = sessionState.metadata?.blocked_by || continuitySummary?.blocked_by || null;
+  const latestResult = sessionState.metadata?.latest_verified_result || continuitySummary?.latest_result || null;
+  const lastUserVisibleProgress =
+    sessionState.metadata?.last_user_visible_progress || continuitySummary?.last_user_visible_progress || latestResult;
+  const currentGoal = sessionState.active_task || continuitySummary?.restored_goal || null;
+
+  return {
+    current_goal: currentGoal,
+    latest_verified_result: latestResult,
+    next_step: nextStep,
+    blocked_by: blockedBy,
+    last_user_visible_progress: lastUserVisibleProgress,
+    pending_commitments: pendingCommitments,
+    visible:
+      Boolean(currentGoal) ||
+      Boolean(latestResult) ||
+      Boolean(nextStep) ||
+      Boolean(blockedBy) ||
+      pendingCommitments.length > 0
+  };
+}
+
 function applyRuntimeStateToSessionState(sessionState, runtimeState) {
   if (!runtimeState) {
     return;
@@ -937,6 +964,13 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
       legacy_memory_sync: legacyMemorySync
     }
   };
+  summary.recovery.continuity_summary = buildContinuitySummary(sessionState, continuationSource, continuityRestoration);
+  summary.recovery.task_state_summary = buildCurrentTaskStateSummary(
+    sessionState,
+    summary.recovery.continuity_summary
+  );
+  summary.boot_packet.continuity_summary = summary.recovery.continuity_summary;
+  summary.boot_packet.task_state_summary = summary.recovery.task_state_summary;
 
   if (shortTermHotMemories.length > 0) {
     summary.memories_to_inject.push({

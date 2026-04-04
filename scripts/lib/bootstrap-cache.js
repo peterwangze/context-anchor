@@ -16,6 +16,7 @@ const RENDER_PROFILES = [
     include: {
       checkpoint: true,
       continuity: true,
+      taskState: true,
       reuse: true,
       related: true
     },
@@ -48,6 +49,7 @@ const RENDER_PROFILES = [
     include: {
       checkpoint: true,
       continuity: true,
+      taskState: true,
       reuse: true,
       related: false
     },
@@ -80,6 +82,7 @@ const RENDER_PROFILES = [
     include: {
       checkpoint: true,
       continuity: false,
+      taskState: false,
       reuse: false,
       related: false
     },
@@ -112,6 +115,7 @@ const RENDER_PROFILES = [
     include: {
       checkpoint: false,
       continuity: false,
+      taskState: false,
       reuse: false,
       related: false
     },
@@ -144,6 +148,7 @@ const RENDER_PROFILES = [
     include: {
       checkpoint: false,
       continuity: false,
+      taskState: false,
       reuse: false,
       related: false
     },
@@ -354,6 +359,38 @@ function renderPendingCommitments(summary, profile) {
   );
 }
 
+function renderCurrentTaskState(summary, profile) {
+  if (profile.include?.taskState === false) {
+    return '';
+  }
+
+  const taskState = summary.recovery?.task_state_summary || summary.boot_packet?.task_state_summary || null;
+  if (!taskState || taskState.visible !== true) {
+    return '';
+  }
+
+  return renderSection('## Current Task State', [
+    taskState.current_goal
+      ? `- goal: ${compactText(taskState.current_goal, profile.widths.task)}`
+      : null,
+    taskState.latest_verified_result
+      ? `- latest result: ${compactText(taskState.latest_verified_result, profile.widths.hot)}`
+      : null,
+    taskState.last_user_visible_progress
+      ? `- progress: ${compactText(taskState.last_user_visible_progress, profile.widths.hot)}`
+      : null,
+    taskState.next_step
+      ? `- next step: ${compactText(taskState.next_step, profile.widths.pending)}`
+      : null,
+    taskState.blocked_by
+      ? `- blocked by: ${compactText(taskState.blocked_by, profile.widths.pending)}`
+      : null,
+    taskState.pending_commitments?.length
+      ? `- pending commitments: ${taskState.pending_commitments.length}`
+      : null
+  ]);
+}
+
 function renderRecoveredContinuity(summary, profile) {
   if (profile.include?.continuity === false) {
     return '';
@@ -539,6 +576,7 @@ function renderRelatedSessions(summary, profile) {
 function renderSummaryWithProfile(summary, profile, budgetBytes) {
   return [
     renderHeader(summary, profile, budgetBytes),
+    renderCurrentTaskState(summary, profile),
     renderRecoveredContinuity(summary, profile),
     renderPendingCommitments(summary, profile),
     renderUserPreferences(summary, profile),
@@ -607,6 +645,17 @@ function buildMinimalSummary(sessionState, pendingCommitments, checkpoint, budge
       active_task: sessionState.active_task,
       pending_commitments: pendingCommitments,
       checkpoint_excerpt: checkpoint ? checkpoint.split('\n').slice(0, 10).join('\n') : null,
+      task_state_summary: {
+        current_goal: sessionState.active_task || null,
+        latest_verified_result: null,
+        next_step: pendingCommitments[0]?.what || null,
+        blocked_by: null,
+        last_user_visible_progress: null,
+        pending_commitments: pendingCommitments,
+        visible:
+          Boolean(sessionState.active_task) ||
+          pendingCommitments.length > 0
+      },
       continuity_summary: {
         source_session_key: sessionState.metadata?.continued_from_session || null,
         restored_goal: sessionState.active_task || null,
@@ -629,6 +678,19 @@ function buildMinimalSummary(sessionState, pendingCommitments, checkpoint, budge
     recommended_reuse: {
       experiences: [],
       skills: []
+    },
+    boot_packet: {
+      task_state_summary: {
+        current_goal: sessionState.active_task || null,
+        latest_verified_result: null,
+        next_step: pendingCommitments[0]?.what || null,
+        blocked_by: null,
+        last_user_visible_progress: null,
+        pending_commitments: pendingCommitments,
+        visible:
+          Boolean(sessionState.active_task) ||
+          pendingCommitments.length > 0
+      }
     },
     persistent_memory: {
       catalogs: [],
