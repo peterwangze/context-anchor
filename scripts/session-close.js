@@ -24,11 +24,7 @@ const { runSkillDraftCreate } = require('./skill-draft-create');
 const { runSkillificationScore } = require('./skillification-score');
 const { runStorageGovernance } = require('./storage-governance');
 const { buildVisibleBenefitSummary } = require('./lib/visible-benefit-summary');
-
-function shouldClearTaskStateForReason(reason) {
-  const normalized = String(reason || '').trim().toLowerCase();
-  return normalized === 'command-stop';
-}
+const { buildTaskStateTransition, shouldClearTaskStateForReason } = require('./lib/task-state');
 
 function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
   const paths = createPaths(workspaceArg);
@@ -69,6 +65,7 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
   const skillDraft = runSkillDraftCreate(paths.workspace, sessionKey);
   const heat = runHeatEvaluation(paths.workspace, sessionState.project_id);
   const skillification = runSkillificationScore(paths.workspace, sessionState.project_id);
+  const taskStateTransition = buildTaskStateTransition(options.reason || 'session-close', sessionState);
   const promotions = runScopePromote(paths.workspace, {
     sessionKey: sessionState.session_key,
     projectId: sessionState.project_id,
@@ -97,6 +94,7 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
     reactivated_user_skills: reconcile.user_reactivated,
     archived_project_skills: reconcile.project_archived,
     archived_user_skills: reconcile.user_archived,
+    task_state_transition: taskStateTransition,
     skill_draft: skillDraft.status !== 'skipped' ? {
       id: skillDraft.skill_id,
       name: skillDraft.skill_name,
@@ -155,6 +153,7 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
     project_id: sessionState.project_id,
     checkpoint,
     compact,
+    task_state_transition: taskStateTransition,
     captured_summary: summary.benefit_summary,
     legacy_memory_sync,
     flow,

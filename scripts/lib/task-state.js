@@ -80,9 +80,35 @@ function buildTaskStateSummary(state = {}) {
   };
 }
 
+function shouldClearTaskStateForReason(reason) {
+  const normalized = String(reason || '').trim().toLowerCase();
+  return normalized === 'command-stop';
+}
+
+function buildTaskStateTransition(reason, sessionState = {}) {
+  const normalizedReason = String(reason || 'session-close').trim().toLowerCase();
+  const pendingCount = Array.isArray(sessionState.commitments)
+    ? sessionState.commitments.filter((entry) => entry.status === 'pending').length
+    : 0;
+  const cleared = shouldClearTaskStateForReason(normalizedReason);
+
+  return {
+    reason: normalizedReason,
+    mode: cleared ? 'cleared' : 'retained',
+    current_goal_before: normalizeTaskStateText(sessionState.active_task),
+    pending_commitments_before: pendingCount,
+    summary: cleared
+      ? 'This lifecycle event clears the current task state so the next session starts fresh.'
+      : 'This lifecycle event preserves unfinished task state so the next session can continue.',
+    visible: Boolean(sessionState.active_task) || pendingCount > 0
+  };
+}
+
 module.exports = {
   buildTaskStateFields,
   buildTaskStateSummary,
+  buildTaskStateTransition,
   extractNextStepFromSessionState,
-  normalizeTaskStateText
+  normalizeTaskStateText,
+  shouldClearTaskStateForReason
 };

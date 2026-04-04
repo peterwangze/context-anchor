@@ -274,19 +274,23 @@ function handleStartup(payload) {
 }
 
 function handleStop(payload) {
+  return handleStopWithReason(payload, 'command:stop', 'command-stop');
+}
+
+function handleStopWithReason(payload, eventName, closeReason, usagePercent) {
   const normalizedPayload = normalizePayload(payload);
-  requirePayloadFields(normalizedPayload, 'command:stop', ['workspace', 'session_key']);
-  const guidance = buildConfigureGuidance('command:stop', normalizedPayload);
+  requirePayloadFields(normalizedPayload, eventName, ['workspace', 'session_key']);
+  const guidance = buildConfigureGuidance(eventName, normalizedPayload);
   if (guidance) {
     return guidance;
   }
   return {
     status: 'handled',
-    event: 'command:stop',
+    event: eventName,
     actions: ['session_closed'],
     result: runSessionClose(normalizedPayload.workspace, normalizedPayload.session_key, {
-      reason: 'command-stop',
-      usagePercent: normalizedPayload.usage_percent,
+      reason: closeReason,
+      usagePercent: usagePercent !== undefined ? usagePercent : normalizedPayload.usage_percent,
       projectId: normalizedPayload.project_id,
       userId: normalizedPayload.user_id
     })
@@ -460,13 +464,9 @@ function handleHookEvent(eventName, payload = {}) {
     case 'command:stop':
       return handleStop(payload);
     case 'command:new':
+      return handleStopWithReason(payload, 'command:new', 'command-new');
     case 'command:reset':
-      return {
-        status: 'handled',
-        event: eventName,
-        actions: ['session_closed'],
-        result: handleStop(payload).result
-      };
+      return handleStopWithReason(payload, 'command:reset', 'command-reset');
     case 'heartbeat':
     case 'on_heartbeat':
       return handleHeartbeat(payload);

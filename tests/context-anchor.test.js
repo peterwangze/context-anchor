@@ -5044,6 +5044,104 @@ test('command stop hook runs unified session close lifecycle', async () => {
   }
 });
 
+test('command new hook closes through unified lifecycle but preserves unfinished task continuity', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: workspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      runSessionStart(workspace, 'hook-new', 'demo');
+      const stateFile = path.join(workspace, '.context-anchor', 'sessions', 'hook-new', 'state.json');
+      const state = readJson(stateFile, {});
+      state.active_task = 'continue checkout stabilization';
+      state.commitments = [
+        {
+          id: 'hook-new-1',
+          what: 'finish checkout stabilization',
+          status: 'pending'
+        }
+      ];
+      writeJson(stateFile, state);
+
+      const result = handleHookEvent('command:new', {
+        workspace,
+        session_key: 'hook-new',
+        project_id: 'demo'
+      });
+      const next = runSessionStart(workspace, 'hook-new-next', 'demo');
+
+      assert.equal(result.status, 'handled');
+      assert.equal(result.result.status, 'closed');
+      assert.equal(result.result.task_state_transition.mode, 'retained');
+      assert.equal(next.session.continued_from, 'hook-new');
+      assert.equal(next.recovery.active_task, 'continue checkout stabilization');
+      assert.equal(next.recovery.pending_commitments.length, 1);
+      assert.equal(next.recovery.continuity.reference_only, false);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('command reset hook closes through unified lifecycle but preserves unfinished task continuity', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: workspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      runSessionStart(workspace, 'hook-reset', 'demo');
+      const stateFile = path.join(workspace, '.context-anchor', 'sessions', 'hook-reset', 'state.json');
+      const state = readJson(stateFile, {});
+      state.active_task = 'reproduce checkout bug';
+      state.commitments = [
+        {
+          id: 'hook-reset-1',
+          what: 'capture clean repro',
+          status: 'pending'
+        }
+      ];
+      writeJson(stateFile, state);
+
+      const result = handleHookEvent('command:reset', {
+        workspace,
+        session_key: 'hook-reset',
+        project_id: 'demo'
+      });
+      const next = runSessionStart(workspace, 'hook-reset-next', 'demo');
+
+      assert.equal(result.status, 'handled');
+      assert.equal(result.result.status, 'closed');
+      assert.equal(result.result.task_state_transition.mode, 'retained');
+      assert.equal(next.session.continued_from, 'hook-reset');
+      assert.equal(next.recovery.active_task, 'reproduce checkout bug');
+      assert.equal(next.recovery.pending_commitments.length, 1);
+      assert.equal(next.recovery.continuity.reference_only, false);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('heartbeat promotes validated project experiences into active project skills', () => {
   const workspace = makeWorkspace();
 
