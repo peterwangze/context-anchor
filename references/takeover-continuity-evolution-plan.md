@@ -29,7 +29,7 @@
 
 ## 当前进展
 
-截至 `2026-04-03`，当前整体状态如下：
+截至 `2026-04-04`，当前整体状态如下：
 
 - 存储架构主链路已经完成：
   - runtime state
@@ -96,11 +96,14 @@
   - `upgrade-sessions` 已默认跳过临时 `subagent` session
   - 已新增 `--include-subagents` 作为显式覆盖开关
   - 已补充自动化测试，覆盖 subagent 默认跳过
+- `2026-04-04`
+  - `sessions-status / sessions-diagnose` 已按 workspace 显式展示 `task continuity`
+  - `sessions-status / sessions-diagnose` 已按 workspace 显式展示最近一次 `last benefit`
+  - 已补充自动化测试，覆盖 continuity / benefit 在 session status 与 diagnose 输出中的可见性
 
 当前仍未完成的重点：
 
-- 用户仍然不够容易看到“这次恢复了什么 / 新沉淀了什么”
-- 任务连续性还没有形成明确的 goal/result/next-step 模型
+- 任务连续性已经有基础 goal/result/next-step 模型，但还没有完全收敛到严格 repair / diagnose 闭环
 - 严格模式还没有形成完整的 drift 告警与自动修复闭环
 
 下一步建议：
@@ -119,7 +122,7 @@
 
 ## 当前判断
 
-截至 `2026-04-03`，当前已具备的铺垫如下：
+截至 `2026-04-04`，当前已具备的铺垫如下：
 
 - 已有 host-level managed hook 接管：
   - `agent:bootstrap`
@@ -141,7 +144,6 @@
 
 当前仍未完成的关键问题：
 
-- 用户还看不清“这次恢复了什么”和“这次系统新沉淀了什么”
 - 任务连续性仍偏“材料恢复”，还不够“状态恢复”
 - 严格接管模式还没有形成完整的 drift 告警、强约束和自动修复闭环
 
@@ -353,16 +355,17 @@
 
 状态：
 
-- `进行中`
+- `已完成`
 - 已完成部分：
   - bootstrap 已增加 `Recovered Continuity` 摘要
   - `session-start` 已输出结构化 `continuity_summary`
   - bootstrap 现已显式展示恢复来源、restored goal、latest result、next step
   - `memory-search` 已输出 `why_matched`
   - `memory-search` 已输出 `why_from_archive`
-  - 已补充自动化测试，覆盖 session-start continuity summary 与 bootstrap 注入摘要
-- 仍待完成：
-  - `heartbeat / session-close` 的 newly captured summary
+  - `heartbeat / session-close` 已输出 `captured_summary`
+  - `session-close` 已把 `benefit_summary` 写入 session summary
+  - `sessions-status / sessions-diagnose` 已按 workspace 显示最近一次 `last benefit`
+  - 已补充自动化测试，覆盖 session-start continuity summary、bootstrap 注入摘要与 last benefit 可见性
 
 ## Stage 4：任务连续性模型
 
@@ -412,10 +415,12 @@
   - `session-start` 已优先读取任务态字段恢复 continuity summary
   - `session:compact:after` 已显式返回 `task_state_summary`
   - `status-report` 已显式输出 `task_state_summary`
+  - `command:new / command:reset / command:stop` 已形成统一任务态语义
+  - bootstrap / startup resume 已进一步优先展示任务态摘要
+  - `sessions-status / sessions-diagnose` 已按 workspace 显示 `task continuity`
   - 已补充自动化测试，覆盖 runtime task-state update 与 continuity restore
 - 仍待完成：
-  - `command:new/reset/stop` 的任务态一致性
-  - bootstrap 进一步优先展示任务态而不是材料态
+  - 任务态字段还需要继续向更严格的 repair / diagnose 闭环靠拢
 
 ## Stage 5：严格模式与自动修复闭环
 

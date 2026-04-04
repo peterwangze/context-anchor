@@ -295,6 +295,8 @@ node scripts/sessions-diagnose.js
 - `SINGLE_SOURCE`
 - `BEST_EFFORT`
 - `DRIFT`
+- 最新可恢复的 `task continuity`，直接告诉你当前 goal / result / next step / blocked by
+- 最近一次 `last benefit`，直接告诉你这轮 session 最近沉淀了什么可见收益
 
 如果检测到外部记忆源已经变化或还没归并，输出里会直接给出对应的 repair 命令。你也可以手工执行：
 

@@ -3205,6 +3205,115 @@ test('session status overview groups workspaces and shows skill, hook, and monit
   }
 });
 
+test('session status highlights task continuity and last visible benefit per workspace', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const configuredWorkspace = path.join(workspace, 'configured-workspace');
+  const agentSessionsDir = path.join(openClawHome, 'agents', 'main', 'sessions');
+  const transcriptFile = path.join(agentSessionsDir, 'continuity.jsonl');
+  const sessionsIndex = path.join(agentSessionsDir, 'sessions.json');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      const paths = createPaths(configuredWorkspace);
+
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: true,
+        enableScheduler: true,
+        defaultUserId: 'default-user',
+        defaultWorkspace: configuredWorkspace,
+        schedulerWorkspace: configuredWorkspace,
+        schedulerUserId: 'default-user',
+        schedulerProjectId: 'configured-workspace',
+        schedulerRegistrar: () => {},
+        addUsers: [],
+        addWorkspaces: []
+      });
+      runSessionStart(configuredWorkspace, 'agent:main:continuity', 'configured-workspace', {
+        userId: 'default-user',
+        openClawSessionId: 'continuity-session-id'
+      });
+
+      const stateFile = sessionStateFile(paths, 'agent:main:continuity');
+      const state = readJson(stateFile, {});
+      state.active_task = 'stabilize checkout retries';
+      state.commitments = [
+        {
+          id: 'continuity-next-step',
+          what: 'ship checkout retry fix',
+          status: 'pending'
+        }
+      ];
+      state.metadata = {
+        ...(state.metadata || {}),
+        blocked_by: 'waiting for CI rerun'
+      };
+      writeJson(stateFile, state);
+      runHeartbeat(configuredWorkspace, 'agent:main:continuity', 'configured-workspace', 50);
+
+      const runtimeState = readJson(runtimeStateFile(paths, 'agent:main:continuity'), {});
+      runtimeState.latest_verified_result = 'retry policy updated';
+      runtimeState.last_user_visible_progress = 'retry policy updated';
+      writeJson(runtimeStateFile(paths, 'agent:main:continuity'), runtimeState);
+
+      writeJson(sessionSummaryFile(paths, 'agent:main:continuity'), {
+        created_at: '2026-04-04T00:00:00.000Z',
+        benefit_summary: {
+          visible: true,
+          summary: 'captured 1 new lesson(s); updated draft checkout-retry-skill',
+          summary_lines: [
+            'captured 1 new lesson(s)',
+            'updated draft checkout-retry-skill'
+          ]
+        }
+      });
+
+      fs.mkdirSync(agentSessionsDir, { recursive: true });
+      writeSessionTranscript(transcriptFile, configuredWorkspace, 'continuity-session-id');
+      writeJson(sessionsIndex, {
+        'agent:main:continuity': {
+          sessionId: 'continuity-session-id',
+          sessionFile: transcriptFile,
+          updatedAt: 1774705709043,
+          chatType: 'direct'
+        }
+      });
+
+      const report = buildOpenClawSessionStatusReport(openClawHome, path.join(openClawHome, 'skills'), {
+        schedulerProbe: () => 'running'
+      });
+      const rendered = renderOpenClawSessionStatusReport(report);
+      const diagnosisRendered = renderOpenClawSessionDiagnosisReport(report);
+      const group = report.groups.find((entry) => entry.workspace && entry.workspace.endsWith('configured-workspace'));
+      const session = group.sessions.find((entry) => entry.session_key === 'agent:main:continuity');
+
+      assert.equal(report.summary.task_visible_workspaces, 1);
+      assert.equal(report.summary.benefit_visible_workspaces, 1);
+      assert.equal(group.task_state_session_key, 'agent:main:continuity');
+      assert.equal(group.task_state_summary.current_goal, 'stabilize checkout retries');
+      assert.equal(group.task_state_summary.latest_verified_result, 'retry policy updated');
+      assert.equal(group.task_state_summary.next_step, 'ship checkout retry fix');
+      assert.equal(group.task_state_summary.blocked_by, 'waiting for CI rerun');
+      assert.equal(group.last_benefit_session_key, 'agent:main:continuity');
+      assert.equal(group.last_benefit_summary.visible, true);
+      assert.match(group.last_benefit_summary.summary, /captured 1 new lesson/);
+      assert.equal(session.task_state_summary.current_goal, 'stabilize checkout retries');
+      assert.equal(session.last_benefit_summary.visible, true);
+      assert.match(rendered, /Visible continuity: 1 workspace\(s\)/);
+      assert.match(rendered, /Task continuity: agent:main:continuity -> goal=stabilize checkout retries/);
+      assert.match(rendered, /result=retry policy updated/);
+      assert.match(rendered, /next=ship checkout retry fix/);
+      assert.match(rendered, /blocked_by=waiting for CI rerun/);
+      assert.match(rendered, /Last benefit: agent:main:continuity -> captured 1 new lesson\(s\); updated draft checkout-retry-skill/);
+      assert.match(diagnosisRendered, /Task continuity: agent:main:continuity -> goal=stabilize checkout retries/);
+      assert.match(diagnosisRendered, /Last benefit: agent:main:continuity -> captured 1 new lesson\(s\); updated draft checkout-retry-skill/);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('session status recommends configure-host when only monitor setup is missing', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');

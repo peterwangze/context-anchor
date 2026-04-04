@@ -4,8 +4,14 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { runDoctor } = require('../doctor');
-const { createPaths, sanitizeKey } = require('./context-anchor');
+const {
+  createPaths,
+  loadSessionSummary,
+  readRuntimeStateSnapshot,
+  sanitizeKey
+} = require('./context-anchor');
 const { summarizeCatalogDatabase } = require('./context-anchor-db');
+const { buildTaskStateSummary } = require('./task-state');
 const {
   classifyMemorySourceHealth,
   summarizeExternalMemorySources
@@ -149,6 +155,89 @@ function describeIssue(issue) {
     default:
       return issue;
   }
+}
+
+function normalizeBenefitSummary(summary) {
+  if (!summary || typeof summary !== 'object') {
+    return null;
+  }
+
+  const summaryLines = Array.isArray(summary.summary_lines)
+    ? summary.summary_lines.map((line) => String(line).trim()).filter(Boolean)
+    : [];
+
+  return {
+    visible: Boolean(summary.visible),
+    summary: summary.summary ? String(summary.summary).trim() : null,
+    summary_lines: summaryLines
+  };
+}
+
+function buildSessionVisibilityDetails(session) {
+  if (!session.workspace) {
+    return {
+      task_state_summary: buildTaskStateSummary({}),
+      last_benefit_summary: null
+    };
+  }
+
+  const paths = createPaths(session.workspace);
+  const runtimeState =
+    readRuntimeStateSnapshot(paths, session.session_key, session.project_id || undefined, {
+      userId: session.user_id || undefined
+    }) || {};
+  const sessionSummary = loadSessionSummary(paths, session.session_key);
+
+  return {
+    task_state_summary: buildTaskStateSummary(runtimeState),
+    last_benefit_summary: normalizeBenefitSummary(sessionSummary?.benefit_summary)
+  };
+}
+
+function selectVisibleSessionSummary(sessions, key) {
+  return sessions.find((entry) => entry?.[key]?.visible) || null;
+}
+
+function formatTaskStateDisplay(summary) {
+  if (!summary?.visible) {
+    return null;
+  }
+
+  const parts = [];
+  if (summary.current_goal) {
+    parts.push(`goal=${summary.current_goal}`);
+  }
+  if (summary.latest_verified_result) {
+    parts.push(`result=${summary.latest_verified_result}`);
+  }
+  if (summary.next_step) {
+    parts.push(`next=${summary.next_step}`);
+  }
+  if (summary.blocked_by) {
+    parts.push(`blocked_by=${summary.blocked_by}`);
+  }
+  if (parts.length === 0 && summary.last_user_visible_progress) {
+    parts.push(`progress=${summary.last_user_visible_progress}`);
+  }
+
+  return parts.length > 0 ? parts.join(' ; ') : summary.summary;
+}
+
+function formatBenefitDisplay(summary) {
+  if (!summary?.visible) {
+    return null;
+  }
+
+  return summary.summary || (Array.isArray(summary.summary_lines) ? summary.summary_lines.join('; ') : null);
+}
+
+function renderVisibleSummaryLine(label, summaryText, sessionKey) {
+  if (!summaryText) {
+    return null;
+  }
+
+  const prefix = sessionKey ? `${shorten(sessionKey, 32)} -> ` : '';
+  return `  ${label}: ${prefix}${shorten(summaryText, 180)}`;
 }
 
 function buildUnknownMemorySourceStatus(memoryTakeoverMode) {
@@ -631,11 +720,12 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
       return true;
     })
     .map((session) => ({
-    ...session,
-    classification: classifySessionStatus(session, resolvedOpenClawHome, hostConfig, doctor, {
-      schedulerProbe: options.schedulerProbe,
-      execFileSync: options.execFileSync
-    })
+      ...session,
+      classification: classifySessionStatus(session, resolvedOpenClawHome, hostConfig, doctor, {
+        schedulerProbe: options.schedulerProbe,
+        execFileSync: options.execFileSync
+      }),
+      ...buildSessionVisibilityDetails(session)
     }));
   const groups = groupSessionsByWorkspace(sessions).map((group) => {
     const workspace = group.workspace;
@@ -674,14 +764,19 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
       memoryTakeoverMode: doctor.configuration.memory_takeover_mode,
       memorySourceStatus: memorySourceHealth.status
     });
+    const sortedSessions = [...group.sessions].sort((left, right) => {
+      return Number(right.updated_at || 0) - Number(left.updated_at || 0);
+    });
     const hookStatus = workspace
-      ? group.sessions[0]?.classification?.hook || 'off'
+      ? sortedSessions[0]?.classification?.hook || 'off'
       : 'unknown';
     const monitorStatus = workspace
-      ? group.sessions[0]?.classification?.monitor || 'unknown'
+      ? sortedSessions[0]?.classification?.monitor || 'unknown'
       : 'unknown';
-    const ready = group.sessions.filter((entry) => entry.classification?.overall === 'ready').length;
-    const attention = group.sessions.length - ready;
+    const ready = sortedSessions.filter((entry) => entry.classification?.overall === 'ready').length;
+    const attention = sortedSessions.length - ready;
+    const primaryTaskStateSession = selectVisibleSessionSummary(sortedSessions, 'task_state_summary');
+    const primaryBenefitSession = selectVisibleSessionSummary(sortedSessions, 'last_benefit_summary');
 
     return {
       workspace,
@@ -702,9 +797,11 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
       diagnostic_command: commands.diagnostic_command,
       repair_command: commands.repair_command,
       follow_up_command: commands.follow_up_command,
-      sessions: group.sessions.sort((left, right) => {
-        return Number(right.updated_at || 0) - Number(left.updated_at || 0);
-      })
+      task_state_summary: primaryTaskStateSession?.task_state_summary || buildTaskStateSummary({}),
+      task_state_session_key: primaryTaskStateSession?.session_key || null,
+      last_benefit_summary: primaryBenefitSession?.last_benefit_summary || null,
+      last_benefit_session_key: primaryBenefitSession?.session_key || null,
+      sessions: sortedSessions
     };
   });
 
@@ -725,6 +822,8 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
     unresolved_sessions: sessions.filter((entry) => entry.workspace === null).length,
     hook_on_workspaces: groups.filter((entry) => entry.hook_status === 'on').length,
     monitor_running_workspaces: groups.filter((entry) => entry.monitor_status === 'running').length,
+    task_visible_workspaces: groups.filter((entry) => entry.task_state_summary?.visible).length,
+    benefit_visible_workspaces: groups.filter((entry) => entry.last_benefit_summary?.visible).length,
     single_source_workspaces: groups.filter((entry) => entry.memory_sources.health.status === 'single_source').length,
     best_effort_workspaces: groups.filter((entry) => entry.memory_sources.health.status === 'best_effort').length,
     drift_workspaces: groups.filter((entry) => entry.memory_sources.health.status === 'drift_detected').length
@@ -807,6 +906,10 @@ function renderOpenClawSessionStatusReport(report) {
       `Needs attention: ${report.summary.attention_sessions} | ` +
       `Unresolved: ${report.summary.unresolved_sessions}`
   );
+  lines.push(
+    `Visible continuity: ${report.summary.task_visible_workspaces} workspace(s) | ` +
+      `Visible benefit: ${report.summary.benefit_visible_workspaces} workspace(s)`
+  );
   if (report.summary.excluded_subagent_sessions > 0) {
     lines.push(`Excluded subagent sessions: ${report.summary.excluded_subagent_sessions}`);
   }
@@ -839,6 +942,22 @@ function renderOpenClawSessionStatusReport(report) {
         `Unsynced: ${group.memory_sources.unsynced_source_count} | ` +
         `Last sync: ${group.memory_sources.last_legacy_sync_at || '-'}`
     );
+    const taskStateLine = renderVisibleSummaryLine(
+      'Task continuity',
+      formatTaskStateDisplay(group.task_state_summary),
+      group.task_state_session_key
+    );
+    if (taskStateLine) {
+      lines.push(taskStateLine);
+    }
+    const benefitLine = renderVisibleSummaryLine(
+      'Last benefit',
+      formatBenefitDisplay(group.last_benefit_summary),
+      group.last_benefit_session_key
+    );
+    if (benefitLine) {
+      lines.push(benefitLine);
+    }
     if (group.issues.length > 0) {
       lines.push(`  Issues: ${group.issues.map(describeIssue).join(', ')}`);
       lines.push(`  Diagnose: ${group.diagnostic_command}`);
@@ -883,6 +1002,22 @@ function renderOpenClawSessionDiagnosisReport(report) {
           `Unsynced: ${group.memory_sources.unsynced_source_count} | ` +
           `Last sync: ${group.memory_sources.last_legacy_sync_at || '-'}`
       );
+      const taskStateLine = renderVisibleSummaryLine(
+        'Task continuity',
+        formatTaskStateDisplay(group.task_state_summary),
+        group.task_state_session_key
+      );
+      if (taskStateLine) {
+        lines.push(taskStateLine);
+      }
+      const benefitLine = renderVisibleSummaryLine(
+        'Last benefit',
+        formatBenefitDisplay(group.last_benefit_summary),
+        group.last_benefit_session_key
+      );
+      if (benefitLine) {
+        lines.push(benefitLine);
+      }
       lines.push(`  Diagnose: ${group.diagnostic_command}`);
       lines.push(`  Repair: ${group.repair_command}`);
       if (group.follow_up_command) {
@@ -908,6 +1043,22 @@ function renderOpenClawSessionDiagnosisReport(report) {
         `Unsynced: ${group.memory_sources.unsynced_source_count} | ` +
         `Last sync: ${group.memory_sources.last_legacy_sync_at || '-'}`
     );
+    const taskStateLine = renderVisibleSummaryLine(
+      'Task continuity',
+      formatTaskStateDisplay(group.task_state_summary),
+      group.task_state_session_key
+    );
+    if (taskStateLine) {
+      lines.push(taskStateLine);
+    }
+    const benefitLine = renderVisibleSummaryLine(
+      'Last benefit',
+      formatBenefitDisplay(group.last_benefit_summary),
+      group.last_benefit_session_key
+    );
+    if (benefitLine) {
+      lines.push(benefitLine);
+    }
     lines.push(`  Issues: ${group.issues.map(describeIssue).join(', ')}`);
     lines.push(`  Diagnose: ${group.diagnostic_command}`);
     lines.push(`  Repair: ${group.repair_command}`);
