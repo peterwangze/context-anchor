@@ -97,6 +97,7 @@ function buildCandidate(source, scope, entry, file, summaryParts = [], options =
     from_archive: tier === 'archive',
     retrieval_cost: tier === 'archive' ? 'archive_lookup' : 'active_lookup',
     validation_status: entry.validation?.status || entry.validation_status || null,
+    archive_reason: entry.archive_reason || null,
     access_count: Number(entry.access_count || entry.applied_count || 0),
     last_accessed: entry.last_accessed || entry.created_at || null,
     tags: Array.isArray(entry.tags) ? entry.tags : [],
@@ -141,6 +142,85 @@ function buildCandidateFromMirrorRow(row) {
   return buildCandidateForSource(row.source, row.scope, entry, row.file_path, {
     tier: isArchiveSource(row.source) ? 'archive' : 'active'
   });
+}
+
+function intersectQueryTokens(queryTokens, ...parts) {
+  const available = new Set(tokenizeSearchText(parts));
+  return [...new Set((queryTokens || []).filter((token) => available.has(token)))];
+}
+
+function explainCandidateMatch(candidate, queryTokens) {
+  const fieldMatches = [];
+  const matchedTerms = intersectQueryTokens(
+    queryTokens,
+    candidate.summary,
+    candidate.details,
+    candidate.solution,
+    candidate.tags.join(' ')
+  );
+
+  if (intersectQueryTokens(queryTokens, candidate.summary).length > 0) {
+    fieldMatches.push('summary');
+  }
+  if (intersectQueryTokens(queryTokens, candidate.details).length > 0) {
+    fieldMatches.push('details');
+  }
+  if (intersectQueryTokens(queryTokens, candidate.solution).length > 0) {
+    fieldMatches.push('solution');
+  }
+  if (intersectQueryTokens(queryTokens, candidate.tags.join(' ')).length > 0) {
+    fieldMatches.push('tags');
+  }
+
+  const scoreSignals = [];
+  if (candidate.validation_status === 'validated') {
+    scoreSignals.push('validated');
+  }
+  if ((candidate.heat || 0) >= DEFAULTS.hotMemoryHeat) {
+    scoreSignals.push(`heat:${candidate.heat}`);
+  }
+  if ((candidate.access_count || 0) > 0) {
+    scoreSignals.push(`reuse:${candidate.access_count}`);
+  }
+
+  const summaryParts = [];
+  if (matchedTerms.length > 0) {
+    summaryParts.push(`matched ${matchedTerms.join(', ')}`);
+  }
+  if (fieldMatches.length > 0) {
+    summaryParts.push(`via ${fieldMatches.join('/')}`);
+  }
+  if (scoreSignals.length > 0) {
+    summaryParts.push(`ranked by ${scoreSignals.join(', ')}`);
+  }
+
+  return {
+    matched_terms: matchedTerms,
+    matched_fields: fieldMatches,
+    score_signals: scoreSignals,
+    summary: summaryParts.join('; ') || 'ranked by fallback relevance heuristics'
+  };
+}
+
+function explainArchiveResult(candidate, activeResults, activeCandidates) {
+  if (!candidate.from_archive) {
+    return null;
+  }
+
+  const activeHadHits = Array.isArray(activeResults) && activeResults.length > 0;
+  const activeHadCandidates = Array.isArray(activeCandidates) && activeCandidates.length > 0;
+  const summary = activeHadHits
+    ? 'Active tier had some matches, but archive fallback filled the remaining result slots.'
+    : activeHadCandidates
+      ? 'Active tier had candidates, but none ranked high enough for the returned results, so archive fallback was used.'
+      : 'No active-tier matches were available, so archive fallback was used.';
+
+  return {
+    archive_reason: candidate.archive_reason || null,
+    active_results_available: activeResults.length,
+    active_candidates_available: activeCandidates.length,
+    summary
+  };
 }
 
 function scoreCandidate(candidate, queryTokens) {
@@ -470,7 +550,9 @@ function runMemorySearch(workspaceArg, sessionKeyArg, queryArg, options = {}) {
     heat: candidate.heat,
     score: candidate.score,
     validation_status: candidate.validation_status,
-    file: candidate.file
+    file: candidate.file,
+    why_matched: explainCandidateMatch(candidate, queryTokens),
+    why_from_archive: explainArchiveResult(candidate, activeResults, activeCandidates)
   }));
 
   return {

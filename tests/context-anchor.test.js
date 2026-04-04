@@ -4311,6 +4311,9 @@ test('memory-search retrieves persisted long-term memory on demand', () => {
       assert.equal(result.results[0].from_archive, false);
       assert.equal(result.results[0].retrieval_cost, 'active_lookup');
       assert.match(result.results[0].summary, /retry budget/);
+      assert.ok(result.results[0].why_matched.matched_terms.includes('checkout'));
+      assert.ok(result.results[0].why_matched.matched_fields.includes('summary'));
+      assert.equal(result.results[0].why_from_archive, null);
       assert.ok(result.results.some((entry) => entry.source === 'project_facts'));
       assert.ok(result.scope_summary.project_experiences.count >= 1);
     });
@@ -4351,6 +4354,8 @@ test('memory-search falls back to archive when active has no matching hits', () 
       assert.equal(result.results[0].tier, 'archive');
       assert.equal(result.results[0].from_archive, true);
       assert.equal(result.results[0].retrieval_cost, 'archive_lookup');
+      assert.match(result.results[0].why_from_archive.summary, /archive fallback/);
+      assert.ok(typeof result.results[0].why_matched.summary === 'string');
       assert.ok(result.scope_summary.project_experiences_archive.count >= 1);
     });
   } finally {
@@ -4400,7 +4405,9 @@ test('memory-search prefers active hits over archive hits for the same query', (
       assert.ok(result.returned >= 2);
       assert.equal(result.results[0].tier, 'active');
       assert.equal(result.results[0].from_archive, false);
+      assert.equal(result.results[0].why_from_archive, null);
       assert.ok(result.results.some((entry) => entry.tier === 'archive'));
+      assert.ok(result.results.find((entry) => entry.tier === 'archive').why_from_archive);
       assert.deepEqual(result.tiers_searched, ['active', 'archive']);
     });
   } finally {
