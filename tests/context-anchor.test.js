@@ -2527,6 +2527,25 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
         reason: 'manual-close'
       });
 
+      const hostConfigFile = getHostConfigFile(openClawHome);
+      const hostConfig = readJson(hostConfigFile, {});
+      hostConfig.sessions = [
+        ...(hostConfig.sessions || []),
+        {
+          workspace: path.resolve(activeWorkspace),
+          owner_workspace: path.resolve(activeWorkspace),
+          session_key: 'agent-main-subagent-legacy',
+          user_id: 'peter',
+          project_id: 'active-project',
+          status: 'active',
+          started_at: new Date().toISOString(),
+          last_active: new Date().toISOString(),
+          closed_at: null,
+          updated_at: new Date().toISOString()
+        }
+      ];
+      writeJson(hostConfigFile, hostConfig);
+
       fs.mkdirSync(agentSessionsDir, { recursive: true });
       writeSessionTranscript(subagentTranscript, activeWorkspace, 'subagent-session-id');
       writeJson(sessionsIndex, {
@@ -2554,7 +2573,7 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
 
       assert.equal(result.status, 'ok');
       assert.equal(result.selected_sessions, 2);
-      assert.equal(result.excluded_subagent_sessions, 1);
+      assert.equal(result.excluded_subagent_sessions, 2);
       assert.equal(result.upgraded_sessions, 1);
       assert.equal(result.mirror_rebuild.status, 'ok');
       assert.deepEqual(result.governance_runs, []);

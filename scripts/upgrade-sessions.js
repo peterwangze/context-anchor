@@ -309,7 +309,12 @@ function candidateIdentity(workspace, sessionKey, fallbackKey = 'unknown') {
 function isEphemeralSubagentSession(candidate = {}) {
   const chatType = String(candidate.chat_type || '').trim().toLowerCase();
   const deliveryContext = String(candidate.delivery_context || '').trim().toLowerCase();
-  return chatType === 'subagent' || deliveryContext === 'subagent';
+  const sessionKey = String(candidate.session_key || '').trim().toLowerCase();
+  const sanitizedSessionKey = String(candidate.sanitized_session_key || '').trim().toLowerCase();
+  const keyLooksLikeSubagent =
+    /(^|[-:])subagent([-:]|$)/i.test(sessionKey) ||
+    /(^|[-:])subagent([-:]|$)/i.test(sanitizedSessionKey);
+  return chatType === 'subagent' || deliveryContext === 'subagent' || keyLooksLikeSubagent;
 }
 
 function upsertCandidate(map, candidate) {
@@ -366,6 +371,7 @@ function collectUpgradeCandidates(openClawHome, options = {}) {
       user_id: entry.user_id,
       project_id: entry.project_id,
       host_status: entry.status || 'active',
+      ephemeral_subagent: isEphemeralSubagentSession(entry),
       registered: true,
       sources: ['host_config']
     });
