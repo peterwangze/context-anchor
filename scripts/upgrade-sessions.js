@@ -30,6 +30,7 @@ function parseArgs(argv) {
     skillsRoot: null,
     workspace: null,
     sessionKey: null,
+    includeSubagents: false,
     includeClosed: false,
     rebuildMirror: false,
     runGovernance: false,
@@ -62,6 +63,11 @@ function parseArgs(argv) {
     if (arg === '--session-key') {
       options.sessionKey = argv[index + 1] || null;
       index += 1;
+      continue;
+    }
+
+    if (arg === '--include-subagents') {
+      options.includeSubagents = true;
       continue;
     }
 
@@ -251,7 +257,9 @@ function createCliProgressReporter(stream = process.stderr) {
         line = '[upgrade] scanning registered and discovered sessions';
         break;
       case 'scan:done':
-        line = `[upgrade] selected ${event.selected || 0} session(s) for processing`;
+        line = `[upgrade] selected ${event.selected || 0} session(s) for processing${
+          event.excluded_subagent_sessions ? `, skipped ${event.excluded_subagent_sessions} subagent session(s)` : ''
+        }`;
         break;
       case 'session:start':
         line = `[upgrade] session ${event.index}/${event.total}: ${formatCandidateLabel(event.workspace, event.session_key)}`;
@@ -298,6 +306,12 @@ function candidateIdentity(workspace, sessionKey, fallbackKey = 'unknown') {
     : `unresolved::${sanitizeKey(sessionKey)}::${fallbackKey}`;
 }
 
+function isEphemeralSubagentSession(candidate = {}) {
+  const chatType = String(candidate.chat_type || '').trim().toLowerCase();
+  const deliveryContext = String(candidate.delivery_context || '').trim().toLowerCase();
+  return chatType === 'subagent' || deliveryContext === 'subagent';
+}
+
 function upsertCandidate(map, candidate) {
   const identity = candidateIdentity(candidate.workspace, candidate.session_key, candidate.session_id || candidate.agent || 'candidate');
   const existing = map.get(identity) || {
@@ -307,6 +321,9 @@ function upsertCandidate(map, candidate) {
     user_id: null,
     project_id: null,
     host_status: null,
+    chat_type: null,
+    delivery_context: null,
+    ephemeral_subagent: false,
     transcript_exists: false,
     discovered: false,
     registered: false,
@@ -321,6 +338,9 @@ function upsertCandidate(map, candidate) {
     user_id: candidate.user_id || existing.user_id || null,
     project_id: candidate.project_id || existing.project_id || null,
     host_status: candidate.host_status || existing.host_status || null,
+    chat_type: candidate.chat_type || existing.chat_type || null,
+    delivery_context: candidate.delivery_context || existing.delivery_context || null,
+    ephemeral_subagent: Boolean(candidate.ephemeral_subagent || existing.ephemeral_subagent),
     transcript_exists: Boolean(candidate.transcript_exists || existing.transcript_exists),
     discovered: Boolean(candidate.discovered || existing.discovered),
     registered: Boolean(candidate.registered || existing.registered),
@@ -334,7 +354,7 @@ function findUniqueHostSessionByKey(config, sessionKey) {
   return matches.length === 1 ? matches[0] : null;
 }
 
-function collectUpgradeCandidates(openClawHome) {
+function collectUpgradeCandidates(openClawHome, options = {}) {
   const config = readHostConfig(openClawHome);
   const discovered = discoverOpenClawSessions(openClawHome);
   const candidates = new Map();
@@ -360,6 +380,9 @@ function collectUpgradeCandidates(openClawHome) {
       user_id: uniqueHostSession?.user_id || null,
       project_id: uniqueHostSession?.project_id || null,
       host_status: uniqueHostSession?.status || null,
+      chat_type: entry.chat_type || null,
+      delivery_context: entry.delivery_context || null,
+      ephemeral_subagent: isEphemeralSubagentSession(entry),
       transcript_exists: entry.transcript_exists,
       discovered: true,
       registered: Boolean(uniqueHostSession),
@@ -368,7 +391,7 @@ function collectUpgradeCandidates(openClawHome) {
     });
   });
 
-  return [...candidates.values()].sort((left, right) => {
+  const allCandidates = [...candidates.values()].sort((left, right) => {
     const leftWorkspace = left.workspace || '';
     const rightWorkspace = right.workspace || '';
     if (leftWorkspace !== rightWorkspace) {
@@ -376,6 +399,17 @@ function collectUpgradeCandidates(openClawHome) {
     }
     return left.session_key.localeCompare(right.session_key);
   });
+
+  const excludedSubagentSessions = options.includeSubagents
+    ? []
+    : allCandidates.filter((entry) => entry.ephemeral_subagent);
+
+  return {
+    candidates: options.includeSubagents
+      ? allCandidates
+      : allCandidates.filter((entry) => !entry.ephemeral_subagent),
+    excluded_subagent_sessions: excludedSubagentSessions
+  };
 }
 
 function matchesFilters(candidate, options = {}) {
@@ -489,10 +523,12 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
   emitProgress(progress, {
     type: 'scan:start'
   });
-  const candidates = collectUpgradeCandidates(openClawHome).filter((candidate) => matchesFilters(candidate, options));
+  const collected = collectUpgradeCandidates(openClawHome, options);
+  const candidates = collected.candidates.filter((candidate) => matchesFilters(candidate, options));
   emitProgress(progress, {
     type: 'scan:done',
-    selected: candidates.length
+    selected: candidates.length,
+    excluded_subagent_sessions: collected.excluded_subagent_sessions.length
   });
   const results = candidates.map((candidate, index) => {
     emitProgress(progress, {
@@ -592,6 +628,7 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
     status: 'ok',
     openclaw_home: openClawHome,
     selected_sessions: candidates.length,
+    excluded_subagent_sessions: collected.excluded_subagent_sessions.length,
     upgraded_sessions: results.filter((entry) => entry.action === 'upgraded').length,
     skipped_sessions: results.filter((entry) => entry.action === 'skipped').length,
     unresolved_sessions: results.filter((entry) => entry.reason === 'workspace_unresolved').length,

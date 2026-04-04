@@ -49,6 +49,7 @@
 - 把有价值的经验沉淀到项目级和用户级
 - 在后续 session 里自动复用之前的经验和技能
 - 只把短期热记忆直接注入 bootstrap，长期记忆继续留在持久化存储里按需查找
+- bootstrap 现在会更明确地显示恢复来源、restored goal、latest result 和 next step
 - 关键集合会同步到内嵌 SQLite 镜像，减少热读和检索时反复扫描大 JSON 的成本
 - 如果 workspace 里还有外部 `MEMORY.md` / `memory/*.md`，会自动归并进 `context-anchor`，减少多套记忆源分裂
 - 第一次见到新 workspace 时，默认自动登记归属，尽量不打断你
@@ -63,6 +64,7 @@
 - `/stop`、`/new`、`/reset` 会自动收口当前 session，避免旧 session 悬空
 - OpenClaw 或 gateway 重启后，`gateway:startup` 先给恢复提示，进入对话时再由 `agent:bootstrap` 注入记忆
 - `agent:bootstrap` 注入的文件名现在是 `CONTEXT-ANCHOR.md`，不再和宿主或模型自己的 `MEMORY.md` 约定撞名
+- bootstrap 注入内容现在会单独给出 `Recovered Continuity`，减少“到底恢复了什么”的猜测成本
 - heartbeat 和后台 workspace monitor 会持续做增量经验提炼，不必等到 session close 才开始沉淀
 - heartbeat / workspace monitor 也会跨同一用户的已登记 workspace 汇总 project experiences，自动累积 user 级 cross-project evidence
 - 如果宿主的压力 snapshot 里带有结构化失败信息，context-pressure monitor 会自动把这些失败沉淀成 project lessons
@@ -347,6 +349,13 @@ npm run watch:memory -- --workspace "<workspace>" --project-id "<project-id>"
 这个 watcher 会在文件变化后做 debounce，再触发一次低噪声 legacy memory sync；如果变化已经归并过，不会重复刷同步。
 
 `upgrade-sessions.js` 会一次性刷新已发现或已登记的存量 session，重新生成 bootstrap cache，并让这些 session 在下一次 hook / bootstrap 时直接使用最新 runtime 行为；默认跳过已关闭 session，传 `--include-closed` 才会连已关闭 session 一起刷新。传 `--rebuild-mirror` 时，还会顺手把已有 JSON 资产回填到 SQLite mirror。传 `--run-governance` 时，还会在 mirror 回填之后立刻对升级到的 session 运行一次 storage governance。
+
+现在升级还会默认跳过临时 `subagent` session，避免在短生命周期会话上浪费大量升级时间。  
+如果你确实需要把这类 session 也纳入升级，可以显式加：
+
+```bash
+node scripts/upgrade-sessions.js --include-subagents
+```
 
 执行过程中会持续把简明进度打印到 `stderr`，方便区分“仍在处理”还是“真的卡住了”。
 

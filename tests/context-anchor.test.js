@@ -2475,6 +2475,9 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
   const openClawHome = path.join(workspace, 'openclaw-home');
   const activeWorkspace = path.join(workspace, 'active-project');
   const closedWorkspace = path.join(workspace, 'closed-project');
+  const agentSessionsDir = path.join(openClawHome, 'agents', 'main', 'sessions');
+  const subagentTranscript = path.join(agentSessionsDir, 'subagent-session.jsonl');
+  const sessionsIndex = path.join(agentSessionsDir, 'sessions.json');
 
   try {
     await withOpenClawHome(workspace, async () => {
@@ -2524,11 +2527,23 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
         reason: 'manual-close'
       });
 
+      fs.mkdirSync(agentSessionsDir, { recursive: true });
+      writeSessionTranscript(subagentTranscript, activeWorkspace, 'subagent-session-id');
+      writeJson(sessionsIndex, {
+        'agent:main:subagent': {
+          sessionId: 'subagent-session-id',
+          sessionFile: subagentTranscript,
+          updatedAt: 1774705706043,
+          chatType: 'subagent'
+        }
+      });
+
       const result = runUpgradeSessions(openClawHome, path.join(openClawHome, 'skills'), {
         rebuildMirror: true
       });
       const activeResult = result.results.find((entry) => entry.session_key === 'active-session');
       const closedResult = result.results.find((entry) => entry.session_key === 'closed-session');
+      const subagentResult = result.results.find((entry) => entry.session_key === 'agent-main-subagent');
       const activeBootstrap = path.join(
         activeWorkspace,
         '.context-anchor',
@@ -2538,6 +2553,8 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
       );
 
       assert.equal(result.status, 'ok');
+      assert.equal(result.selected_sessions, 2);
+      assert.equal(result.excluded_subagent_sessions, 1);
       assert.equal(result.upgraded_sessions, 1);
       assert.equal(result.mirror_rebuild.status, 'ok');
       assert.deepEqual(result.governance_runs, []);
@@ -2552,6 +2569,7 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
       assert.ok(result.mirror_rebuild.workspaces_processed.some((entry) => entry === activeWorkspace));
       assert.equal(activeResult.action, 'upgraded');
       assert.equal(closedResult.action, 'skipped');
+      assert.equal(subagentResult, undefined);
       assert.equal(closedResult.reason, 'closed_session');
       assert.ok(fs.existsSync(activeBootstrap));
       assert.match(fs.readFileSync(activeBootstrap, 'utf8'), /refresh the active session/);
@@ -4164,6 +4182,10 @@ test('session-start continues from the latest related session and recommends reu
       assert.equal(result.recovery.active_task, 'stabilize checkout pipeline');
       assert.equal(result.recovery.pending_commitments.length, 1);
       assert.equal(result.recovery.continuity.source_session_key, 'previous-session');
+      assert.equal(result.recovery.continuity_summary.source_session_key, 'previous-session');
+      assert.equal(result.recovery.continuity_summary.restored_goal, 'stabilize checkout pipeline');
+      assert.equal(result.recovery.continuity_summary.next_step, 'stabilize checkout pipeline');
+      assert.match(result.recovery.continuity_summary.latest_result, /command-reset|memory item|experience|draft/);
       assert.ok(result.recommended_reuse.experiences.some((entry) => entry.summary.includes('checkout pipeline')));
       assert.ok(result.recommended_reuse.skills.some((entry) => entry.scope === 'project'));
     });
@@ -4576,6 +4598,9 @@ test('managed bootstrap injects recovered continuity for an unfinished prior ses
       assert.equal(event.context.bootstrapFiles.length, 1);
       assert.equal(event.context.bootstrapFiles[0].name, 'CONTEXT-ANCHOR.md');
       assert.match(event.context.bootstrapFiles[0].content, /Continued from: bootstrap-source/);
+      assert.match(event.context.bootstrapFiles[0].content, /## Recovered Continuity/);
+      assert.match(event.context.bootstrapFiles[0].content, /latest result:/);
+      assert.match(event.context.bootstrapFiles[0].content, /next step: repair checkout retries/);
       assert.match(event.context.bootstrapFiles[0].content, /repair checkout retries/);
       assert.match(event.context.bootstrapFiles[0].content, /checkout retries/);
       assert.ok(

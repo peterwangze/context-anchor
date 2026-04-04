@@ -15,6 +15,7 @@ const RENDER_PROFILES = [
     name: 'rich',
     include: {
       checkpoint: true,
+      continuity: true,
       reuse: true,
       related: true
     },
@@ -46,6 +47,7 @@ const RENDER_PROFILES = [
     name: 'compact',
     include: {
       checkpoint: true,
+      continuity: true,
       reuse: true,
       related: false
     },
@@ -77,6 +79,7 @@ const RENDER_PROFILES = [
     name: 'dense',
     include: {
       checkpoint: true,
+      continuity: false,
       reuse: false,
       related: false
     },
@@ -108,6 +111,7 @@ const RENDER_PROFILES = [
     name: 'emergency',
     include: {
       checkpoint: false,
+      continuity: false,
       reuse: false,
       related: false
     },
@@ -139,6 +143,7 @@ const RENDER_PROFILES = [
     name: 'micro',
     include: {
       checkpoint: false,
+      continuity: false,
       reuse: false,
       related: false
     },
@@ -349,6 +354,47 @@ function renderPendingCommitments(summary, profile) {
   );
 }
 
+function renderRecoveredContinuity(summary, profile) {
+  if (profile.include?.continuity === false) {
+    return '';
+  }
+
+  const continuity = summary.recovery?.continuity_summary || summary.boot_packet?.continuity_summary || null;
+  if (!continuity || continuity.visible !== true) {
+    return '';
+  }
+
+  const recoveredAssets = [];
+  if (continuity.recovered_assets?.summary) {
+    recoveredAssets.push('summary');
+  }
+  if (continuity.recovered_assets?.compact_packet) {
+    recoveredAssets.push('compact-packet');
+  }
+  if (continuity.recovered_assets?.checkpoint) {
+    recoveredAssets.push('checkpoint');
+  }
+
+  return renderSection('## Recovered Continuity', [
+    continuity.source_session_key
+      ? `- source: ${compactText(continuity.source_session_key, profile.widths.pending)}`
+      : null,
+    continuity.restored_goal
+      ? `- goal: ${compactText(continuity.restored_goal, profile.widths.task)}`
+      : null,
+    continuity.latest_result
+      ? `- latest result: ${compactText(continuity.latest_result, profile.widths.hot)}`
+      : null,
+    continuity.next_step
+      ? `- next step: ${compactText(continuity.next_step, profile.widths.pending)}`
+      : null,
+    recoveredAssets.length > 0
+      ? `- recovered: ${compactText(recoveredAssets.join(', '), profile.widths.preference)}`
+      : null,
+    continuity.reference_only ? '- mode: reference-only continuity' : null
+  ]);
+}
+
 function renderUserPreferences(summary, profile) {
   const preferences = findMemoryGroup(summary, 'user_preferences')?.entries || [];
   return renderSection(
@@ -487,6 +533,7 @@ function renderRelatedSessions(summary, profile) {
 function renderSummaryWithProfile(summary, profile, budgetBytes) {
   return [
     renderHeader(summary, profile, budgetBytes),
+    renderRecoveredContinuity(summary, profile),
     renderPendingCommitments(summary, profile),
     renderUserPreferences(summary, profile),
     renderHotMemories(summary, profile),
@@ -553,7 +600,23 @@ function buildMinimalSummary(sessionState, pendingCommitments, checkpoint, budge
     recovery: {
       active_task: sessionState.active_task,
       pending_commitments: pendingCommitments,
-      checkpoint_excerpt: checkpoint ? checkpoint.split('\n').slice(0, 10).join('\n') : null
+      checkpoint_excerpt: checkpoint ? checkpoint.split('\n').slice(0, 10).join('\n') : null,
+      continuity_summary: {
+        source_session_key: sessionState.metadata?.continued_from_session || null,
+        restored_goal: sessionState.active_task || null,
+        latest_result: null,
+        next_step: pendingCommitments[0]?.what || null,
+        recovered_assets: {
+          checkpoint: Boolean(checkpoint.trim()),
+          summary: false,
+          compact_packet: false
+        },
+        reference_only: false,
+        visible:
+          Boolean(sessionState.active_task) ||
+          pendingCommitments.length > 0 ||
+          Boolean(sessionState.metadata?.continued_from_session)
+      }
     },
     memories_to_inject: [],
     effective_skills: [],

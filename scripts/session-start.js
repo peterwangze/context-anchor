@@ -104,6 +104,92 @@ function mergeRuntimeCommitments(sessionState = {}, runtimeState = null) {
   return [...nonPending, ...runtimePending];
 }
 
+function summarizeContinuationLatestResult(source) {
+  const summary = source?.summary || null;
+  if (!summary) {
+    return source?.compact_packet?.created_at ? 'Recovered the previous compact packet.' : null;
+  }
+
+  const resultParts = [];
+  const promotedSkills =
+    Number(summary.promoted_project_skills || 0) +
+    Number(summary.promoted_user_skills || 0);
+
+  if (Number(summary.new_session_experiences || 0) > 0) {
+    resultParts.push(`captured ${summary.new_session_experiences} new experience(s)`);
+  }
+  if (promotedSkills > 0) {
+    resultParts.push(`promoted ${promotedSkills} skill(s)`);
+  }
+  if (summary.skill_draft?.name) {
+    resultParts.push(`prepared draft ${summary.skill_draft.name}`);
+  }
+
+  if (resultParts.length > 0) {
+    return `Previous session ${resultParts.join('; ')}.`;
+  }
+
+  if (Number(summary.memory_count || 0) > 0) {
+    return `Closed previous session with ${summary.memory_count} memory item(s).`;
+  }
+
+  if (summary.reason) {
+    return `Previous session closed via ${summary.reason}.`;
+  }
+
+  return source?.compact_packet?.created_at ? 'Recovered the previous compact packet.' : null;
+}
+
+function summarizeContinuationNextStep(sessionState = {}, continuationSource = null) {
+  const pendingCommitments = Array.isArray(sessionState.commitments)
+    ? sessionState.commitments.filter((entry) => entry.status === 'pending')
+    : [];
+  if (pendingCommitments.length > 0) {
+    return pendingCommitments[0].what || null;
+  }
+
+  const sourcePending = Array.isArray(continuationSource?.pending_commitments)
+    ? continuationSource.pending_commitments.filter((entry) => entry.status !== 'done')
+    : [];
+  return sourcePending[0]?.what || null;
+}
+
+function buildContinuitySummary(sessionState = {}, continuationSource = null, continuityRestoration = {}) {
+  const restoredGoal = sessionState.active_task || continuationSource?.active_task || null;
+  const latestResult = summarizeContinuationLatestResult(continuationSource);
+  const nextStep = summarizeContinuationNextStep(sessionState, continuationSource);
+  const recoveredAssets = continuationSource
+    ? {
+        checkpoint: Boolean(continuationSource.checkpoint_excerpt),
+        summary: Boolean(continuationSource.summary?.created_at),
+        compact_packet: Boolean(continuationSource.compact_packet?.created_at)
+      }
+    : {
+        checkpoint: false,
+        summary: false,
+        compact_packet: false
+      };
+
+  if (!continuationSource && !restoredGoal && !latestResult && !nextStep) {
+    return null;
+  }
+
+  return {
+    source_session_key: continuationSource?.session_key || null,
+    restored_goal: restoredGoal,
+    latest_result: latestResult,
+    next_step: nextStep,
+    reference_only: Boolean(continuityRestoration.reference_only),
+    recovered_before_restore: Boolean(continuityRestoration.recovered_before_restore),
+    recovered_assets: recoveredAssets,
+    visible:
+      Boolean(restoredGoal) ||
+      Boolean(latestResult) ||
+      Boolean(nextStep) ||
+      Boolean(continuationSource?.session_key)
+  };
+}
+
 function applyRuntimeStateToSessionState(sessionState, runtimeState) {
   if (!runtimeState) {
     return;
@@ -653,6 +739,7 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
   );
   const continuationSource = continuationRecovery.source;
   const continuityRestoration = restoreSessionContinuity(sessionState, continuationSource);
+  continuityRestoration.recovered_before_restore = continuationRecovery.recovered;
   sessionState.metadata = {
     ...(sessionState.metadata || {}),
     ...(openClawSessionId ? { openclaw_session_id: openClawSessionId } : {})
@@ -781,7 +868,8 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
         recovered_at: continuationSource.continuation_recovered_at || null,
         source_summary_available: Boolean(continuationSource.summary?.created_at),
         source_compact_packet_available: Boolean(continuationSource.compact_packet?.created_at)
-      } : null
+      } : null,
+      continuity_summary: buildContinuitySummary(sessionState, continuationSource, continuityRestoration)
     },
     boot_packet: {
       active_task: sessionState.active_task,
@@ -792,6 +880,7 @@ function runSessionStart(workspaceArg, sessionKeyArg, projectIdArg, options = {}
         source_active_task: continuationSource.active_task,
         source_checkpoint_excerpt: continuationSource.checkpoint_excerpt
       } : null,
+      continuity_summary: buildContinuitySummary(sessionState, continuationSource, continuityRestoration),
       active_skills: {
         session: sessionSkills.slice(0, 5),
         project: projectSkills.slice(0, 5),
