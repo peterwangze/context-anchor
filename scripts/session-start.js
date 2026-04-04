@@ -141,6 +141,10 @@ function summarizeContinuationLatestResult(source) {
 }
 
 function summarizeContinuationNextStep(sessionState = {}, continuationSource = null) {
+  if (continuationSource?.next_step) {
+    return continuationSource.next_step;
+  }
+
   const pendingCommitments = Array.isArray(sessionState.commitments)
     ? sessionState.commitments.filter((entry) => entry.status === 'pending')
     : [];
@@ -155,9 +159,17 @@ function summarizeContinuationNextStep(sessionState = {}, continuationSource = n
 }
 
 function buildContinuitySummary(sessionState = {}, continuationSource = null, continuityRestoration = {}) {
-  const restoredGoal = sessionState.active_task || continuationSource?.active_task || null;
-  const latestResult = summarizeContinuationLatestResult(continuationSource);
+  const restoredGoal =
+    continuationSource?.current_goal ||
+    sessionState.active_task ||
+    continuationSource?.active_task ||
+    null;
+  const latestResult =
+    continuationSource?.latest_verified_result ||
+    summarizeContinuationLatestResult(continuationSource);
   const nextStep = summarizeContinuationNextStep(sessionState, continuationSource);
+  const blockedBy = continuationSource?.blocked_by || null;
+  const lastUserVisibleProgress = continuationSource?.last_user_visible_progress || latestResult;
   const recoveredAssets = continuationSource
     ? {
         checkpoint: Boolean(continuationSource.checkpoint_excerpt),
@@ -170,7 +182,7 @@ function buildContinuitySummary(sessionState = {}, continuationSource = null, co
         compact_packet: false
       };
 
-  if (!continuationSource && !restoredGoal && !latestResult && !nextStep) {
+  if (!continuationSource && !restoredGoal && !latestResult && !nextStep && !blockedBy) {
     return null;
   }
 
@@ -179,6 +191,8 @@ function buildContinuitySummary(sessionState = {}, continuationSource = null, co
     restored_goal: restoredGoal,
     latest_result: latestResult,
     next_step: nextStep,
+    blocked_by: blockedBy,
+    last_user_visible_progress: lastUserVisibleProgress,
     reference_only: Boolean(continuityRestoration.reference_only),
     recovered_before_restore: Boolean(continuityRestoration.recovered_before_restore),
     recovered_assets: recoveredAssets,
@@ -186,6 +200,7 @@ function buildContinuitySummary(sessionState = {}, continuationSource = null, co
       Boolean(restoredGoal) ||
       Boolean(latestResult) ||
       Boolean(nextStep) ||
+      Boolean(blockedBy) ||
       Boolean(continuationSource?.session_key)
   };
 }
@@ -228,6 +243,9 @@ function loadContinuationSource(paths, currentSessionKey, projectId) {
   const compactPacket = loadCompactPacket(paths, previous.session_key);
   const checkpoint = readText(sessionCheckpointFile(paths, previous.session_key), '');
   const activeTask =
+    (runtimeState && Object.prototype.hasOwnProperty.call(runtimeState, 'current_goal')
+      ? runtimeState.current_goal
+      : null) ||
     (runtimeState && Object.prototype.hasOwnProperty.call(runtimeState, 'active_task')
       ? runtimeState.active_task
       : null) ||
@@ -257,6 +275,11 @@ function loadContinuationSource(paths, currentSessionKey, projectId) {
         : null,
     active_task: activeTask,
     pending_commitments: pendingCommitments,
+    current_goal: runtimeState?.current_goal || activeTask,
+    latest_verified_result: runtimeState?.latest_verified_result || null,
+    next_step: runtimeState?.next_step || pendingCommitments[0]?.what || null,
+    blocked_by: runtimeState?.blocked_by || null,
+    last_user_visible_progress: runtimeState?.last_user_visible_progress || null,
     checkpoint_excerpt: checkpoint ? checkpoint.split('\n').slice(0, 10).join('\n') : null,
     continuation_recovered_at:
       runtimeState?.metadata?.continuation_recovered_at || state?.metadata?.continuation_recovered_at || null,

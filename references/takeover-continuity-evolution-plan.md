@@ -401,9 +401,20 @@
 
 状态：
 
-- `未开始`
-- 已有铺垫：
-  - active_task / pending_commitments runtime_state 已独立
+- `进行中`
+- 已完成部分：
+  - runtime state 已增加 `current_goal`
+  - runtime state 已增加 `latest_verified_result`
+  - runtime state 已增加 `next_step`
+  - runtime state 已增加 `blocked_by`
+  - runtime state 已增加 `last_user_visible_progress`
+  - `heartbeat / session-close / runtime-state-update` 已开始写入任务态字段
+  - `session-start` 已优先读取任务态字段恢复 continuity summary
+  - 已补充自动化测试，覆盖 runtime task-state update 与 continuity restore
+- 仍待完成：
+  - `command:new/reset/stop` 的任务态一致性
+  - `session:compact:after` 的任务态显式输出
+  - bootstrap 进一步优先展示任务态而不是材料态
 
 ## Stage 5：严格模式与自动修复闭环
 

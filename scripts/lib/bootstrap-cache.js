@@ -385,8 +385,14 @@ function renderRecoveredContinuity(summary, profile) {
     continuity.latest_result
       ? `- latest result: ${compactText(continuity.latest_result, profile.widths.hot)}`
       : null,
+    continuity.last_user_visible_progress
+      ? `- progress: ${compactText(continuity.last_user_visible_progress, profile.widths.hot)}`
+      : null,
     continuity.next_step
       ? `- next step: ${compactText(continuity.next_step, profile.widths.pending)}`
+      : null,
+    continuity.blocked_by
+      ? `- blocked by: ${compactText(continuity.blocked_by, profile.widths.pending)}`
       : null,
     recoveredAssets.length > 0
       ? `- recovered: ${compactText(recoveredAssets.join(', '), profile.widths.preference)}`

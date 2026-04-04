@@ -13,6 +13,7 @@ const {
   syncCollectionMirror,
   syncDocumentMirror
 } = require('./context-anchor-db');
+const { buildTaskStateFields } = require('./task-state');
 
 const DEFAULTS = {
   userId: 'default-user',
@@ -531,6 +532,7 @@ function normalizePendingCommitments(entries = []) {
 
 function createRuntimeState(sessionKey, projectId, existing = {}, options = {}) {
   const timestamp = nowIso();
+  const taskState = buildTaskStateFields({}, existing, options);
 
   return {
     session_key: sanitizeKey(existing.session_key || sessionKey),
@@ -546,12 +548,18 @@ function createRuntimeState(sessionKey, projectId, existing = {}, options = {}) 
     checkpoint_reason: existing.checkpoint_reason || null,
     last_summary: existing.last_summary || null,
     closed_at: existing.closed_at || null,
+    current_goal: taskState.current_goal,
+    latest_verified_result: taskState.latest_verified_result,
+    next_step: taskState.next_step,
+    blocked_by: taskState.blocked_by,
+    last_user_visible_progress: taskState.last_user_visible_progress,
     metadata: existing.metadata || {}
   };
 }
 
 function buildRuntimeStateFromSessionState(sessionState = {}, existing = {}, options = {}) {
   const timestamp = nowIso();
+  const taskState = buildTaskStateFields(sessionState, existing, options);
   const pendingCommitments = Object.prototype.hasOwnProperty.call(options, 'pendingCommitments')
     ? normalizePendingCommitments(options.pendingCommitments)
     : Array.isArray(sessionState.commitments)
@@ -586,6 +594,11 @@ function buildRuntimeStateFromSessionState(sessionState = {}, existing = {}, opt
       Object.prototype.hasOwnProperty.call(options, 'lastSummary')
         ? options.lastSummary
         : sessionState.last_summary || existing.last_summary || null,
+    current_goal: taskState.current_goal,
+    latest_verified_result: taskState.latest_verified_result,
+    next_step: taskState.next_step,
+    blocked_by: taskState.blocked_by,
+    last_user_visible_progress: taskState.last_user_visible_progress,
     closed_at:
       Object.prototype.hasOwnProperty.call(options, 'closedAt')
         ? options.closedAt
@@ -613,6 +626,11 @@ function readRuntimeStateSnapshot(paths, sessionKey, projectId = DEFAULTS.projec
     state.last_checkpoint = existing.last_checkpoint || state.last_checkpoint;
     state.checkpoint_reason = existing.checkpoint_reason || state.checkpoint_reason;
     state.last_summary = existing.last_summary || state.last_summary;
+    state.current_goal = Object.prototype.hasOwnProperty.call(existing, 'current_goal') ? existing.current_goal || null : state.current_goal;
+    state.latest_verified_result = Object.prototype.hasOwnProperty.call(existing, 'latest_verified_result') ? existing.latest_verified_result || null : state.latest_verified_result;
+    state.next_step = Object.prototype.hasOwnProperty.call(existing, 'next_step') ? existing.next_step || null : state.next_step;
+    state.blocked_by = Object.prototype.hasOwnProperty.call(existing, 'blocked_by') ? existing.blocked_by || null : state.blocked_by;
+    state.last_user_visible_progress = Object.prototype.hasOwnProperty.call(existing, 'last_user_visible_progress') ? existing.last_user_visible_progress || null : state.last_user_visible_progress;
     state.closed_at = Object.prototype.hasOwnProperty.call(existing, 'closed_at') ? existing.closed_at || null : null;
     state.metadata = existing.metadata || {};
     return state;

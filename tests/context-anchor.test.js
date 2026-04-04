@@ -421,6 +421,44 @@ test('session-start prefers runtime state over stale session state for the curre
   }
 });
 
+test('heartbeat updates task-state continuity fields in runtime state', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      const paths = createPaths(workspace);
+      runSessionStart(workspace, 'task-heartbeat', 'demo');
+
+      const stateFile = sessionStateFile(paths, 'task-heartbeat');
+      const state = readJson(stateFile, {});
+      state.active_task = 'stabilize checkout retries';
+      state.commitments = [
+        {
+          id: 'task-heartbeat-1',
+          what: 'ship checkout retry fix',
+          status: 'pending'
+        }
+      ];
+      state.metadata = {
+        ...(state.metadata || {}),
+        blocked_by: 'waiting for CI rerun'
+      };
+      writeJson(stateFile, state);
+
+      const result = runHeartbeat(workspace, 'task-heartbeat', 'demo', 50);
+      const runtimeState = readJson(runtimeStateFile(paths, 'task-heartbeat'), {});
+
+      assert.equal(runtimeState.current_goal, 'stabilize checkout retries');
+      assert.equal(runtimeState.next_step, 'ship checkout retry fix');
+      assert.equal(runtimeState.blocked_by, 'waiting for CI rerun');
+      assert.equal(runtimeState.latest_verified_result, null);
+      assert.equal(runtimeState.last_user_visible_progress, null);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('session-compact after refreshes runtime state metadata', () => {
   const workspace = makeWorkspace();
 
@@ -4198,6 +4236,15 @@ test('session-start continues from the latest related session and recommends reu
         usagePercent: 82
       });
 
+      const previousRuntimeFile = runtimeStateFile(createPaths(workspace), 'previous-session');
+      const previousRuntime = readJson(previousRuntimeFile, {});
+      previousRuntime.current_goal = 'stabilize checkout pipeline';
+      previousRuntime.latest_verified_result = 'Validated checkout retry playbook and promoted 1 project skill.';
+      previousRuntime.next_step = 'ship checkout retry fix';
+      previousRuntime.blocked_by = 'waiting for CI rerun';
+      previousRuntime.last_user_visible_progress = 'checkout retry playbook drafted';
+      writeJson(previousRuntimeFile, previousRuntime);
+
       const result = runSessionStart(workspace, 'continued-session', 'demo');
 
       assert.equal(result.session.continued_from, 'previous-session');
@@ -4206,8 +4253,10 @@ test('session-start continues from the latest related session and recommends reu
       assert.equal(result.recovery.continuity.source_session_key, 'previous-session');
       assert.equal(result.recovery.continuity_summary.source_session_key, 'previous-session');
       assert.equal(result.recovery.continuity_summary.restored_goal, 'stabilize checkout pipeline');
-      assert.equal(result.recovery.continuity_summary.next_step, 'stabilize checkout pipeline');
-      assert.match(result.recovery.continuity_summary.latest_result, /command-reset|memory item|experience|draft/);
+      assert.equal(result.recovery.continuity_summary.next_step, 'ship checkout retry fix');
+      assert.equal(result.recovery.continuity_summary.latest_result, 'Validated checkout retry playbook and promoted 1 project skill.');
+      assert.equal(result.recovery.continuity_summary.blocked_by, 'waiting for CI rerun');
+      assert.equal(result.recovery.continuity_summary.last_user_visible_progress, 'checkout retry playbook drafted');
       assert.ok(result.recommended_reuse.experiences.some((entry) => entry.summary.includes('checkout pipeline')));
       assert.ok(result.recommended_reuse.skills.some((entry) => entry.scope === 'project'));
     });

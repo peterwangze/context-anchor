@@ -28,6 +28,11 @@ function runRuntimeStateUpdate(workspaceArg, sessionKeyArg, options = {}) {
   sessionState.project_id = ownership.projectId;
 
   const runtimeState = syncRuntimeStateFromSessionState(paths, sessionKey, sessionState, {
+    currentGoal: options.currentGoal,
+    latestVerifiedResult: options.latestVerifiedResult,
+    nextStep: options.nextStep,
+    blockedBy: options.blockedBy,
+    lastUserVisibleProgress: options.lastUserVisibleProgress,
     metadata: {
       ...(sessionState.metadata || {}),
       runtime_state_reason: options.reason || null,
@@ -49,7 +54,12 @@ function main() {
   const result = runRuntimeStateUpdate(process.argv[2], process.argv[3], {
     projectId: process.argv[4],
     userId: process.argv[5],
-    reason: process.argv[6]
+    reason: process.argv[6],
+    currentGoal: process.argv[7],
+    latestVerifiedResult: process.argv[8],
+    nextStep: process.argv[9],
+    blockedBy: process.argv[10],
+    lastUserVisibleProgress: process.argv[11]
   });
   console.log(JSON.stringify(result, null, 2));
 }

@@ -50,6 +50,7 @@
 - 在后续 session 里自动复用之前的经验和技能
 - 只把短期热记忆直接注入 bootstrap，长期记忆继续留在持久化存储里按需查找
 - bootstrap 现在会更明确地显示恢复来源、restored goal、latest result 和 next step
+- runtime state 现在会持续跟踪 current goal、latest result、next step、blocked by 和 last visible progress
 - 关键集合会同步到内嵌 SQLite 镜像，减少热读和检索时反复扫描大 JSON 的成本
 - 如果 workspace 里还有外部 `MEMORY.md` / `memory/*.md`，会自动归并进 `context-anchor`，减少多套记忆源分裂
 - 第一次见到新 workspace 时，默认自动登记归属，尽量不打断你
@@ -65,6 +66,7 @@
 - OpenClaw 或 gateway 重启后，`gateway:startup` 先给恢复提示，进入对话时再由 `agent:bootstrap` 注入记忆
 - `agent:bootstrap` 注入的文件名现在是 `CONTEXT-ANCHOR.md`，不再和宿主或模型自己的 `MEMORY.md` 约定撞名
 - bootstrap 注入内容现在会单独给出 `Recovered Continuity`，减少“到底恢复了什么”的猜测成本
+- `Recovered Continuity` 现在也会优先带出 blocked by 和最近一次用户可见进展
 - heartbeat 和后台 workspace monitor 会持续做增量经验提炼，不必等到 session close 才开始沉淀
 - heartbeat / workspace monitor 也会跨同一用户的已登记 workspace 汇总 project experiences，自动累积 user 级 cross-project evidence
 - 如果宿主的压力 snapshot 里带有结构化失败信息，context-pressure monitor 会自动把这些失败沉淀成 project lessons

@@ -121,7 +121,15 @@ function runSessionClose(workspaceArg, sessionKeyArg, options = {}) {
   const runtimeState = runRuntimeStateUpdate(paths.workspace, sessionKey, {
     projectId: sessionState.project_id,
     userId: sessionState.user_id,
-    reason: options.reason || 'session-close'
+    reason: options.reason || 'session-close',
+    currentGoal: sessionState.active_task,
+    latestVerifiedResult: summary.benefit_summary.visible ? summary.benefit_summary.summary : null,
+    nextStep:
+      (Array.isArray(sessionState.commitments)
+        ? sessionState.commitments.find((entry) => entry.status === 'pending')?.what
+        : null) || null,
+    blockedBy: sessionState.metadata?.blocked_by || null,
+    lastUserVisibleProgress: summary.benefit_summary.visible ? summary.benefit_summary.summary : null
   });
   const governance = runStorageGovernance(paths.workspace, sessionKey, {
     projectId: sessionState.project_id,

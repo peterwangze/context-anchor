@@ -12,6 +12,7 @@ const { runScopePromote } = require('./scope-promote');
 const { runSkillificationScore } = require('./skillification-score');
 const { runStorageGovernance } = require('./storage-governance');
 const { buildVisibleBenefitSummary } = require('./lib/visible-benefit-summary');
+const { runRuntimeStateUpdate } = require('./runtime-state-update');
 
 function runHeartbeat(workspaceArg, sessionKeyArg, projectIdArg, usagePercentArg, options = {}) {
   const paths = createPaths(workspaceArg);
@@ -76,12 +77,26 @@ function runHeartbeat(workspaceArg, sessionKeyArg, projectIdArg, usagePercentArg
     reactivated_project_skills: reconcile.project_reactivated,
     reactivated_user_skills: reconcile.user_reactivated
   });
+  const runtimeState = runRuntimeStateUpdate(paths.workspace, sessionState.session_key, {
+    projectId: sessionState.project_id,
+    userId: sessionState.user_id,
+    reason: options.governanceReason || options.reason || 'heartbeat',
+    currentGoal: sessionState.active_task,
+    latestVerifiedResult: capturedSummary.visible ? capturedSummary.summary : null,
+    nextStep:
+      (Array.isArray(sessionState.commitments)
+        ? sessionState.commitments.find((entry) => entry.status === 'pending')?.what
+        : null) || null,
+    blockedBy: sessionState.metadata?.blocked_by || null,
+    lastUserVisibleProgress: capturedSummary.visible ? capturedSummary.summary : null
+  });
 
   return {
     status: 'heartbeat_ok',
     session_key: sessionState.session_key,
     project_id: sessionState.project_id,
     captured_summary: capturedSummary,
+    runtime_state: runtimeState.runtime_state,
     session_experiences: sessionExperiences,
     legacy_memory_sync,
     flow,
