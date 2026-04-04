@@ -1583,6 +1583,13 @@ test('gateway startup hook emits a resume message for the latest active session'
         'resume-session',
         'state.json'
       );
+      const runtimeFile = path.join(
+        workspace,
+        '.context-anchor',
+        'sessions',
+        'resume-session',
+        'runtime-state.json'
+      );
       const state = readJson(sessionFile, {});
       state.active_task = 'finish repair';
       state.commitments = [
@@ -1595,6 +1602,13 @@ test('gateway startup hook emits a resume message for the latest active session'
       ];
       writeJson(sessionFile, state);
       syncRuntimeStateFixture(workspace, 'resume-session', 'demo');
+      const runtimeState = readJson(runtimeFile, {});
+      runtimeState.current_goal = 'finish repair';
+      runtimeState.latest_verified_result = 'Validated rollback path and captured 1 lesson.';
+      runtimeState.next_step = 'ship fix';
+      runtimeState.blocked_by = 'waiting for final review';
+      runtimeState.last_user_visible_progress = 'rollback path verified';
+      writeJson(runtimeFile, runtimeState);
       runCheckpointCreate(workspace, 'resume-session', 'manual');
 
       const result = handleHookEvent('gateway:startup', {
@@ -1603,7 +1617,10 @@ test('gateway startup hook emits a resume message for the latest active session'
 
       assert.equal(result.status, 'resume_available');
       assert.match(result.resume_message, /finish repair/);
+      assert.match(result.resume_message, /Validated rollback path and captured 1 lesson/);
+      assert.match(result.resume_message, /rollback path verified/);
       assert.match(result.resume_message, /ship fix/);
+      assert.match(result.resume_message, /waiting for final review/);
     });
   } finally {
     cleanupWorkspace(workspace);

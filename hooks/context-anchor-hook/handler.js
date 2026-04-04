@@ -8,6 +8,7 @@ const {
   buildMinimalBootstrapContent,
   writeBootstrapCache
 } = require('../../scripts/lib/bootstrap-cache');
+const { buildTaskStateSummary } = require('../../scripts/lib/task-state');
 const {
   createPaths,
   getRecentSessions,
@@ -249,12 +250,23 @@ function handleStartup(payload) {
       : sessionState?.closed_at || null;
   const activeTask =
     pendingCommitments.length > 0 || !closedAt
-      ? runtimeState?.active_task || sessionState?.active_task || null
+      ? runtimeState?.current_goal || runtimeState?.active_task || sessionState?.active_task || null
       : null;
+  const taskStateSummary = buildTaskStateSummary({
+    current_goal: runtimeState?.current_goal || activeTask,
+    latest_verified_result: runtimeState?.latest_verified_result || null,
+    next_step: runtimeState?.next_step || pendingCommitments[0]?.what || null,
+    blocked_by: runtimeState?.blocked_by || null,
+    last_user_visible_progress: runtimeState?.last_user_visible_progress || null
+  });
   const resumeMessage = [
     '我回来了。',
     `上次会话: ${latest.session_key}`,
-    activeTask ? `当前任务: ${activeTask}` : null,
+    taskStateSummary.current_goal ? `当前目标: ${taskStateSummary.current_goal}` : activeTask ? `当前任务: ${activeTask}` : null,
+    taskStateSummary.latest_verified_result ? `最近结果: ${taskStateSummary.latest_verified_result}` : null,
+    taskStateSummary.last_user_visible_progress ? `最近进展: ${taskStateSummary.last_user_visible_progress}` : null,
+    taskStateSummary.next_step ? `下一步: ${taskStateSummary.next_step}` : null,
+    taskStateSummary.blocked_by ? `当前阻塞: ${taskStateSummary.blocked_by}` : null,
     pendingCommitments.length > 0
       ? `待处理承诺: ${pendingCommitments.map((entry) => entry.what).join('；')}`
       : null,

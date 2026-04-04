@@ -439,6 +439,13 @@ test(
           'installed-resume',
           'checkpoint.md'
         );
+        const runtimeFile = path.join(
+          workspaceDir,
+          '.context-anchor',
+          'sessions',
+          'installed-resume',
+          'runtime-state.json'
+        );
         const state = readJson(stateFile);
 
         state.active_task = 'finish repair';
@@ -451,6 +458,13 @@ test(
         ];
         fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
         syncRuntimeStateFixture(workspaceDir, 'installed-resume', 'demo');
+        const runtimeState = readJson(runtimeFile);
+        runtimeState.current_goal = 'finish repair';
+        runtimeState.latest_verified_result = 'Validated rollback path and captured 1 lesson.';
+        runtimeState.next_step = 'ship fix';
+        runtimeState.blocked_by = 'waiting for final review';
+        runtimeState.last_user_visible_progress = 'verify rollback path';
+        fs.writeFileSync(runtimeFile, JSON.stringify(runtimeState, null, 2));
         fs.writeFileSync(checkpointFile, '# Checkpoint\n\n- verify rollback path\n', 'utf8');
       });
 
@@ -465,7 +479,9 @@ test(
       assert.equal(result.status, 'resume_available');
       assert.equal(result.session_key, 'installed-resume');
       assert.match(result.resume_message, /finish repair/);
+      assert.match(result.resume_message, /Validated rollback path and captured 1 lesson/);
       assert.match(result.resume_message, /ship fix/);
+      assert.match(result.resume_message, /waiting for final review/);
       assert.match(result.resume_message, /verify rollback path/);
     } finally {
       cleanupTestDir(profileHome, os.homedir(), '.openclaw-context-anchor-installed-startup-');
