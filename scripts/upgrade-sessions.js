@@ -32,6 +32,7 @@ function parseArgs(argv) {
     workspace: null,
     sessionKey: null,
     includeSubagents: false,
+    includeHiddenSessions: false,
     includeClosed: false,
     rebuildMirror: false,
     runGovernance: false,
@@ -69,6 +70,11 @@ function parseArgs(argv) {
 
     if (arg === '--include-subagents') {
       options.includeSubagents = true;
+      continue;
+    }
+
+    if (arg === '--include-hidden-sessions') {
+      options.includeHiddenSessions = true;
       continue;
     }
 
@@ -320,7 +326,7 @@ function buildUpgradeVerification({
       remaining_attention_sessions: remainingAttention.length,
       unresolved_targets: unresolvedTargets.length,
       configuration_required_targets: configurationRequiredTargets.length,
-      openclawHome,
+      openClawHome,
       skillsRoot,
       example_session_key: unresolvedTargets[0]?.session_key || options.sessionKey || null
     }),
@@ -354,7 +360,7 @@ function buildUpgradeVerification({
             remaining_attention_sessions: remainingAttention.length,
             unresolved_targets: unresolvedTargets.length,
             configuration_required_targets: configurationRequiredTargets.length,
-            openclawHome,
+            openClawHome,
             skillsRoot,
             example_session_key: unresolvedTargets[0]?.session_key || options.sessionKey || null
           })
@@ -424,6 +430,8 @@ function createCliProgressReporter(stream = process.stderr) {
       case 'scan:done':
         line = `[upgrade] selected ${event.selected || 0} session(s) for processing${
           event.excluded_subagent_sessions ? `, skipped ${event.excluded_subagent_sessions} subagent session(s)` : ''
+        }${
+          event.excluded_hidden_sessions ? `, skipped ${event.excluded_hidden_sessions} hidden session(s)` : ''
         }`;
         break;
       case 'session:start':
@@ -579,7 +587,8 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
   emitProgress(progress, {
     type: 'scan:done',
     selected: candidates.length,
-    excluded_subagent_sessions: collected.excluded_subagent_sessions.length
+    excluded_subagent_sessions: collected.excluded_subagent_sessions.length,
+    excluded_hidden_sessions: collected.excluded_hidden_sessions.length
   });
   const beforeSessionReport = buildOpenClawSessionStatusReport(openClawHome, skillsRoot, {
     workspace: options.workspace || null,
@@ -686,6 +695,7 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
     openclaw_home: openClawHome,
     selected_sessions: candidates.length,
     excluded_subagent_sessions: collected.excluded_subagent_sessions.length,
+    excluded_hidden_sessions: collected.excluded_hidden_sessions.length,
     upgraded_sessions: results.filter((entry) => entry.action === 'upgraded').length,
     skipped_sessions: results.filter((entry) => entry.action === 'skipped').length,
     unresolved_sessions: results.filter((entry) => entry.reason === 'workspace_unresolved').length,

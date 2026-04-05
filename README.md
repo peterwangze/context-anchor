@@ -298,6 +298,18 @@ node scripts/sessions-diagnose.js
 - 最新可恢复的 `task continuity`，直接告诉你当前 goal / result / next step / blocked by
 - 最近一次 `last benefit`，直接告诉你这轮 session 最近沉淀了什么可见收益
 
+默认会尽量只显示用户真正可感知的 session。  
+像没有 transcript、没有 workspace、系统残留但用户无感知的 hidden session，会默认从状态和升级口径里排除，避免 session 数量明显失真。  
+如果你确实要排查这类隐藏候选，可以显式加：
+
+```bash
+node scripts/sessions-status.js --include-hidden-sessions
+```
+
+```bash
+node scripts/sessions-diagnose.js --include-hidden-sessions
+```
+
 如果检测到外部记忆源已经变化或还没归并，输出里会直接给出对应的 repair 命令。你也可以手工执行：
 
 ```bash
@@ -381,6 +393,13 @@ npm run watch:memory -- --workspace "<workspace>" --project-id "<project-id>"
 
 ```bash
 node scripts/upgrade-sessions.js --include-subagents
+```
+
+同样地，默认升级也会跳过用户无感知的 hidden session，避免把系统残留或无 workspace 的候选算进升级数量。  
+如果你确实需要排查这些隐藏候选，可以显式加：
+
+```bash
+node scripts/upgrade-sessions.js --include-hidden-sessions
 ```
 
 执行过程中会持续把简明进度打印到 `stderr`，方便区分“仍在处理”还是“真的卡住了”。

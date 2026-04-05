@@ -641,7 +641,9 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
           if (event.type === 'scan:done') {
             emitProgress(progress, {
               type: 'upgrade:forwarded',
-              message: `[upgrade] selected ${event.selected || 0} session(s) for processing`
+              message: `[upgrade] selected ${event.selected || 0} session(s) for processing${
+                event.excluded_hidden_sessions ? `, skipped ${event.excluded_hidden_sessions} hidden session(s)` : ''
+              }`
             });
             return;
           }

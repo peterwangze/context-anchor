@@ -3182,10 +3182,11 @@ test('session status overview groups workspaces and shows skill, hook, and monit
       const unregisteredGroup = report.groups.find((entry) => entry.workspace && entry.workspace.endsWith('unregistered-workspace'));
       const unresolvedGroup = report.groups.find((entry) => entry.workspace === null);
 
-      assert.equal(report.summary.total_sessions, 4);
+      assert.equal(report.summary.total_sessions, 3);
+      assert.equal(report.summary.excluded_hidden_sessions, 1);
       assert.equal(report.summary.ready_sessions, 1);
-      assert.equal(report.summary.attention_sessions, 3);
-      assert.equal(report.summary.unresolved_sessions, 1);
+      assert.equal(report.summary.attention_sessions, 2);
+      assert.equal(report.summary.unresolved_sessions, 0);
       assert.equal(configuredGroup.hook_status, 'on');
       assert.equal(configuredGroup.monitor_status, 'running');
       assert.equal(configuredGroup.mirror.available, true);
@@ -3204,8 +3205,7 @@ test('session status overview groups workspaces and shows skill, hook, and monit
       assert.equal(unregisteredGroup.monitor_status, 'off');
       assert.equal(unregisteredGroup.mirror.available, false);
       assert.equal(unregisteredGroup.sessions[0].classification.skill, 'missing');
-      assert.equal(unresolvedGroup.mirror.available, false);
-      assert.equal(unresolvedGroup.sessions[0].classification.skill, 'unknown');
+      assert.equal(unresolvedGroup, undefined);
       assert.match(report.commands.diagnostic_command, /diagnose:sessions/);
       assert.match(report.commands.repair_command, /configure:sessions/);
       assert.match(configuredGroup.diagnostic_command, /--workspace/);
@@ -3215,19 +3215,75 @@ test('session status overview groups workspaces and shows skill, hook, and monit
       assert.match(rendered, /Context-Anchor Session Overview/);
       assert.match(rendered, /Diagnostic command:/);
       assert.match(rendered, /Repair command:/);
-      assert.match(rendered, /Warning: 3 session\(s\) need attention/);
+      assert.match(rendered, /Warning: 2 session\(s\) need attention/);
+      assert.match(rendered, /Excluded hidden sessions: 1/);
       assert.match(rendered, /Workspace: .*configured-workspace/);
       assert.match(rendered, /Hook: ON/);
       assert.match(rendered, /Monitor: RUNNING/);
       assert.match(rendered, /READY/);
       assert.match(rendered, /PARTIAL/);
       assert.match(rendered, /MISSING/);
-      assert.match(rendered, /UNKNOWN/);
+      assert.doesNotMatch(rendered, /UNKNOWN/);
       assert.match(rendered, /ready-session-id/);
       assert.match(diagnosisRendered, /Context-Anchor Session Diagnosis/);
       assert.match(diagnosisRendered, /Issues:/);
       assert.match(diagnosisRendered, /Diagnose:/);
       assert.match(diagnosisRendered, /Repair:/);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('session status can include hidden sessions when explicitly requested', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const configuredWorkspace = path.join(workspace, 'configured-workspace');
+  const agentSessionsDir = path.join(openClawHome, 'agents', 'main', 'sessions');
+  const configuredReadyTranscript = path.join(agentSessionsDir, 'configured-ready.jsonl');
+  const sessionsIndex = path.join(agentSessionsDir, 'sessions.json');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        assumeYes: true,
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'peter',
+        defaultWorkspace: configuredWorkspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      runSessionStart(configuredWorkspace, 'agent:main:main', 'configured-workspace', {
+        userId: 'peter',
+        openClawSessionId: 'ready-session-id'
+      });
+
+      fs.mkdirSync(agentSessionsDir, { recursive: true });
+      writeSessionTranscript(configuredReadyTranscript, configuredWorkspace, 'ready-session-id');
+      writeJson(sessionsIndex, {
+        'agent:main:main': {
+          sessionId: 'ready-session-id',
+          sessionFile: configuredReadyTranscript,
+          updatedAt: 1774705704043,
+          chatType: 'direct'
+        },
+        'agent:main:ghost': {
+          sessionId: 'ghost-session-id',
+          updatedAt: 1774705707043,
+          chatType: 'direct'
+        }
+      });
+
+      const report = buildOpenClawSessionStatusReport(openClawHome, path.join(openClawHome, 'skills'), {
+        includeHiddenSessions: true
+      });
+
+      assert.equal(report.summary.total_sessions, 2);
+      assert.equal(report.summary.excluded_hidden_sessions, 0);
+      assert.ok(report.groups.some((entry) => entry.workspace === null));
     });
   } finally {
     cleanupWorkspace(workspace);

@@ -157,6 +157,10 @@
   - `status-report` 已新增默认文本摘要视图
   - `status-report` 文本视图已开始直接显示 remediation next step / guidance / example command
   - 已补充自动化测试，覆盖 status-report text summary
+- `2026-04-05`
+  - `sessions-status / sessions-diagnose / upgrade-sessions` 已默认跳过用户无感知的 hidden session
+  - 已新增 `--include-hidden-sessions` 作为显式排查开关
+  - 已补充自动化测试，覆盖 hidden session 默认隐藏与显式显示
 
 当前仍未完成的重点：
 
@@ -528,6 +532,7 @@
   - `doctor` 文本摘要已开始根据 external issue type 给出定向修复提示
   - `sessions-diagnose / status-report` 也开始给出更具体的外部问题修复提示
   - `status-report` 已不再只依赖 JSON 才能快速阅读 remediation 信息
+  - session 观测与 upgrade 默认口径已开始优先贴近用户真实感知
 - 仍待完成：
   - `doctor` / `sessions-diagnose` 还需要给出更细粒度 strict-mode auto-fix 路径
 

@@ -813,7 +813,8 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
   const doctor = runDoctor({ openclawHome: resolvedOpenClawHome, skillsRoot });
   const hostConfig = readHostConfig(resolvedOpenClawHome);
   const collected = collectSessionCandidates(resolvedOpenClawHome, {
-    includeSubagents: Boolean(options.includeSubagents)
+    includeSubagents: Boolean(options.includeSubagents),
+    includeHiddenSessions: Boolean(options.includeHiddenSessions)
   });
   const sessions = collected.candidates
     .filter((session) => {
@@ -937,6 +938,7 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
   const summary = {
     total_sessions: sessions.length,
     excluded_subagent_sessions: collected.excluded_subagent_sessions.length,
+    excluded_hidden_sessions: collected.excluded_hidden_sessions.length,
     workspaces: groups.length,
     skill_ready_sessions: sessions.filter((entry) => entry.classification.skill === 'ready').length,
     ready_sessions: sessions.filter((entry) => entry.classification.overall === 'ready').length,
@@ -1121,6 +1123,9 @@ function renderOpenClawSessionStatusReport(report) {
   );
   if (report.summary.excluded_subagent_sessions > 0) {
     lines.push(`Excluded subagent sessions: ${report.summary.excluded_subagent_sessions}`);
+  }
+  if (report.summary.excluded_hidden_sessions > 0) {
+    lines.push(`Excluded hidden sessions: ${report.summary.excluded_hidden_sessions}`);
   }
   lines.push(
     `Memory sources: SINGLE_SOURCE ${report.summary.single_source_workspaces} | ` +

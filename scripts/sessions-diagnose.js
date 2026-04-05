@@ -12,6 +12,7 @@ function parseArgs(argv) {
     workspace: null,
     sessionKey: null,
     includeSubagents: false,
+    includeHiddenSessions: false,
     json: false
   };
 
@@ -44,6 +45,11 @@ function parseArgs(argv) {
 
     if (arg === '--include-subagents') {
       options.includeSubagents = true;
+      continue;
+    }
+
+    if (arg === '--include-hidden-sessions') {
+      options.includeHiddenSessions = true;
       continue;
     }
 

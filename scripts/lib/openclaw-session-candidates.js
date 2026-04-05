@@ -25,6 +25,34 @@ function isEphemeralSubagentSession(candidate = {}) {
   return chatType === 'subagent' || deliveryContext === 'subagent' || keyLooksLikeSubagent;
 }
 
+function collectHiddenSessionReasons(candidate = {}) {
+  const reasons = [];
+  if (!candidate.registered && !candidate.discovered) {
+    reasons.push('not_registered_or_discovered');
+  }
+  if (!candidate.registered && !candidate.transcript_exists) {
+    reasons.push('missing_transcript');
+  }
+  if (!candidate.registered && !candidate.workspace) {
+    reasons.push('workspace_unresolved');
+  }
+  if (candidate.system_sent === true) {
+    reasons.push('system_sent');
+  }
+  if (candidate.aborted_last_run === true && !candidate.registered) {
+    reasons.push('aborted_last_run');
+  }
+  return reasons;
+}
+
+function isUserVisibleSession(candidate = {}) {
+  if (candidate.registered) {
+    return true;
+  }
+
+  return collectHiddenSessionReasons(candidate).length === 0;
+}
+
 function upsertCandidate(map, candidate) {
   const identity = candidateIdentity(
     candidate.workspace,
@@ -45,6 +73,9 @@ function upsertCandidate(map, candidate) {
     transcript_exists: false,
     discovered: false,
     registered: false,
+    system_sent: false,
+    aborted_last_run: false,
+    hidden_reasons: [],
     sources: []
   };
   const next = {
@@ -63,8 +94,11 @@ function upsertCandidate(map, candidate) {
     transcript_exists: Boolean(candidate.transcript_exists || existing.transcript_exists),
     discovered: Boolean(candidate.discovered || existing.discovered),
     registered: Boolean(candidate.registered || existing.registered),
+    system_sent: Boolean(candidate.system_sent || existing.system_sent),
+    aborted_last_run: Boolean(candidate.aborted_last_run || existing.aborted_last_run),
     sources: [...new Set([...(existing.sources || []), ...(candidate.sources || [])])]
   };
+  next.hidden_reasons = collectHiddenSessionReasons(next);
   map.set(identity, next);
 }
 
@@ -106,6 +140,8 @@ function collectSessionCandidates(openClawHome, options = {}) {
       delivery_context: entry.delivery_context || null,
       ephemeral_subagent: isEphemeralSubagentSession(entry),
       transcript_exists: entry.transcript_exists,
+      system_sent: entry.system_sent,
+      aborted_last_run: entry.aborted_last_run,
       discovered: true,
       registered: Boolean(uniqueHostSession),
       agent: entry.agent,
@@ -125,19 +161,26 @@ function collectSessionCandidates(openClawHome, options = {}) {
   const excludedSubagentSessions = options.includeSubagents
     ? []
     : allCandidates.filter((entry) => entry.ephemeral_subagent);
+  const visibleCandidates = allCandidates.filter((entry) => isUserVisibleSession(entry));
+  const excludedHiddenSessions = options.includeHiddenSessions
+    ? []
+    : allCandidates.filter((entry) => !entry.ephemeral_subagent && !isUserVisibleSession(entry));
 
   return {
     candidates: options.includeSubagents
-      ? allCandidates
-      : allCandidates.filter((entry) => !entry.ephemeral_subagent),
-    excluded_subagent_sessions: excludedSubagentSessions
+      ? (options.includeHiddenSessions ? allCandidates : visibleCandidates.filter((entry) => !entry.ephemeral_subagent))
+      : (options.includeHiddenSessions ? allCandidates.filter((entry) => !entry.ephemeral_subagent) : visibleCandidates.filter((entry) => !entry.ephemeral_subagent)),
+    excluded_subagent_sessions: excludedSubagentSessions,
+    excluded_hidden_sessions: excludedHiddenSessions
   };
 }
 
 module.exports = {
+  collectHiddenSessionReasons,
   collectSessionCandidates,
   findUniqueHostSessionByKey,
   isEphemeralSubagentSession,
+  isUserVisibleSession,
   normalizeWorkspaceKey,
   upsertCandidate
 };
