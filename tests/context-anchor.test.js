@@ -4080,6 +4080,38 @@ test('auto-fix keeps full recheck path for upgraded session materialization fail
   assert.doesNotMatch(commandLine, /--skip-recheck/);
 });
 
+test('manual external-environment remediation does not expose auto-fix command', () => {
+  const summary = buildRemediationSummary(
+    [
+      {
+        source: 'doctor',
+        action: {
+          type: 'workspace_review',
+          recheck_command: 'npm run doctor -- --workspace "D:/demo"',
+          repair_strategy: {
+            type: 'review_workspace_then_recheck',
+            label: 'review workspace -> recheck',
+            execution_mode: 'manual',
+            manual_subtype: 'external_environment',
+            external_issue_type: 'workspace_registration_missing',
+            requires_manual_confirmation: true,
+            summary: 'Fix or remove the broken workspace registration, then rerun doctor.'
+          }
+        }
+      }
+    ],
+    {
+      auto_fix_options: {
+        workspace: 'D:/demo',
+        userId: 'alice'
+      }
+    }
+  );
+
+  assert.equal(summary.next_step.auto_fix_command, null);
+  assert.match(summary.next_step.auto_fix_blocked_reason, /auto-fix is intentionally disabled/i);
+});
+
 test('doctor reports installed absolute paths and wrapper returns a helpful payload error', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');

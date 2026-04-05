@@ -11,6 +11,17 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
     return null;
   }
 
+  const autoFixBlockedReason =
+    executionMode === 'manual'
+      ? (strategy.manual_subtype || 'confirm_only') === 'external_environment'
+        ? strategy.external_issue_type === 'workspace_registration_missing'
+          ? 'Resolve or update the broken workspace registration first; auto-fix is intentionally disabled for this external-environment issue.'
+          : strategy.external_issue_type === 'workspace_path_unresolved'
+          ? 'Provide or recover the correct workspace path first; auto-fix is intentionally disabled for this external-environment issue.'
+          : 'Resolve the external environment issue first; auto-fix is intentionally disabled for this path.'
+        : 'This path still needs manual confirmation or selection first, so auto-fix is intentionally disabled.'
+      : null;
+
   return {
     source: source || 'unknown',
     type: strategy.type || action?.type || 'unknown',
@@ -24,12 +35,16 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
     command: action?.command || null,
     follow_up_command: action?.follow_up_command || null,
     command_sequence: buildRemediationCommandSequence(action),
-    auto_fix_command: buildAutoFixCommand(buildRemediationCommandSequence(action), {
-      ...(options.auto_fix_options || {}),
-      strategyType: strategy.type || action?.type || null,
-      actionType: action?.type || strategy.type || null,
-      issues: action?.issues || []
-    }),
+    auto_fix_command:
+      executionMode === 'manual'
+        ? null
+        : buildAutoFixCommand(buildRemediationCommandSequence(action), {
+            ...(options.auto_fix_options || {}),
+            strategyType: strategy.type || action?.type || null,
+            actionType: action?.type || strategy.type || null,
+            issues: action?.issues || []
+          }),
+    auto_fix_blocked_reason: autoFixBlockedReason,
     resolution_hint: strategy.resolution_hint || action?.resolution_hint || null,
     command_examples: Array.isArray(strategy.command_examples)
       ? strategy.command_examples.filter(Boolean)

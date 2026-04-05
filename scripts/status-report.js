@@ -158,6 +158,8 @@ function renderStatusReportText(report) {
   }
   if (report.remediation_summary?.next_step?.auto_fix_command) {
     lines.push(field('Auto fix command', command(report.remediation_summary.next_step.auto_fix_command), { kind: 'command' }));
+  } else if (report.remediation_summary?.next_step?.auto_fix_blocked_reason) {
+    lines.push(field('Auto fix unavailable', report.remediation_summary.next_step.auto_fix_blocked_reason, { kind: 'warning' }));
   }
   if (report.recommended_action?.resolution_hint) {
     lines.push(field('Guidance', report.recommended_action.resolution_hint, { kind: 'muted' }));

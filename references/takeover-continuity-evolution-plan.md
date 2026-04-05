@@ -195,6 +195,10 @@
   - `workspace_needs_configuration` 这类问题现在默认倾向先 `repair` 再由用户按需回检
   - `upgraded_session_not_materialized` 这类问题现在默认保留完整 `recheck` 闭环
   - 已补充自动化测试，覆盖 upgrade recovery 细分策略生成
+- `2026-04-06`
+  - `workspace_unresolved` / `workspace_registration_missing` 这类 manual external-environment 问题已不再暴露误导性的 `Auto fix command`
+  - 文本输出现在会明确显示 `Auto fix unavailable`，提醒用户先修外部环境
+  - 已补充自动化测试，覆盖 manual external-environment 的 auto-fix 抑制
 
 当前仍未完成的重点：
 
@@ -569,7 +573,7 @@
   - session 观测与 upgrade 默认口径已开始优先贴近用户真实感知
   - strict-mode 自动修复路径已开始在 doctor / session diagnose / status-report / install / upgrade / configure 输出中显式化
 - 仍待完成：
-  - strict-mode auto-fix 还缺少更多 manual/external-environment 问题类型的策略分化与可学习偏好演化
+  - strict-mode auto-fix 还缺少更多 manual/confirm 场景与可学习偏好演化
 
 ## 测试设计
 

@@ -1381,6 +1381,8 @@ function renderConfigureHostReport(result) {
   }
   if (verification.remediation_summary?.next_step?.auto_fix_command) {
     lines.push(field('Auto fix command', command(verification.remediation_summary.next_step.auto_fix_command), { kind: 'command' }));
+  } else if (verification.remediation_summary?.next_step?.auto_fix_blocked_reason) {
+    lines.push(field('Auto fix unavailable', verification.remediation_summary.next_step.auto_fix_blocked_reason, { kind: 'warning' }));
   }
   if (verification.recheck_command) {
     lines.push(field('Recheck', command(verification.recheck_command), { kind: 'command' }));
