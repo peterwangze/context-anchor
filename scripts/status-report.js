@@ -253,16 +253,35 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
   });
   const recommendedAction =
     memorySourceHealth.status === 'drift_detected'
-      ? {
-          type: 'sync_legacy_memory',
-          priority: 'high',
-          summary: 'External memory sources changed after the last sync. Re-sync them into context-anchor now.',
-          command: buildNpmScriptCommand('migrate:memory', {
-            workspace: paths.workspace,
-            projectId
-          }),
-          follow_up_command:
-            memorySourceHealth.memory_takeover_mode === 'enforced'
+        ? {
+            type: 'sync_legacy_memory',
+            priority: 'high',
+            summary: 'External memory sources changed after the last sync. Re-sync them into context-anchor now.',
+            command: buildNpmScriptCommand('migrate:memory', {
+              workspace: paths.workspace,
+              projectId
+            }),
+            resolution_hint:
+              memorySourceHealth.memory_takeover_mode === 'enforced'
+                ? 'Centralize the changed external memory files, then rerun status-report to confirm the canonical state is stable again.'
+                : 'Centralize the changed external memory files first, then consider enforcing takeover so later sessions stop diverging again.',
+            command_examples: [
+              buildNpmScriptCommand('migrate:memory', {
+                workspace: paths.workspace,
+                projectId
+              }),
+              memorySourceHealth.memory_takeover_mode === 'enforced'
+                ? buildStatusReportRecheckCommand(paths.workspace, sessionKey, projectId, userId)
+                : buildNpmScriptCommand('configure:host', {
+                    workspace: paths.workspace,
+                    openclawHome: paths.openClawHome,
+                    applyConfig: true,
+                    enforceMemoryTakeover: true,
+                    yes: true
+                  })
+            ],
+            follow_up_command:
+              memorySourceHealth.memory_takeover_mode === 'enforced'
               ? null
               : buildNpmScriptCommand('configure:host', {
                   workspace: paths.workspace,
@@ -294,6 +313,18 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
               enforceMemoryTakeover: true,
               yes: true
             }),
+            resolution_hint:
+              'This workspace is still in best-effort mode, so some models or profiles may bypass context-anchor. Enforce takeover, then rerun status-report.',
+            command_examples: [
+              buildNpmScriptCommand('configure:host', {
+                workspace: paths.workspace,
+                openclawHome: paths.openClawHome,
+                applyConfig: true,
+                enforceMemoryTakeover: true,
+                yes: true
+              }),
+              buildStatusReportRecheckCommand(paths.workspace, sessionKey, projectId, userId)
+            ],
             follow_up_command: null,
             repair_strategy: {
               type: 'enforce_then_recheck',
@@ -309,6 +340,8 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
             summary: 'No repair action required.',
             command: null,
             follow_up_command: null,
+            resolution_hint: 'No remediation is required right now.',
+            command_examples: [buildStatusReportRecheckCommand(paths.workspace, sessionKey, projectId, userId)],
             repair_strategy: {
               type: 'recheck_only',
               label: 'recheck',

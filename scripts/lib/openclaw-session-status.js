@@ -249,7 +249,8 @@ function buildSessionRepairStrategy(type) {
         label: 'configure sessions -> migrate -> recheck',
         execution_mode: 'automatic',
         requires_manual_confirmation: false,
-        summary: 'Repair session linkage first, then centralize external memory, then rerun session status.'
+        summary: 'Repair session linkage first, then centralize external memory, then rerun session status.',
+        resolution_hint: 'This workspace needs both session linkage repair and external memory centralization before status should be trusted again.'
       };
     case 'configure_sessions_then_recheck':
       return {
@@ -257,7 +258,8 @@ function buildSessionRepairStrategy(type) {
         label: 'configure sessions -> recheck',
         execution_mode: 'automatic',
         requires_manual_confirmation: false,
-        summary: 'Repair session linkage first, then rerun session status.'
+        summary: 'Repair session linkage first, then rerun session status.',
+        resolution_hint: 'Repair the session linkage under the correct workspace, then rerun status to confirm the session is ready.'
       };
     case 'configure_host_then_migrate_then_recheck':
       return {
@@ -265,7 +267,8 @@ function buildSessionRepairStrategy(type) {
         label: 'configure host -> migrate -> recheck',
         execution_mode: 'automatic',
         requires_manual_confirmation: false,
-        summary: 'Repair host configuration first, then centralize external memory, then rerun session status.'
+        summary: 'Repair host configuration first, then centralize external memory, then rerun session status.',
+        resolution_hint: 'Fix host integration first so later memory centralization lands on the right canonical path.'
       };
     case 'configure_host_then_recheck':
       return {
@@ -273,7 +276,8 @@ function buildSessionRepairStrategy(type) {
         label: 'configure host -> recheck',
         execution_mode: 'automatic',
         requires_manual_confirmation: false,
-        summary: 'Repair host configuration first, then rerun session status.'
+        summary: 'Repair host configuration first, then rerun session status.',
+        resolution_hint: 'Repair the host-level hook or monitor setup first, then rerun status to confirm the workspace is healthy.'
       };
     case 'migrate_then_enforce_then_recheck':
       return {
@@ -281,7 +285,8 @@ function buildSessionRepairStrategy(type) {
         label: 'migrate -> enforce -> recheck',
         execution_mode: 'automatic',
         requires_manual_confirmation: false,
-        summary: 'Centralize external memory first, then enforce takeover, then rerun session status.'
+        summary: 'Centralize external memory first, then enforce takeover, then rerun session status.',
+        resolution_hint: 'External memory has diverged and takeover is still not enforced; centralize first, then lock takeover down to prevent future drift.'
       };
     case 'migrate_then_recheck':
       return {
@@ -289,7 +294,8 @@ function buildSessionRepairStrategy(type) {
         label: 'migrate -> recheck',
         execution_mode: 'automatic',
         requires_manual_confirmation: false,
-        summary: 'Centralize external memory first, then rerun session status.'
+        summary: 'Centralize external memory first, then rerun session status.',
+        resolution_hint: 'External memory changed after the last sync; centralize it before trusting the current continuity state.'
       };
     case 'enforce_then_recheck':
       return {
@@ -297,7 +303,8 @@ function buildSessionRepairStrategy(type) {
         label: 'enforce -> recheck',
         execution_mode: 'automatic',
         requires_manual_confirmation: false,
-        summary: 'Enforce takeover first, then rerun session status.'
+        summary: 'Enforce takeover first, then rerun session status.',
+        resolution_hint: 'Takeover is still best-effort; enforce it now so later sessions stop bypassing context-anchor.'
       };
     default:
       return {
@@ -305,7 +312,8 @@ function buildSessionRepairStrategy(type) {
         label: 'refresh -> recheck',
         execution_mode: 'automatic',
         requires_manual_confirmation: false,
-        summary: 'Refresh session linkage, then rerun session status.'
+        summary: 'Refresh session linkage, then rerun session status.',
+        resolution_hint: 'Refresh the current session linkage and rerun status to confirm the latest state.'
       };
   }
 }
@@ -480,6 +488,7 @@ function buildActionCommands(scope, options = {}) {
       ? 'enforce_then_recheck'
       : 'refresh_then_recheck'
   );
+  repair_strategy.command_examples = [repair_command, follow_up_command, recheck_command].filter(Boolean);
 
   return {
     diagnostic_command,
@@ -1074,6 +1083,22 @@ function renderRemediationNextStep(remediationSummary) {
   return `Next step: [${modeLabel}] ${nextStep.label}${nextStep.summary ? ` (${nextStep.summary})` : ''}`;
 }
 
+function renderRemediationGuidance(remediationSummary) {
+  const nextStep = remediationSummary?.next_step;
+  if (!nextStep) {
+    return [];
+  }
+
+  const lines = [];
+  if (nextStep.resolution_hint) {
+    lines.push(`Guidance: ${nextStep.resolution_hint}`);
+  }
+  if (Array.isArray(nextStep.command_examples) && nextStep.command_examples.length > 0) {
+    lines.push(`Example command: ${nextStep.command_examples[0]}`);
+  }
+  return lines;
+}
+
 function renderOpenClawSessionStatusReport(report) {
   const lines = [];
   lines.push('Context-Anchor Session Overview');
@@ -1158,6 +1183,9 @@ function renderOpenClawSessionStatusReport(report) {
       if (nextStepLine) {
         lines.push(`  ${nextStepLine}`);
       }
+      renderRemediationGuidance(group.remediation_summary).forEach((line) => {
+        lines.push(`  ${line}`);
+      });
       const repairPath = renderRepairSequence(group.repair_sequence);
       if (repairPath) {
         lines.push(`  Repair path: ${repairPath}`);
@@ -1229,6 +1257,9 @@ function renderOpenClawSessionDiagnosisReport(report) {
       if (nextStepLine) {
         lines.push(`  ${nextStepLine}`);
       }
+      renderRemediationGuidance(group.remediation_summary).forEach((line) => {
+        lines.push(`  ${line}`);
+      });
       const repairPath = renderRepairSequence(group.repair_sequence);
       if (repairPath) {
         lines.push(`  Repair path: ${repairPath}`);
@@ -1284,6 +1315,9 @@ function renderOpenClawSessionDiagnosisReport(report) {
     if (nextStepLine) {
       lines.push(`  ${nextStepLine}`);
     }
+    renderRemediationGuidance(group.remediation_summary).forEach((line) => {
+      lines.push(`  ${line}`);
+    });
     const repairPath = renderRepairSequence(group.repair_sequence);
     if (repairPath) {
       lines.push(`  Repair path: ${repairPath}`);

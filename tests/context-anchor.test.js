@@ -3482,6 +3482,8 @@ test('session status surfaces external memory drift and recommends migrate-memor
       assert.match(diagnosisRendered, /Follow-up:/);
       assert.match(diagnosisRendered, /Recheck:/);
       assert.match(diagnosisRendered, /Strategy: \[auto\] migrate -> enforce -> recheck/);
+      assert.match(diagnosisRendered, /Guidance:/);
+      assert.match(diagnosisRendered, /Example command:/);
       assert.match(diagnosisRendered, /Repair path:/);
     });
   } finally {
@@ -6346,6 +6348,8 @@ test('status report summarizes user project session counts and governance', () =
       assert.equal(report.memory_source_health.status, 'best_effort');
       assert.equal(report.recommended_action.type, 'enforce_memory_takeover');
       assert.match(report.recommended_action.command, /configure:host/);
+      assert.ok(report.recommended_action.resolution_hint);
+      assert.ok(Array.isArray(report.recommended_action.command_examples));
       assert.ok(report.remediation_summary);
       assert.equal(report.remediation_summary.status, 'automatic_available');
       assert.ok(report.evidence.project_skills);

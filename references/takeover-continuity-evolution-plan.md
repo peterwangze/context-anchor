@@ -149,6 +149,10 @@
   - `doctor` 对 external issue type 已开始给出更具体的 `Guidance` 与 `Example command`
   - external issue 不再只是分类标签，也开始带问题定向修复提示
   - 已补充自动化测试，覆盖 doctor external issue guidance
+- `2026-04-05`
+  - `sessions-diagnose` 已开始显示 remediation `Guidance` 与 `Example command`
+  - `status-report` 的 `recommended_action` 已开始返回 `resolution_hint` 与 `command_examples`
+  - 已补充自动化测试，覆盖 diagnose / status-report external guidance
 
 当前仍未完成的重点：
 
@@ -518,6 +522,7 @@
   - external environment 类手工修复已经开始区分更具体的问题来源
   - `doctor` 文本摘要已开始直接暴露 external issue type
   - `doctor` 文本摘要已开始根据 external issue type 给出定向修复提示
+  - `sessions-diagnose / status-report` 也开始给出更具体的外部问题修复提示
 - 仍待完成：
   - `doctor` / `sessions-diagnose` 还需要给出更细粒度 strict-mode auto-fix 路径
 
