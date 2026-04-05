@@ -9,6 +9,13 @@ const {
   summarizeExternalMemorySources
 } = require('./legacy-memory-sync');
 const { buildRemediationSummary } = require('./lib/remediation-summary');
+const {
+  command,
+  field,
+  renderCliError,
+  section,
+  status
+} = require('./lib/terminal-format');
 
 function parseArgs(argv) {
   const options = {
@@ -880,21 +887,35 @@ function runProfileTakeoverAudit(options = {}) {
 
 function renderDoctorRemediationSummary(remediationSummary = {}) {
   const lines = [];
+  const remediationStatus = String(remediationSummary.status || 'none').toUpperCase();
+  const remediationKind =
+    remediationSummary.status === 'warning'
+      ? 'warning'
+      : remediationSummary.manual_count > 0
+      ? 'warning'
+      : remediationSummary.automatic_count > 0
+      ? 'info'
+      : 'success';
   lines.push(
-    `Remediation: ${String(remediationSummary.status || 'none').toUpperCase()} | ` +
-      `auto=${Number(remediationSummary.automatic_count || 0)} | ` +
-      `manual=${Number(remediationSummary.manual_count || 0)}`
+    field(
+      'Remediation',
+      `${status(remediationStatus, remediationKind)} | auto=${Number(remediationSummary.automatic_count || 0)} | manual=${Number(remediationSummary.manual_count || 0)}`,
+      { kind: remediationKind }
+    )
   );
   lines.push(
-    `Manual split: confirm=${Number(remediationSummary.manual_confirm_only_count || 0)} | ` +
-      `external-env=${Number(remediationSummary.manual_external_environment_count || 0)}`
+    field(
+      'Manual split',
+      `confirm=${Number(remediationSummary.manual_confirm_only_count || 0)} | external-env=${Number(remediationSummary.manual_external_environment_count || 0)}`,
+      { kind: 'muted' }
+    )
   );
   const externalIssueTypes = remediationSummary.manual_external_issue_types || {};
   const externalIssueSummary = Object.entries(externalIssueTypes)
     .map(([key, count]) => `${key}=${count}`)
     .join(', ');
   if (externalIssueSummary) {
-    lines.push(`External issues: ${externalIssueSummary}`);
+    lines.push(field('External issues', externalIssueSummary, { kind: 'warning' }));
   }
   const firstExternalManual = Array.isArray(remediationSummary.manual_external_environment)
     ? remediationSummary.manual_external_environment[0]
@@ -912,51 +933,66 @@ function renderDoctorRemediationSummary(remediationSummary = {}) {
           : '/confirm'
         : '';
     lines.push(
-      `Next step: [${mode}${subtype}] ${remediationSummary.next_step.label}` +
-        `${remediationSummary.next_step.summary ? ` - ${remediationSummary.next_step.summary}` : ''}`
+      field(
+        'Next step',
+        `[${mode}${subtype}] ${remediationSummary.next_step.label}` +
+          `${remediationSummary.next_step.summary ? ` - ${remediationSummary.next_step.summary}` : ''}`,
+        { kind: remediationSummary.next_step.execution_mode === 'manual' ? 'warning' : 'info' }
+      )
     );
     if (remediationSummary.next_step.resolution_hint) {
-      lines.push(`Guidance: ${remediationSummary.next_step.resolution_hint}`);
+      lines.push(field('Guidance', remediationSummary.next_step.resolution_hint, { kind: 'muted' }));
     }
     if (Array.isArray(remediationSummary.next_step.command_examples) && remediationSummary.next_step.command_examples.length > 0) {
-      lines.push(`Example command: ${remediationSummary.next_step.command_examples[0]}`);
+      lines.push(field('Example command', command(remediationSummary.next_step.command_examples[0]), { kind: 'command' }));
     }
   }
   if (firstExternalManual?.resolution_hint) {
-    lines.push(`Guidance: ${firstExternalManual.resolution_hint}`);
+    lines.push(field('Guidance', firstExternalManual.resolution_hint, { kind: 'muted' }));
   }
   if (Array.isArray(firstExternalManual?.command_examples) && firstExternalManual.command_examples.length > 0) {
-    lines.push(`Example command: ${firstExternalManual.command_examples[0]}`);
+    lines.push(field('Example command', command(firstExternalManual.command_examples[0]), { kind: 'command' }));
   }
   if (Array.isArray(remediationSummary.recheck_commands) && remediationSummary.recheck_commands.length > 0) {
-    lines.push(`Recheck: ${remediationSummary.recheck_commands[0]}`);
+    lines.push(field('Recheck', command(remediationSummary.recheck_commands[0]), { kind: 'command' }));
   }
   return lines;
 }
 
 function renderDoctorReport(report) {
   const lines = [];
-  lines.push('Context-Anchor Doctor');
-  lines.push(`Platform: ${report.platform_label}`);
+  lines.push(section('Context-Anchor Doctor'));
+  lines.push(field('Platform', report.platform_label, { kind: 'muted' }));
   lines.push(
-    `Installation: ${report.installation.ready ? 'READY' : 'NOT READY'} | ` +
-      `Configuration: ${report.configuration.ready ? 'READY' : 'NOT READY'} | ` +
-      `Takeover: ${String(report.configuration.memory_takeover_mode || 'best_effort').toUpperCase()}`
+    field(
+      'Readiness',
+      `Installation ${status(report.installation.ready ? 'READY' : 'NOT READY', report.installation.ready ? 'success' : 'warning')} | ` +
+        `Configuration ${status(report.configuration.ready ? 'READY' : 'NOT READY', report.configuration.ready ? 'success' : 'warning')} | ` +
+        `Takeover ${status(String(report.configuration.memory_takeover_mode || 'best_effort').toUpperCase(), report.configuration.memory_takeover_enforced ? 'success' : 'warning')}`,
+      { kind: report.installation.ready && report.configuration.ready ? 'success' : 'warning' }
+    )
   );
   lines.push(
-    `Workspace: ${report.paths.workspace || 'not selected'} | ` +
-      `Memory health: ${String(report.memory_sources.health?.status || 'unknown').toUpperCase()}`
+    field(
+      'Workspace',
+      `${report.paths.workspace || 'not selected'} | Memory health ${status(String(report.memory_sources.health?.status || 'unknown').toUpperCase(), report.memory_sources.health?.status === 'drift_detected' ? 'warning' : report.memory_sources.health?.status === 'single_source' ? 'success' : 'info')}`,
+      { kind: report.paths.workspace ? 'info' : 'muted' }
+    )
   );
   lines.push(
-    `Host audit: ${String(report.host_takeover_audit.status || 'unknown').toUpperCase()} | ` +
-      `Profile audit: ${String(report.profile_takeover_audit.status || 'unknown').toUpperCase()}`
+    field(
+      'Audits',
+      `Host ${status(String(report.host_takeover_audit.status || 'unknown').toUpperCase(), report.host_takeover_audit.status === 'warning' ? 'warning' : report.host_takeover_audit.status === 'ok' ? 'success' : 'info')} | ` +
+        `Profile ${status(String(report.profile_takeover_audit.status || 'unknown').toUpperCase(), report.profile_takeover_audit.status === 'warning' ? 'warning' : report.profile_takeover_audit.status === 'ok' ? 'success' : 'info')}`,
+      { kind: report.host_takeover_audit.status === 'warning' || report.profile_takeover_audit.status === 'warning' ? 'warning' : 'info' }
+    )
   );
   lines.push(...renderDoctorRemediationSummary(report.remediation_summary));
   lines.push('');
-  lines.push(`Config path: ${report.paths.config_file}`);
-  lines.push(`Configure command: ${report.commands.configure}`);
+  lines.push(field('Config path', report.paths.config_file, { kind: 'muted' }));
+  lines.push(field('Configure command', command(report.commands.configure), { kind: 'command' }));
   if (report.commands.sync_legacy_memory) {
-    lines.push(`Sync command: ${report.commands.sync_legacy_memory}`);
+    lines.push(field('Sync command', command(report.commands.sync_legacy_memory), { kind: 'command' }));
   }
   return lines.join('\n');
 }
@@ -1182,7 +1218,18 @@ function main() {
 }
 
 if (require.main === module) {
-  main();
+  try {
+    main();
+  } catch (error) {
+    if (process.stdout.isTTY) {
+      console.log(renderCliError('Context-Anchor Doctor Failed', error.message, {
+        nextStep: 'Check the OpenClaw profile path and rerun doctor.'
+      }));
+    } else {
+      console.log(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+    }
+    process.exit(1);
+  }
 }
 
 module.exports = {

@@ -17,12 +17,14 @@ const {
 } = require('./lib/host-config');
 const { discoverOpenClawSessions } = require('./lib/openclaw-session-discovery');
 const { getOpenClawHome, sanitizeKey } = require('./lib/context-anchor');
+const { command, field, renderCliError, section, status, tag } = require('./lib/terminal-format');
 
 function parseArgs(argv) {
   const options = {
     openclawHome: null,
     skillsRoot: null,
     assumeYes: false,
+    json: false,
     workspace: null,
     sessionKey: null
   };
@@ -56,6 +58,11 @@ function parseArgs(argv) {
 
     if (arg === '--yes') {
       options.assumeYes = true;
+      continue;
+    }
+
+    if (arg === '--json') {
+      options.json = true;
     }
   }
 
@@ -69,6 +76,10 @@ function normalizeWorkspaceKey(workspace) {
 
 function formatWorkspaceLabel(workspace) {
   return workspace || '<workspace unknown>';
+}
+
+function formatInteractivePrompt(prompt) {
+  return `${tag('input', 'info')} ${prompt}`;
 }
 
 function quoteArg(value) {
@@ -218,7 +229,7 @@ function askText(prompt, defaultValue = '', ask = null) {
   });
 
   return new Promise((resolve) => {
-    rl.question(prompt, (answer) => {
+    rl.question(formatInteractivePrompt(prompt), (answer) => {
       rl.close();
       const normalized = String(answer || '').trim();
       resolve(normalized || defaultValue);
@@ -238,7 +249,7 @@ function askYesNo(prompt, defaultYes = true, ask = null) {
   });
 
   return new Promise((resolve) => {
-    rl.question(`${prompt}${suffix}`, (answer) => {
+    rl.question(`${formatInteractivePrompt(prompt)}${suffix}`, (answer) => {
       rl.close();
       const normalized = String(answer || '').trim().toLowerCase();
       if (!normalized) {
@@ -536,22 +547,88 @@ async function runConfigureSessions(openClawHomeArg, skillsRootArg, options = {}
   };
 }
 
+function renderConfigureSessionsReport(result) {
+  const lines = [];
+  const verification = result.verification || {};
+  const verificationKind =
+    verification.status === 'verified'
+      ? 'success'
+      : verification.status === 'needs_attention'
+      ? 'warning'
+      : 'info';
+  const unresolved = Array.isArray(result.results)
+    ? result.results.filter((entry) => entry.status === 'unresolved').length
+    : 0;
+
+  lines.push(section('Context-Anchor Session Configuration', { kind: verificationKind }));
+  lines.push(field('Status', status(String(result.status || 'ok').toUpperCase(), verificationKind), { kind: verificationKind }));
+  lines.push(
+    field(
+      'Selection',
+      `Discovered ${Number(result.discovered_sessions || 0)} | Selected ${Number(result.selected_sessions || 0)} | Configured ${status(Number(result.configured_sessions || 0), Number(result.configured_sessions || 0) > 0 ? 'success' : 'info')} | Skipped ${Number(result.skipped_sessions || 0)} | Unresolved ${status(unresolved, unresolved > 0 ? 'warning' : 'success')}`,
+      { kind: unresolved > 0 ? 'warning' : Number(result.configured_sessions || 0) > 0 ? 'success' : 'info' }
+    )
+  );
+  if (result.repair) {
+    lines.push(field('Runtime repair', 'Host assets/configuration were refreshed before onboarding sessions.', { kind: 'info' }));
+  }
+  lines.push(
+    field(
+      'Verification',
+      `${status(String(verification.status || 'unknown').toUpperCase(), verificationKind)}${verification.summary ? ` | ${verification.summary}` : ''}`,
+      { kind: verificationKind }
+    )
+  );
+  if (verification.recheck_command) {
+    lines.push(field('Recheck', command(verification.recheck_command), { kind: 'command' }));
+  }
+  if (verification.remediation_summary?.next_step?.label) {
+    lines.push(
+      field(
+        'Next step',
+        `${verification.remediation_summary.next_step.label}${verification.remediation_summary.next_step.summary ? ` - ${verification.remediation_summary.next_step.summary}` : ''}`,
+        { kind: verification.remediation_summary.next_step.execution_mode === 'manual' ? 'warning' : 'info' }
+      )
+    );
+  }
+  lines.push('');
+
+  for (const entry of result.results || []) {
+    const entryKind =
+      entry.action === 'configured' || entry.action === 'reconfigured'
+        ? 'success'
+        : entry.status === 'unresolved'
+        ? 'warning'
+        : 'muted';
+    lines.push(
+      field(
+        entry.session_key,
+        `${status(String(entry.action || 'unknown').toUpperCase(), entryKind)} | workspace ${entry.workspace || '<unresolved>'}${entry.reason ? ` | ${entry.reason}` : ''}`,
+        { kind: entryKind }
+      )
+    );
+  }
+
+  return lines.join('\n');
+}
+
 async function main() {
   try {
     const options = parseArgs(process.argv.slice(2));
     const result = await runConfigureSessions(options.openclawHome, options.skillsRoot, options);
-    console.log(JSON.stringify(result, null, 2));
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(renderConfigureSessionsReport(result));
+    }
   } catch (error) {
-    console.log(
-      JSON.stringify(
-        {
-          status: 'error',
-          message: error.message
-        },
-        null,
-        2
-      )
-    );
+    if (options?.json || !process.stdout.isTTY) {
+      console.log(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+    } else {
+      console.log(renderCliError('Context-Anchor Session Configuration Failed', error.message, {
+        nextStep: 'Review the selected workspace/session arguments, then rerun configure:sessions.'
+      }));
+    }
     process.exit(1);
   }
 }
@@ -568,5 +645,6 @@ module.exports = {
   normalizeActionAnswer,
   normalizeWorkspaceKey,
   parseArgs,
+  renderConfigureSessionsReport,
   runConfigureSessions
 };

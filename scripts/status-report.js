@@ -43,6 +43,13 @@ const { resolveOwnership } = require('./lib/host-config');
 const { buildRemediationSummary } = require('./lib/remediation-summary');
 const { buildTaskStateSummary } = require('./lib/task-state');
 const {
+  command,
+  field,
+  renderCliError,
+  section,
+  status
+} = require('./lib/terminal-format');
+const {
   classifyMemorySourceHealth,
   summarizeExternalMemorySources
 } = require('./legacy-memory-sync');
@@ -95,32 +102,42 @@ function buildStatusReportRecheckCommand(workspace, sessionKey, projectId, userI
 
 function renderStatusReportText(report) {
   const lines = [];
-  lines.push('Context-Anchor Status Report');
-  lines.push(`Workspace: ${report.workspace}`);
+  const memoryHealthKind =
+    report.memory_source_health.status === 'drift_detected'
+      ? 'warning'
+      : report.memory_source_health.status === 'single_source'
+      ? 'success'
+      : 'info';
+  lines.push(section('Context-Anchor Status Report'));
+  lines.push(field('Workspace', report.workspace, { kind: 'info' }));
+  lines.push(field('Scope', `User ${report.user.id} | Project ${report.project.id} | Session ${report.session.key}`, { kind: 'muted' }));
   lines.push(
-    `User: ${report.user.id} | Project: ${report.project.id} | Session: ${report.session.key}`
-  );
-  lines.push(
-    `Memory health: ${String(report.memory_source_health.status || 'unknown').toUpperCase()} | ` +
-      `Governance active=${Number(report.governance.active || 0)} | budgeted_out=${Number(report.governance.budgeted_out || 0)}`
+    field(
+      'Health',
+      `Memory ${status(String(report.memory_source_health.status || 'unknown').toUpperCase(), memoryHealthKind)} | ` +
+        `Governance active=${Number(report.governance.active || 0)} | budgeted_out=${Number(report.governance.budgeted_out || 0)}`,
+      { kind: memoryHealthKind }
+    )
   );
   if (report.session.task_state_summary?.visible) {
-    lines.push(`Task state: ${report.session.task_state_summary.summary}`);
+    lines.push(field('Task state', report.session.task_state_summary.summary, { kind: 'info' }));
   }
   if (report.session.last_benefit_summary?.visible) {
-    lines.push(`Last benefit: ${report.session.last_benefit_summary.summary}`);
+    lines.push(field('Last benefit', report.session.last_benefit_summary.summary, { kind: 'success' }));
   }
   if (report.remediation_summary?.next_step?.label) {
-    lines.push(
-      `Next step: ${report.remediation_summary.next_step.label}` +
-        `${report.remediation_summary.next_step.summary ? ` - ${report.remediation_summary.next_step.summary}` : ''}`
-    );
+    lines.push(field(
+      'Next step',
+      `${report.remediation_summary.next_step.label}` +
+        `${report.remediation_summary.next_step.summary ? ` - ${report.remediation_summary.next_step.summary}` : ''}`,
+      { kind: report.remediation_summary.next_step.execution_mode === 'manual' ? 'warning' : 'info' }
+    ));
   }
   if (report.recommended_action?.resolution_hint) {
-    lines.push(`Guidance: ${report.recommended_action.resolution_hint}`);
+    lines.push(field('Guidance', report.recommended_action.resolution_hint, { kind: 'muted' }));
   }
   if (Array.isArray(report.recommended_action?.command_examples) && report.recommended_action.command_examples.length > 0) {
-    lines.push(`Example command: ${report.recommended_action.command_examples[0]}`);
+    lines.push(field('Example command', command(report.recommended_action.command_examples[0]), { kind: 'command' }));
   }
   return lines.join('\n');
 }
@@ -494,7 +511,18 @@ function main() {
 }
 
 if (require.main === module) {
-  main();
+  try {
+    main();
+  } catch (error) {
+    if (process.stdout.isTTY) {
+      console.log(renderCliError('Context-Anchor Status Report Failed', error.message, {
+        nextStep: 'Check the workspace/session arguments, then rerun status-report.'
+      }));
+    } else {
+      console.log(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+    }
+    process.exit(1);
+  }
 }
 
 module.exports = {

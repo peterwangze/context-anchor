@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const { buildOpenClawSessionStatusReport, renderOpenClawSessionStatusReport } = require('./lib/openclaw-session-status');
+const { renderCliError } = require('./lib/terminal-format');
 
 function parseArgs(argv) {
   const options = {
@@ -72,16 +73,13 @@ function main() {
       console.log(renderOpenClawSessionStatusReport(report));
     }
   } catch (error) {
-    console.log(
-      JSON.stringify(
-        {
-          status: 'error',
-          message: error.message
-        },
-        null,
-        2
-      )
-    );
+    if (process.stdout.isTTY) {
+      console.log(renderCliError('Context-Anchor Session Overview Failed', error.message, {
+        nextStep: 'Check the workspace/openclaw path arguments, then rerun status:sessions.'
+      }));
+    } else {
+      console.log(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+    }
     process.exit(1);
   }
 }

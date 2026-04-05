@@ -14,6 +14,12 @@ const { summarizeCatalogDatabase } = require('./context-anchor-db');
 const { buildRemediationSummary } = require('./remediation-summary');
 const { buildTaskStateSummary } = require('./task-state');
 const {
+  command,
+  field,
+  section,
+  status
+} = require('./terminal-format');
+const {
   classifyMemorySourceHealth,
   summarizeExternalMemorySources
 } = require('../legacy-memory-sync');
@@ -238,7 +244,33 @@ function renderVisibleSummaryLine(label, summaryText, sessionKey) {
   }
 
   const prefix = sessionKey ? `${shorten(sessionKey, 32)} -> ` : '';
-  return `  ${label}: ${prefix}${shorten(summaryText, 180)}`;
+  return field(label, `${prefix}${shorten(summaryText, 180)}`, {
+    indent: 2,
+    kind: label === 'Last benefit' ? 'success' : 'info'
+  });
+}
+
+function summarizeStatusKind(value) {
+  switch (String(value || '').toLowerCase()) {
+    case 'ready':
+    case 'running':
+    case 'on':
+    case 'single_source':
+    case 'ok':
+      return 'success';
+    case 'partial':
+    case 'missing':
+    case 'off':
+    case 'warning':
+    case 'drift_detected':
+    case 'best_effort':
+      return 'warning';
+    case 'unresolved':
+    case 'unknown':
+      return 'muted';
+    default:
+      return 'info';
+  }
 }
 
 function buildSessionRepairStrategy(type) {
@@ -1010,26 +1042,26 @@ function renderSessionRows(sessions) {
 
 function renderCommandSummary(report) {
   const lines = [];
-  lines.push(`Diagnostic command: ${report.commands.diagnostic_command}`);
-  lines.push(`Repair command: ${report.commands.repair_command}`);
-  lines.push(`Recheck command: ${report.commands.recheck_command}`);
+  lines.push(field('Diagnostic command', command(report.commands.diagnostic_command), { kind: 'command' }));
+  lines.push(field('Repair command', command(report.commands.repair_command), { kind: 'command' }));
+  lines.push(field('Recheck command', command(report.commands.recheck_command), { kind: 'command' }));
   const strategyLine = renderRepairStrategy(report.commands.repair_strategy);
   if (strategyLine) {
-    lines.push(strategyLine);
+    lines.push(field('Strategy', strategyLine.replace(/^Strategy:\s*/, ''), { kind: 'info' }));
   }
   const nextStepLine = renderRemediationNextStep(report.remediation_summary);
   if (nextStepLine) {
-    lines.push(nextStepLine);
+    lines.push(field('Next step', nextStepLine.replace(/^Next step:\s*/, ''), { kind: 'info' }));
   }
   if (report.summary.drift_workspaces > 0) {
-    lines.push(`Memory drift detected in ${report.summary.drift_workspaces} workspace(s); prefer the per-workspace repair command shown below.`);
+    lines.push(field('Attention', `Memory drift detected in ${report.summary.drift_workspaces} workspace(s); prefer the per-workspace repair command shown below.`, { kind: 'warning' }));
   }
   if (report.summary.attention_sessions > 0) {
-    lines.push(`Warning: ${report.summary.attention_sessions} session(s) need attention. Run the diagnostic command first, then the repair command.`);
+    lines.push(field('Warning', `${report.summary.attention_sessions} session(s) need attention. Run the diagnostic command first, then the repair command.`, { kind: 'warning' }));
   } else if (report.summary.drift_workspaces > 0) {
-    lines.push('Session linkage looks healthy, but external memory drift still needs attention.');
+    lines.push(field('Status', 'Session linkage looks healthy, but external memory drift still needs attention.', { kind: 'warning' }));
   } else {
-    lines.push('All discovered sessions are healthy.');
+    lines.push(field('Status', 'All discovered sessions are healthy.', { kind: 'success' }));
   }
   return lines;
 }
@@ -1103,58 +1135,77 @@ function renderRemediationGuidance(remediationSummary) {
 
 function renderOpenClawSessionStatusReport(report) {
   const lines = [];
-  lines.push('Context-Anchor Session Overview');
-  lines.push(`OpenClaw home: ${report.openclaw_home}`);
+  lines.push(section('Context-Anchor Session Overview'));
+  lines.push(field('OpenClaw home', report.openclaw_home, { kind: 'muted' }));
   lines.push(
-    `Global install: ${report.global.installation.ready ? 'READY' : 'NOT READY'} | ` +
-      `Hooks: ${report.global.configuration.ready ? 'ON' : 'OFF'} | ` +
-      `Sessions: ${report.summary.total_sessions} | ` +
-      `Workspaces: ${report.summary.workspaces}`
+    field(
+      'Global',
+      `Install ${status(report.global.installation.ready ? 'READY' : 'NOT READY', report.global.installation.ready ? 'success' : 'warning')} | ` +
+        `Hooks ${status(report.global.configuration.ready ? 'ON' : 'OFF', report.global.configuration.ready ? 'success' : 'warning')} | ` +
+        `Sessions ${report.summary.total_sessions} | Workspaces ${report.summary.workspaces}`,
+      { kind: report.global.installation.ready && report.global.configuration.ready ? 'success' : 'warning' }
+    )
   );
   lines.push(
-    `Skill ready sessions: ${report.summary.skill_ready_sessions} | ` +
-      `Overall ready sessions: ${report.summary.ready_sessions} | ` +
-      `Needs attention: ${report.summary.attention_sessions} | ` +
-      `Unresolved: ${report.summary.unresolved_sessions}`
+    field(
+      'Coverage',
+      `Skill ready sessions ${report.summary.skill_ready_sessions} | Overall ready sessions ${report.summary.ready_sessions} | Needs attention ${report.summary.attention_sessions} | Unresolved ${report.summary.unresolved_sessions}`,
+      { kind: report.summary.attention_sessions > 0 ? 'warning' : 'success' }
+    )
   );
   lines.push(
-    `Visible continuity: ${report.summary.task_visible_workspaces} workspace(s) | ` +
-      `Visible benefit: ${report.summary.benefit_visible_workspaces} workspace(s)`
+    field(
+      'Visible continuity',
+      `${report.summary.task_visible_workspaces} workspace(s) | Visible benefit ${report.summary.benefit_visible_workspaces} workspace(s)`,
+      { kind: 'info' }
+    )
   );
   if (report.summary.excluded_subagent_sessions > 0) {
-    lines.push(`Excluded subagent sessions: ${report.summary.excluded_subagent_sessions}`);
+    lines.push(field('Excluded subagent sessions', report.summary.excluded_subagent_sessions, { kind: 'muted' }));
   }
   if (report.summary.excluded_hidden_sessions > 0) {
-    lines.push(`Excluded hidden sessions: ${report.summary.excluded_hidden_sessions}`);
+    lines.push(field('Excluded hidden sessions', report.summary.excluded_hidden_sessions, { kind: 'muted' }));
   }
   lines.push(
-    `Memory sources: SINGLE_SOURCE ${report.summary.single_source_workspaces} | ` +
-      `BEST_EFFORT ${report.summary.best_effort_workspaces} | ` +
-      `DRIFT ${report.summary.drift_workspaces}`
+    field(
+      'Memory sources',
+      `${status('SINGLE_SOURCE', 'success')} ${report.summary.single_source_workspaces} | ` +
+        `${status('BEST_EFFORT', 'warning')} ${report.summary.best_effort_workspaces} | ` +
+        `${status('DRIFT', 'warning')} ${report.summary.drift_workspaces}`,
+      { kind: report.summary.drift_workspaces > 0 ? 'warning' : 'info' }
+    )
   );
   lines.push(...renderCommandSummary(report));
   lines.push('');
 
   for (const group of report.groups) {
-    lines.push(`Workspace: ${group.workspace || 'unresolved'}`);
+    lines.push(section(`Workspace: ${group.workspace || 'unresolved'}`, {
+      kind: group.needs_attention ? 'warning' : 'success'
+    }));
     lines.push(
-      `  Hook: ${group.hook_status.toUpperCase()} | ` +
-        `Monitor: ${group.monitor_status.toUpperCase()} | ` +
-        `Sessions: ${group.session_count} | ` +
-        `Ready: ${group.ready_count} | ` +
-        `Attention: ${group.attention_count}`
+      field(
+        'Runtime',
+        `Hook ${status(group.hook_status.toUpperCase(), summarizeStatusKind(group.hook_status))} | ` +
+          `Monitor ${status(group.monitor_status.toUpperCase(), summarizeStatusKind(group.monitor_status))} | ` +
+          `Sessions ${group.session_count} | Ready ${group.ready_count} | Attention ${group.attention_count}`,
+        { indent: 2, kind: group.attention_count > 0 ? 'warning' : 'success' }
+      )
     );
     lines.push(
-      `  Mirror: ${group.mirror.available ? 'ON' : 'OFF'} | ` +
-        `Collections: ${group.mirror.collections} | ` +
-        `Docs: ${group.mirror.documents} | ` +
-        `Indexed sessions: ${group.mirror.indexed_sessions}`
+      field(
+        'Mirror',
+        `${group.mirror.available ? status('ON', 'success') : status('OFF', 'warning')} | ` +
+          `Collections ${group.mirror.collections} | Docs ${group.mirror.documents} | Indexed sessions ${group.mirror.indexed_sessions}`,
+        { indent: 2, kind: group.mirror.available ? 'success' : 'warning' }
+      )
     );
     lines.push(
-      `  Memory: ${group.memory_sources.health.status.toUpperCase()} | ` +
-        `External: ${group.memory_sources.external_source_count} | ` +
-        `Unsynced: ${group.memory_sources.unsynced_source_count} | ` +
-        `Last sync: ${group.memory_sources.last_legacy_sync_at || '-'}`
+      field(
+        'Memory',
+        `${status(group.memory_sources.health.status.toUpperCase(), summarizeStatusKind(group.memory_sources.health.status))} | ` +
+          `External ${group.memory_sources.external_source_count} | Unsynced ${group.memory_sources.unsynced_source_count} | Last sync ${group.memory_sources.last_legacy_sync_at || '-'}`,
+        { indent: 2, kind: summarizeStatusKind(group.memory_sources.health.status) }
+      )
     );
     const taskStateLine = renderVisibleSummaryLine(
       'Task continuity',
@@ -1173,27 +1224,28 @@ function renderOpenClawSessionStatusReport(report) {
       lines.push(benefitLine);
     }
     if (group.issues.length > 0) {
-      lines.push(`  Issues: ${group.issues.map(describeIssue).join(', ')}`);
-      lines.push(`  Diagnose: ${group.diagnostic_command}`);
-      lines.push(`  Repair: ${group.repair_command}`);
+      lines.push(field('Issues', group.issues.map(describeIssue).join(', '), { indent: 2, kind: 'warning' }));
+      lines.push(field('Diagnose', command(group.diagnostic_command), { indent: 2, kind: 'command' }));
+      lines.push(field('Repair', command(group.repair_command), { indent: 2, kind: 'command' }));
       if (group.follow_up_command) {
-        lines.push(`  Follow-up: ${group.follow_up_command}`);
+        lines.push(field('Follow-up', command(group.follow_up_command), { indent: 2, kind: 'command' }));
       }
-      lines.push(`  Recheck: ${group.recheck_command}`);
+      lines.push(field('Recheck', command(group.recheck_command), { indent: 2, kind: 'command' }));
       const strategyLine = renderRepairStrategy(group.repair_strategy);
       if (strategyLine) {
-        lines.push(`  ${strategyLine}`);
+        lines.push(field('Strategy', strategyLine.replace(/^Strategy:\s*/, ''), { indent: 2, kind: 'info' }));
       }
       const nextStepLine = renderRemediationNextStep(group.remediation_summary);
       if (nextStepLine) {
-        lines.push(`  ${nextStepLine}`);
+        lines.push(field('Next step', nextStepLine.replace(/^Next step:\s*/, ''), { indent: 2, kind: 'info' }));
       }
       renderRemediationGuidance(group.remediation_summary).forEach((line) => {
-        lines.push(`  ${line}`);
+        const [label, ...rest] = line.split(': ');
+        lines.push(field(label, rest.join(': '), { indent: 2, kind: label === 'Example command' ? 'command' : 'muted' }));
       });
       const repairPath = renderRepairSequence(group.repair_sequence);
       if (repairPath) {
-        lines.push(`  Repair path: ${repairPath}`);
+        lines.push(field('Repair path', repairPath, { indent: 2, kind: 'muted' }));
       }
     }
 
@@ -1202,36 +1254,26 @@ function renderOpenClawSessionStatusReport(report) {
     lines.push('');
   }
 
-  lines.push('Legend: READY = linked session state and host registration; PARTIAL = only one side is present; ON = hook is enabled; RUNNING = monitor task is active; DRIFT = external memory files changed after the last central sync.');
+  lines.push(field('Legend', 'READY = linked session state and host registration; PARTIAL = only one side is present; ON = hook is enabled; RUNNING = monitor task is active; DRIFT = external memory files changed after the last central sync.', { kind: 'muted' }));
 
   return lines.join('\n');
 }
 
 function renderOpenClawSessionDiagnosisReport(report) {
   const lines = [];
-  lines.push('Context-Anchor Session Diagnosis');
-  lines.push(`OpenClaw home: ${report.openclaw_home}`);
+  lines.push(section('Context-Anchor Session Diagnosis'));
+  lines.push(field('OpenClaw home', report.openclaw_home, { kind: 'muted' }));
   lines.push(...renderCommandSummary(report));
   lines.push('');
 
   const problemGroups = report.groups.filter((group) => group.issues.length > 0);
   if (problemGroups.length === 0) {
-    lines.push('No session anomalies detected.');
+    lines.push(field('Status', 'No session anomalies detected.', { kind: 'success' }));
     lines.push('');
     for (const group of report.groups) {
-      lines.push(`Workspace: ${group.workspace || 'unresolved'}`);
-      lines.push(
-        `  Mirror: ${group.mirror.available ? 'ON' : 'OFF'} | ` +
-          `Collections: ${group.mirror.collections} | ` +
-          `Docs: ${group.mirror.documents} | ` +
-          `Indexed sessions: ${group.mirror.indexed_sessions}`
-      );
-      lines.push(
-        `  Memory: ${group.memory_sources.health.status.toUpperCase()} | ` +
-          `External: ${group.memory_sources.external_source_count} | ` +
-          `Unsynced: ${group.memory_sources.unsynced_source_count} | ` +
-          `Last sync: ${group.memory_sources.last_legacy_sync_at || '-'}`
-      );
+      lines.push(section(`Workspace: ${group.workspace || 'unresolved'}`, { kind: 'success' }));
+      lines.push(field('Mirror', `${group.mirror.available ? status('ON', 'success') : status('OFF', 'warning')} | Collections ${group.mirror.collections} | Docs ${group.mirror.documents} | Indexed sessions ${group.mirror.indexed_sessions}`, { indent: 2, kind: group.mirror.available ? 'success' : 'warning' }));
+      lines.push(field('Memory', `${status(group.memory_sources.health.status.toUpperCase(), summarizeStatusKind(group.memory_sources.health.status))} | External ${group.memory_sources.external_source_count} | Unsynced ${group.memory_sources.unsynced_source_count} | Last sync ${group.memory_sources.last_legacy_sync_at || '-'}`, { indent: 2, kind: summarizeStatusKind(group.memory_sources.health.status) }));
       const taskStateLine = renderVisibleSummaryLine(
         'Task continuity',
         formatTaskStateDisplay(group.task_state_summary),
@@ -1248,26 +1290,27 @@ function renderOpenClawSessionDiagnosisReport(report) {
       if (benefitLine) {
         lines.push(benefitLine);
       }
-      lines.push(`  Diagnose: ${group.diagnostic_command}`);
-      lines.push(`  Repair: ${group.repair_command}`);
+      lines.push(field('Diagnose', command(group.diagnostic_command), { indent: 2, kind: 'command' }));
+      lines.push(field('Repair', command(group.repair_command), { indent: 2, kind: 'command' }));
       if (group.follow_up_command) {
-        lines.push(`  Follow-up: ${group.follow_up_command}`);
+        lines.push(field('Follow-up', command(group.follow_up_command), { indent: 2, kind: 'command' }));
       }
-      lines.push(`  Recheck: ${group.recheck_command}`);
+      lines.push(field('Recheck', command(group.recheck_command), { indent: 2, kind: 'command' }));
       const strategyLine = renderRepairStrategy(group.repair_strategy);
       if (strategyLine) {
-        lines.push(`  ${strategyLine}`);
+        lines.push(field('Strategy', strategyLine.replace(/^Strategy:\s*/, ''), { indent: 2, kind: 'info' }));
       }
       const nextStepLine = renderRemediationNextStep(group.remediation_summary);
       if (nextStepLine) {
-        lines.push(`  ${nextStepLine}`);
+        lines.push(field('Next step', nextStepLine.replace(/^Next step:\s*/, ''), { indent: 2, kind: 'info' }));
       }
       renderRemediationGuidance(group.remediation_summary).forEach((line) => {
-        lines.push(`  ${line}`);
+        const [label, ...rest] = line.split(': ');
+        lines.push(field(label, rest.join(': '), { indent: 2, kind: label === 'Example command' ? 'command' : 'muted' }));
       });
       const repairPath = renderRepairSequence(group.repair_sequence);
       if (repairPath) {
-        lines.push(`  Repair path: ${repairPath}`);
+        lines.push(field('Repair path', repairPath, { indent: 2, kind: 'muted' }));
       }
       lines.push(...renderSessionRows(group.sessions));
       lines.push('');
@@ -1276,19 +1319,9 @@ function renderOpenClawSessionDiagnosisReport(report) {
   }
 
   for (const group of problemGroups) {
-    lines.push(`Workspace: ${group.workspace || 'unresolved'}`);
-    lines.push(
-      `  Mirror: ${group.mirror.available ? 'ON' : 'OFF'} | ` +
-        `Collections: ${group.mirror.collections} | ` +
-        `Docs: ${group.mirror.documents} | ` +
-        `Indexed sessions: ${group.mirror.indexed_sessions}`
-    );
-    lines.push(
-      `  Memory: ${group.memory_sources.health.status.toUpperCase()} | ` +
-        `External: ${group.memory_sources.external_source_count} | ` +
-        `Unsynced: ${group.memory_sources.unsynced_source_count} | ` +
-        `Last sync: ${group.memory_sources.last_legacy_sync_at || '-'}`
-    );
+    lines.push(section(`Workspace: ${group.workspace || 'unresolved'}`, { kind: 'warning' }));
+    lines.push(field('Mirror', `${group.mirror.available ? status('ON', 'success') : status('OFF', 'warning')} | Collections ${group.mirror.collections} | Docs ${group.mirror.documents} | Indexed sessions ${group.mirror.indexed_sessions}`, { indent: 2, kind: group.mirror.available ? 'success' : 'warning' }));
+    lines.push(field('Memory', `${status(group.memory_sources.health.status.toUpperCase(), summarizeStatusKind(group.memory_sources.health.status))} | External ${group.memory_sources.external_source_count} | Unsynced ${group.memory_sources.unsynced_source_count} | Last sync ${group.memory_sources.last_legacy_sync_at || '-'}`, { indent: 2, kind: summarizeStatusKind(group.memory_sources.health.status) }));
     const taskStateLine = renderVisibleSummaryLine(
       'Task continuity',
       formatTaskStateDisplay(group.task_state_summary),
@@ -1305,27 +1338,28 @@ function renderOpenClawSessionDiagnosisReport(report) {
     if (benefitLine) {
       lines.push(benefitLine);
     }
-    lines.push(`  Issues: ${group.issues.map(describeIssue).join(', ')}`);
-    lines.push(`  Diagnose: ${group.diagnostic_command}`);
-    lines.push(`  Repair: ${group.repair_command}`);
+    lines.push(field('Issues', group.issues.map(describeIssue).join(', '), { indent: 2, kind: 'warning' }));
+    lines.push(field('Diagnose', command(group.diagnostic_command), { indent: 2, kind: 'command' }));
+    lines.push(field('Repair', command(group.repair_command), { indent: 2, kind: 'command' }));
     if (group.follow_up_command) {
-      lines.push(`  Follow-up: ${group.follow_up_command}`);
+      lines.push(field('Follow-up', command(group.follow_up_command), { indent: 2, kind: 'command' }));
     }
-    lines.push(`  Recheck: ${group.recheck_command}`);
+    lines.push(field('Recheck', command(group.recheck_command), { indent: 2, kind: 'command' }));
     const strategyLine = renderRepairStrategy(group.repair_strategy);
     if (strategyLine) {
-      lines.push(`  ${strategyLine}`);
+      lines.push(field('Strategy', strategyLine.replace(/^Strategy:\s*/, ''), { indent: 2, kind: 'info' }));
     }
     const nextStepLine = renderRemediationNextStep(group.remediation_summary);
     if (nextStepLine) {
-      lines.push(`  ${nextStepLine}`);
+      lines.push(field('Next step', nextStepLine.replace(/^Next step:\s*/, ''), { indent: 2, kind: 'info' }));
     }
     renderRemediationGuidance(group.remediation_summary).forEach((line) => {
-      lines.push(`  ${line}`);
+      const [label, ...rest] = line.split(': ');
+      lines.push(field(label, rest.join(': '), { indent: 2, kind: label === 'Example command' ? 'command' : 'muted' }));
     });
     const repairPath = renderRepairSequence(group.repair_sequence);
     if (repairPath) {
-      lines.push(`  Repair path: ${repairPath}`);
+      lines.push(field('Repair path', repairPath, { indent: 2, kind: 'muted' }));
     }
     lines.push(...renderSessionRows(group.sessions));
     lines.push('');

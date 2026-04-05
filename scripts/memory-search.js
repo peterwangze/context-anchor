@@ -576,10 +576,35 @@ function runMemorySearch(workspaceArg, sessionKeyArg, queryArg, options = {}) {
 }
 
 function main() {
-  const result = runMemorySearch(process.argv[2], process.argv[3], process.argv[4], {
-    limit: process.argv[5] ? Number(process.argv[5]) : undefined
-  });
-  console.log(JSON.stringify(result, null, 2));
+  try {
+    const result = runMemorySearch(process.argv[2], process.argv[3], process.argv[4], {
+      limit: process.argv[5] ? Number(process.argv[5]) : undefined
+    });
+    if (process.stdout.isTTY) {
+      const { field, section, status } = require('./lib/terminal-format');
+      const lines = [];
+      lines.push(section('Context-Anchor Memory Search', { kind: result.returned > 0 ? 'success' : 'info' }));
+      lines.push(field('Query', result.query, { kind: 'info' }));
+      lines.push(field('Scope', `Workspace ${result.workspace} | Session ${result.session_key} | Project ${result.project_id} | User ${result.user_id}`, { kind: 'muted' }));
+      lines.push(field('Results', `${status(result.returned, result.returned > 0 ? 'success' : 'info')} returned | ${Number(result.total_candidates || 0)} candidate(s) scanned | tiers ${Array.isArray(result.tiers_searched) ? result.tiers_searched.join(', ') : '-'}`, { kind: result.returned > 0 ? 'success' : 'info' }));
+      (result.results || []).slice(0, 5).forEach((entry, index) => {
+        lines.push(field(`#${index + 1}`, `${entry.scope}/${entry.tier} | ${entry.summary}`, { kind: entry.from_archive ? 'warning' : 'success' }));
+      });
+      console.log(lines.join('\n'));
+    } else {
+      console.log(JSON.stringify(result, null, 2));
+    }
+  } catch (error) {
+    const { renderCliError } = require('./lib/terminal-format');
+    if (process.stdout.isTTY) {
+      console.log(renderCliError('Context-Anchor Memory Search Failed', error.message, {
+        nextStep: 'Check the query and scope arguments, then rerun memory-search.'
+      }));
+    } else {
+      console.log(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+    }
+    process.exit(1);
+  }
 }
 
 if (require.main === module) {

@@ -4,6 +4,7 @@ const {
   buildOpenClawSessionStatusReport,
   renderOpenClawSessionDiagnosisReport
 } = require('./lib/openclaw-session-status');
+const { renderCliError } = require('./lib/terminal-format');
 
 function parseArgs(argv) {
   const options = {
@@ -75,16 +76,13 @@ function main() {
       console.log(renderOpenClawSessionDiagnosisReport(report));
     }
   } catch (error) {
-    console.log(
-      JSON.stringify(
-        {
-          status: 'error',
-          message: error.message
-        },
-        null,
-        2
-      )
-    );
+    if (process.stdout.isTTY) {
+      console.log(renderCliError('Context-Anchor Session Diagnosis Failed', error.message, {
+        nextStep: 'Check the workspace/openclaw path arguments, then rerun diagnose:sessions.'
+      }));
+    } else {
+      console.log(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+    }
     process.exit(1);
   }
 }

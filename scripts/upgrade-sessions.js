@@ -24,6 +24,7 @@ const { buildRemediationSummary } = require('./lib/remediation-summary');
 const { runMirrorRebuild } = require('./mirror-rebuild');
 const { runSessionStart } = require('./session-start');
 const { runStorageGovernance } = require('./storage-governance');
+const { color, command, field, renderCliError, section, status, tag } = require('./lib/terminal-format');
 
 function parseArgs(argv) {
   const options = {
@@ -38,7 +39,8 @@ function parseArgs(argv) {
     runGovernance: false,
     memoryTakeover: undefined,
     governanceMode: null,
-    governancePrune: undefined
+    governancePrune: undefined,
+    json: false
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -113,6 +115,11 @@ function parseArgs(argv) {
       const rawValue = String(argv[index + 1] || '').trim();
       options.governancePrune = !(rawValue === '0' || /^false$/i.test(rawValue));
       index += 1;
+      continue;
+    }
+
+    if (arg === '--json') {
+      options.json = true;
       continue;
     }
   }
@@ -416,6 +423,15 @@ function formatCandidateLabel(workspace, sessionKey) {
 }
 
 function createCliProgressReporter(stream = process.stderr) {
+  function prefix(kind = 'info') {
+    return `${tag('upgrade', kind)} `;
+  }
+
+  function accent(text, kind = 'info') {
+    const tone = kind === 'warning' ? 'yellow' : kind === 'success' ? 'green' : 'cyan';
+    return color(text, tone);
+  }
+
   return (event = {}) => {
     if (!stream || typeof stream.write !== 'function') {
       return;
@@ -425,41 +441,41 @@ function createCliProgressReporter(stream = process.stderr) {
 
     switch (event.type) {
       case 'scan:start':
-        line = '[upgrade] scanning registered and discovered sessions';
+        line = `${prefix()}scanning ${accent('registered and discovered sessions')}`;
         break;
       case 'scan:done':
-        line = `[upgrade] selected ${event.selected || 0} session(s) for processing${
+        line = `${prefix()}selected ${status(event.selected || 0, 'info')} session(s) for processing${
           event.excluded_subagent_sessions ? `, skipped ${event.excluded_subagent_sessions} subagent session(s)` : ''
         }${
           event.excluded_hidden_sessions ? `, skipped ${event.excluded_hidden_sessions} hidden session(s)` : ''
         }`;
         break;
       case 'session:start':
-        line = `[upgrade] session ${event.index}/${event.total}: ${formatCandidateLabel(event.workspace, event.session_key)}`;
+        line = `${prefix()}session ${status(`${event.index}/${event.total}`, 'info')}: ${accent(formatCandidateLabel(event.workspace, event.session_key))}`;
         break;
       case 'session:done':
-        line = `[upgrade] session ${event.index}/${event.total}: ${event.action} ${formatCandidateLabel(event.workspace, event.session_key)}${event.reason ? ` (${event.reason})` : ''}`;
+        line = `${prefix(event.action === 'upgraded' ? 'success' : event.action === 'unresolved' ? 'warning' : 'info')}session ${status(`${event.index}/${event.total}`, 'info')}: ${accent(event.action, event.action === 'upgraded' ? 'success' : event.action === 'unresolved' ? 'warning' : 'info')} ${formatCandidateLabel(event.workspace, event.session_key)}${event.reason ? ` (${event.reason})` : ''}`;
         break;
       case 'mirror:start':
-        line = '[upgrade] mirror rebuild: starting';
+        line = `${prefix()}mirror rebuild: ${accent('starting')}`;
         break;
       case 'mirror:done':
-        line = `[upgrade] mirror rebuild: done workspaces=${(event.result?.workspaces_processed || []).length} users=${(event.result?.users_processed || []).length}`;
+        line = `${prefix('success')}mirror rebuild: ${accent('done', 'success')} workspaces=${(event.result?.workspaces_processed || []).length} users=${(event.result?.users_processed || []).length}`;
         break;
       case 'governance:start':
-        line = `[upgrade] governance: running ${event.total || 0} target(s)`;
+        line = `${prefix()}governance: running ${status(event.total || 0, 'info')} target(s)`;
         break;
       case 'governance:target:start':
-        line = `[upgrade] governance ${event.index}/${event.total}: ${formatCandidateLabel(event.workspace, event.session_key)}`;
+        line = `${prefix()}governance ${status(`${event.index}/${event.total}`, 'info')}: ${accent(formatCandidateLabel(event.workspace, event.session_key))}`;
         break;
       case 'governance:target:done':
-        line = `[upgrade] governance ${event.index}/${event.total}: archived=${event.result?.totals?.archived || 0} pruned=${event.result?.totals?.pruned || 0}`;
+        line = `${prefix('success')}governance ${status(`${event.index}/${event.total}`, 'info')}: archived=${event.result?.totals?.archived || 0} pruned=${event.result?.totals?.pruned || 0}`;
         break;
       case 'finish':
-        line = `[upgrade] complete upgraded=${event.upgraded_sessions || 0} skipped=${event.skipped_sessions || 0} unresolved=${event.unresolved_sessions || 0}${event.strategy_label ? ` | strategy=${event.strategy_label}` : ''}${event.next_step_label ? ` | next=${event.next_step_label}` : ''}`;
+        line = `${prefix(event.unresolved_sessions > 0 ? 'warning' : 'success')}complete upgraded=${status(event.upgraded_sessions || 0, 'success')} skipped=${event.skipped_sessions || 0} unresolved=${status(event.unresolved_sessions || 0, event.unresolved_sessions > 0 ? 'warning' : 'success')}${event.strategy_label ? ` | strategy=${event.strategy_label}` : ''}${event.next_step_label ? ` | next=${event.next_step_label}` : ''}`;
         break;
       case 'verification:strategy':
-        line = `[upgrade] verification strategy: ${event.label}${event.summary ? ` - ${event.summary}` : ''}`;
+        line = `${prefix()}verification strategy: ${accent(event.label)}${event.summary ? ` - ${event.summary}` : ''}`;
         break;
       default:
         break;
@@ -748,6 +764,45 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
   return summary;
 }
 
+function renderUpgradeReport(result) {
+  const lines = [];
+  const verification = result.verification || {};
+  const verificationKind =
+    verification.status === 'verified'
+      ? 'success'
+      : verification.status === 'needs_attention'
+      ? 'warning'
+      : 'info';
+
+  lines.push(section('Context-Anchor Session Upgrade', { kind: verificationKind }));
+  lines.push(field('Status', status(String(result.status || 'ok').toUpperCase(), verificationKind), { kind: verificationKind }));
+  lines.push(
+    field(
+      'Selection',
+      `Selected ${Number(result.selected_sessions || 0)} | Upgraded ${status(Number(result.upgraded_sessions || 0), Number(result.upgraded_sessions || 0) > 0 ? 'success' : 'info')} | Skipped ${Number(result.skipped_sessions || 0)} | Unresolved ${status(Number(result.unresolved_sessions || 0), Number(result.unresolved_sessions || 0) > 0 ? 'warning' : 'success')}`,
+      { kind: Number(result.unresolved_sessions || 0) > 0 ? 'warning' : 'success' }
+    )
+  );
+  if (result.excluded_subagent_sessions || result.excluded_hidden_sessions) {
+    lines.push(field('Filtered', `Subagents ${Number(result.excluded_subagent_sessions || 0)} | Hidden ${Number(result.excluded_hidden_sessions || 0)}`, { kind: 'muted' }));
+  }
+  lines.push(
+    field(
+      'Verification',
+      `${status(String(verification.status || 'unknown').toUpperCase(), verificationKind)}${verification.summary ? ` | ${verification.summary}` : ''}`,
+      { kind: verificationKind }
+    )
+  );
+  if (verification.recheck_command) {
+    lines.push(field('Recheck', command(verification.recheck_command), { kind: 'command' }));
+  }
+  if (verification.remediation_summary?.next_step?.label) {
+    lines.push(field('Next step', `${verification.remediation_summary.next_step.label}${verification.remediation_summary.next_step.summary ? ` - ${verification.remediation_summary.next_step.summary}` : ''}`, { kind: verification.remediation_summary.next_step.execution_mode === 'manual' ? 'warning' : 'info' }));
+  }
+
+  return lines.join('\n');
+}
+
 async function main() {
   try {
     const options = parseArgs(process.argv.slice(2));
@@ -771,18 +826,19 @@ async function main() {
       memoryTakeover,
       progress: createCliProgressReporter(process.stderr)
     });
-    console.log(JSON.stringify(result, null, 2));
+    if (options.json || !process.stdout.isTTY) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(renderUpgradeReport(result));
+    }
   } catch (error) {
-    console.log(
-      JSON.stringify(
-        {
-          status: 'error',
-          message: error.message
-        },
-        null,
-        2
-      )
-    );
+    if (process.stdout.isTTY) {
+      console.log(renderCliError('Context-Anchor Session Upgrade Failed', error.message, {
+        nextStep: 'Review the upgrade arguments, then rerun upgrade:sessions.'
+      }));
+    } else {
+      console.log(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+    }
     process.exit(1);
   }
 }
@@ -796,5 +852,6 @@ module.exports = {
   createCliProgressReporter,
   main,
   parseArgs,
+  renderUpgradeReport,
   runUpgradeSessions
 };

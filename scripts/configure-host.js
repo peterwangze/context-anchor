@@ -21,6 +21,7 @@ const {
   upsertWorkspace,
   writeHostConfig
 } = require('./lib/host-config');
+const { command, color, field, renderCliError, section, status, tag } = require('./lib/terminal-format');
 
 const DEFAULT_INTERVAL_MINUTES = 5;
 const SUPPORTED_SCHEDULER_PLATFORMS = ['windows', 'macos', 'linux'];
@@ -30,6 +31,7 @@ function parseArgs(argv) {
     openclawHome: null,
     skillsRoot: null,
     assumeYes: false,
+    json: false,
     applyConfig: undefined,
     memoryTakeover: undefined,
     enableScheduler: undefined,
@@ -60,6 +62,11 @@ function parseArgs(argv) {
 
     if (arg === '--yes') {
       options.assumeYes = true;
+      continue;
+    }
+
+    if (arg === '--json') {
+      options.json = true;
       continue;
     }
 
@@ -400,17 +407,21 @@ function buildRecommendedConfig(paths) {
 
 function buildMemoryTakeoverPrompt(paths) {
   return [
-    '[Recommended] Let context-anchor take over memory management for this OpenClaw profile?',
+    `${tag('Recommended', 'success')} Let context-anchor take over memory management for this OpenClaw profile?`,
     '',
-    `This will update ${paths.config_file} so managed hooks stay enabled and context-anchor remains loadable for this profile.`,
+    `${color('This will update', 'cyan')} ${paths.config_file} so managed hooks stay enabled and context-anchor remains loadable for this profile.`,
     '',
-    'If you do NOT enable this:',
+    `${tag('Warning', 'warning')} If you do NOT enable this:`,
     '- some models or profiles may continue writing their own MEMORY.md or private memory files',
     '- memory may stay fragmented across multiple sources instead of one canonical context-anchor state',
     '- continuity restore, experience accumulation, and later retrieval may be incomplete',
     '',
-    'Enable memory takeover now?'
+    `${color('Enable memory takeover now?', 'cyan')}`
   ].join('\n');
+}
+
+function formatInteractivePrompt(prompt) {
+  return `${tag('input', 'info')} ${prompt}`;
 }
 
 function backupConfigFile(configFile) {
@@ -801,7 +812,7 @@ function askYesNo(prompt, defaultYes = true, ask = null) {
   });
 
   return new Promise((resolve) => {
-    rl.question(`${prompt}${suffix}`, (answer) => {
+    rl.question(`${formatInteractivePrompt(prompt)}${suffix}`, (answer) => {
       rl.close();
       const normalized = String(answer || '').trim().toLowerCase();
       if (!normalized) {
@@ -825,7 +836,7 @@ function askText(prompt, defaultValue = '', ask = null) {
   });
 
   return new Promise((resolve) => {
-    rl.question(prompt, (answer) => {
+    rl.question(formatInteractivePrompt(prompt), (answer) => {
       rl.close();
       const normalized = String(answer || '').trim();
       resolve(normalized || defaultValue);
@@ -1158,22 +1169,88 @@ async function runConfigureHost(openClawHomeArg, skillsRootArg, options = {}) {
   };
 }
 
+function renderConfigureHostReport(result) {
+  const lines = [];
+  const verification = result.verification || {};
+  const takeoverMode = result.memory_takeover?.mode || 'best_effort';
+  const verificationKind =
+    verification.status === 'verified'
+      ? 'success'
+      : verification.status === 'needs_attention'
+      ? 'warning'
+      : 'info';
+  const takeoverKind = takeoverMode === 'enforced' ? 'success' : 'warning';
+  const schedulerKind =
+    result.scheduler?.status === 'registered'
+      ? 'success'
+      : result.scheduler?.status === 'prepared'
+      ? 'info'
+      : result.scheduler?.status === 'skipped'
+      ? 'muted'
+      : 'warning';
+
+  lines.push(section('Context-Anchor Host Configuration', { kind: verificationKind }));
+  lines.push(field('Status', status(String(result.status || 'configured').toUpperCase(), verificationKind), { kind: verificationKind }));
+  lines.push(
+    field(
+      'Memory takeover',
+      `${status(String(takeoverMode).toUpperCase(), takeoverKind)}${takeoverMode === 'best_effort' ? ' | some model paths may still bypass context-anchor' : ''}`,
+      { kind: takeoverKind }
+    )
+  );
+  lines.push(
+    field(
+      'Verification',
+      `${status(String(verification.status || 'unknown').toUpperCase(), verificationKind)}${verification.summary ? ` | ${verification.summary}` : ''}`,
+      { kind: verificationKind }
+    )
+  );
+  lines.push(
+    field(
+      'Scheduler',
+      `${status(String(result.scheduler?.status || 'unknown').toUpperCase(), schedulerKind)}${result.scheduler?.mode ? ` | mode ${result.scheduler.mode}` : ''}${result.scheduler?.workspace ? ` | workspace ${result.scheduler.workspace}` : ''}`,
+      { kind: schedulerKind }
+    )
+  );
+  if (Array.isArray(result.memory_takeover?.limitations) && result.memory_takeover.limitations.length > 0) {
+    lines.push(field('Limitation', result.memory_takeover.limitations[0], { kind: 'warning' }));
+  }
+  if (verification.remediation_summary?.next_step?.label) {
+    lines.push(
+      field(
+        'Next step',
+        `${verification.remediation_summary.next_step.label}${verification.remediation_summary.next_step.summary ? ` - ${verification.remediation_summary.next_step.summary}` : ''}`,
+        { kind: verification.remediation_summary.next_step.execution_mode === 'manual' ? 'warning' : 'info' }
+      )
+    );
+  }
+  if (verification.recheck_command) {
+    lines.push(field('Recheck', command(verification.recheck_command), { kind: 'command' }));
+  }
+  lines.push('');
+  lines.push(field('Config file', result.paths?.config_file || '-', { kind: 'muted' }));
+  lines.push(field('OpenClaw home', result.paths?.openclaw_home || '-', { kind: 'muted' }));
+
+  return lines.join('\n');
+}
+
 async function main() {
   try {
     const options = parseArgs(process.argv.slice(2));
     const result = await runConfigureHost(options.openclawHome, options.skillsRoot, options);
-    console.log(JSON.stringify(result, null, 2));
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(renderConfigureHostReport(result));
+    }
   } catch (error) {
-    console.log(
-      JSON.stringify(
-        {
-          status: 'error',
-          message: error.message
-        },
-        null,
-        2
-      )
-    );
+    if (options?.json || !process.stdout.isTTY) {
+      console.log(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+    } else {
+      console.log(renderCliError('Context-Anchor Host Configuration Failed', error.message, {
+        nextStep: 'Review the prompt answers or path arguments, then rerun configure:host.'
+      }));
+    }
     process.exit(1);
   }
 }
@@ -1192,6 +1269,7 @@ module.exports = {
   detectSchedulerPlatform,
   normalizeSchedulerPlatform,
   parseWorkspaceSpec,
+  renderConfigureHostReport,
   registerScheduler,
   runConfigureHost
 };

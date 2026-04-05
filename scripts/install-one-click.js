@@ -6,6 +6,7 @@ const readline = require('readline');
 const { getOpenClawHome } = require('./lib/context-anchor');
 const { runConfigureHost } = require('./configure-host');
 const { runInstallHostAssets } = require('./install-host-assets');
+const { color, command, field, renderCliError, section, status, tag } = require('./lib/terminal-format');
 const { runMirrorRebuild } = require('./mirror-rebuild');
 const { runUpgradeSessions } = require('./upgrade-sessions');
 
@@ -32,7 +33,8 @@ function parseArgs(argv) {
     includeClosedSessions: false,
     runGovernance: undefined,
     governanceMode: null,
-    governancePrune: undefined
+    governancePrune: undefined,
+    json: false
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -191,6 +193,11 @@ function parseArgs(argv) {
     if (arg === '--interval-minutes') {
       options.intervalMinutes = argv[index + 1] || null;
       index += 1;
+      continue;
+    }
+
+    if (arg === '--json') {
+      options.json = true;
     }
   }
 
@@ -208,6 +215,15 @@ function emitProgress(progress, event) {
 }
 
 function createCliProgressReporter(stream = process.stderr) {
+  function prefix(kind = 'info') {
+    return `${tag('install', kind)} `;
+  }
+
+  function accent(text, kind = 'info') {
+    const tone = kind === 'warning' ? 'yellow' : kind === 'success' ? 'green' : 'cyan';
+    return color(text, tone);
+  }
+
   return (event = {}) => {
     if (!stream || typeof stream.write !== 'function') {
       return;
@@ -216,31 +232,31 @@ function createCliProgressReporter(stream = process.stderr) {
     let line = null;
     switch (event.type) {
       case 'install:start':
-        line = '[install] preparing reinstall flow';
+        line = `${prefix()}preparing ${accent('reinstall flow')}`;
         break;
       case 'install:assets:start':
-        line = '[install] installing host assets';
+        line = `${prefix()}installing ${accent('host assets')}`;
         break;
       case 'install:assets:done':
-        line = '[install] host assets installed';
+        line = `${prefix('success')}${accent('host assets installed', 'success')}`;
         break;
       case 'install:config:start':
-        line = '[install] applying host configuration';
+        line = `${prefix()}applying ${accent('host configuration')}`;
         break;
       case 'install:config:done':
-        line = `[install] host configuration ${event.status || 'completed'}${event.strategy_labels?.length ? ` | strategies=${event.strategy_labels.join(', ')}` : ''}${event.next_step_label ? ` | next=${event.next_step_label}` : ''}`;
+        line = `${prefix(event.status === 'needs_attention' ? 'warning' : 'success')}host configuration ${status(event.status || 'completed', event.status === 'needs_attention' ? 'warning' : 'success')}${event.strategy_labels?.length ? ` | strategies=${event.strategy_labels.join(', ')}` : ''}${event.next_step_label ? ` | next=${event.next_step_label}` : ''}`;
         break;
       case 'install:upgrade:start':
-        line = '[install] running session upgrade chain';
+        line = `${prefix()}running ${accent('session upgrade chain')}`;
         break;
       case 'install:upgrade:done':
-        line = `[install] session upgrade chain completed upgraded=${event.upgraded_sessions || 0}${event.strategy_labels?.length ? ` | strategies=${event.strategy_labels.join(', ')}` : ''}${event.next_step_label ? ` | next=${event.next_step_label}` : ''}`;
+        line = `${prefix('success')}session upgrade chain completed upgraded=${status(event.upgraded_sessions || 0, 'success')}${event.strategy_labels?.length ? ` | strategies=${event.strategy_labels.join(', ')}` : ''}${event.next_step_label ? ` | next=${event.next_step_label}` : ''}`;
         break;
       case 'install:mirror:start':
-        line = '[install] running mirror rebuild';
+        line = `${prefix()}running ${accent('mirror rebuild')}`;
         break;
       case 'install:mirror:done':
-        line = '[install] mirror rebuild completed';
+        line = `${prefix('success')}${accent('mirror rebuild completed', 'success')}`;
         break;
       default:
         if (String(event.type || '').startsWith('upgrade:')) {
@@ -772,6 +788,59 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
   };
 }
 
+function renderInstallReport(result) {
+  const lines = [];
+  const verification = result.verification || {};
+  const verificationKind =
+    verification.status === 'verified'
+      ? 'success'
+      : verification.status === 'needs_attention'
+      ? 'warning'
+      : 'info';
+  const upgradedSessions = Number(result.session_upgrade?.upgraded_sessions || 0);
+  const unresolvedSessions = Number(result.session_upgrade?.unresolved_sessions || 0);
+
+  lines.push(section('Context-Anchor Installation', { kind: verificationKind }));
+  lines.push(field('Status', status(String(result.status || 'installed').toUpperCase(), verificationKind), { kind: verificationKind }));
+  lines.push(
+    field(
+      'Install flow',
+      `Previous install ${result.previous_install_detected ? 'yes' : 'no'} | Previous memory ${result.previous_memory_detected ? 'yes' : 'no'} | Preserved memory ${result.preserved_memories ? 'yes' : 'no'}`,
+      { kind: 'info' }
+    )
+  );
+  lines.push(
+    field(
+      'Verification',
+      `${status(String(verification.status || 'unknown').toUpperCase(), verificationKind)}${verification.summary ? ` | ${verification.summary}` : ''}`,
+      { kind: verificationKind }
+    )
+  );
+  if (result.session_upgrade) {
+    lines.push(
+      field(
+        'Session upgrade',
+        `Upgraded ${status(upgradedSessions, upgradedSessions > 0 ? 'success' : 'info')} | Skipped ${Number(result.session_upgrade.skipped_sessions || 0)} | Unresolved ${status(unresolvedSessions, unresolvedSessions > 0 ? 'warning' : 'success')}`,
+        { kind: unresolvedSessions > 0 ? 'warning' : 'success' }
+      )
+    );
+  }
+  if (verification.recheck_command) {
+    lines.push(field('Recheck', command(verification.recheck_command), { kind: 'command' }));
+  }
+  if (verification.remediation_summary?.next_step?.label) {
+    lines.push(
+      field(
+        'Next step',
+        `${verification.remediation_summary.next_step.label}${verification.remediation_summary.next_step.summary ? ` - ${verification.remediation_summary.next_step.summary}` : ''}`,
+        { kind: verification.remediation_summary.next_step.execution_mode === 'manual' ? 'warning' : 'info' }
+      )
+    );
+  }
+
+  return lines.join('\n');
+}
+
 async function main() {
   try {
     const options = parseArgs(process.argv.slice(2));
@@ -779,18 +848,19 @@ async function main() {
       ...options,
       progress: createCliProgressReporter(process.stderr)
     });
-    console.log(JSON.stringify(result, null, 2));
+    if (options.json || !process.stdout.isTTY) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(renderInstallReport(result));
+    }
   } catch (error) {
-    console.log(
-      JSON.stringify(
-        {
-          status: 'error',
-          message: error.message
-        },
-        null,
-        2
-      )
-    );
+    if (process.stdout.isTTY) {
+      console.log(renderCliError('Context-Anchor Installation Failed', error.message, {
+        nextStep: 'Review the install arguments, then rerun install:host.'
+      }));
+    } else {
+      console.log(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+    }
     process.exit(1);
   }
 }
@@ -803,5 +873,6 @@ module.exports = {
   cleanupPreviousInstall,
   createCliProgressReporter,
   detectExistingState,
+  renderInstallReport,
   runOneClickInstall
 };

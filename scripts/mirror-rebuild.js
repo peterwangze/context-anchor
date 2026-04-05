@@ -37,12 +37,14 @@ const {
 const { syncCollectionMirror, syncDocumentMirror } = require('./lib/context-anchor-db');
 const { discoverOpenClawSessions } = require('./lib/openclaw-session-discovery');
 const { readHostConfig } = require('./lib/host-config');
+const { field, renderCliError, section, status } = require('./lib/terminal-format');
 
 function parseArgs(argv) {
   const options = {
     openclawHome: null,
     workspace: null,
-    userId: null
+    userId: null,
+    json: false
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -63,6 +65,11 @@ function parseArgs(argv) {
     if (arg === '--user-id') {
       options.userId = argv[index + 1] || null;
       index += 1;
+      continue;
+    }
+
+    if (arg === '--json') {
+      options.json = true;
     }
   }
 
@@ -261,10 +268,52 @@ function runMirrorRebuild(workspaceArg, openClawHomeArg, options = {}) {
   }
 }
 
+function renderMirrorRebuildReport(result) {
+  const lines = [];
+  const hasInvalid = Array.isArray(result.invalid) && result.invalid.length > 0;
+  const kind = hasInvalid ? 'warning' : 'success';
+  lines.push(section('Context-Anchor Mirror Rebuild', { kind }));
+  lines.push(field('Status', status(String(result.status || 'ok').toUpperCase(), kind), { kind }));
+  lines.push(field('OpenClaw home', result.openclaw_home, { kind: 'muted' }));
+  lines.push(
+    field(
+      'Processed',
+      `Workspaces ${Number(result.workspaces_processed?.length || 0)} | Users ${Number(result.users_processed?.length || 0)} | Collections ${Number(result.collections_synced || 0)} | Documents ${Number(result.documents_synced || 0)} | Indexed items ${Number(result.indexed_items || 0)}`,
+      { kind: 'info' }
+    )
+  );
+  lines.push(
+    field(
+      'Skipped',
+      `Workspaces ${Number(result.skipped_workspaces?.length || 0)} | Users ${Number(result.skipped_users?.length || 0)} | Files ${Number(result.skipped || 0)}`,
+      { kind: 'muted' }
+    )
+  );
+  if (hasInvalid) {
+    lines.push(field('Invalid', `${result.invalid.length} file(s) could not be mirrored`, { kind: 'warning' }));
+  }
+  return lines.join('\n');
+}
+
 function main() {
-  const options = parseArgs(process.argv.slice(2));
-  const result = runMirrorRebuild(options.workspace, options.openclawHome, options);
-  console.log(JSON.stringify(result, null, 2));
+  try {
+    const options = parseArgs(process.argv.slice(2));
+    const result = runMirrorRebuild(options.workspace, options.openclawHome, options);
+    if (options.json || !process.stdout.isTTY) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(renderMirrorRebuildReport(result));
+    }
+  } catch (error) {
+    if (process.stdout.isTTY) {
+      console.log(renderCliError('Context-Anchor Mirror Rebuild Failed', error.message, {
+        nextStep: 'Check the workspace/OpenClaw paths, then rerun mirror-rebuild.'
+      }));
+    } else {
+      console.log(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+    }
+    process.exit(1);
+  }
 }
 
 if (require.main === module) {
@@ -274,5 +323,6 @@ if (require.main === module) {
 module.exports = {
   main,
   parseArgs,
+  renderMirrorRebuildReport,
   runMirrorRebuild
 };

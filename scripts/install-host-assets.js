@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { field, renderCliError, section, status } = require('./lib/terminal-format');
 const {
   copyDir,
   ensureDir,
@@ -154,9 +155,36 @@ const { runExternalMemoryWatch } = require(${JSON.stringify(
   };
 }
 
+function renderInstallHostAssetsReport(result) {
+  const lines = [];
+  lines.push(section('Context-Anchor Host Assets', { kind: 'success' }));
+  lines.push(field('Status', status(String(result.status || 'installed').toUpperCase(), 'success'), { kind: 'success' }));
+  lines.push(field('OpenClaw home', result.openclaw_home, { kind: 'muted' }));
+  lines.push(field('Skills root', result.skills_root, { kind: 'muted' }));
+  lines.push(field('Installed skill', result.installed_skill_dir, { kind: 'info' }));
+  lines.push(field('Hook wrapper', result.hook_handler, { kind: 'info' }));
+  lines.push(field('Automation dir', result.automation_dir, { kind: 'info' }));
+  return lines.join('\n');
+}
+
 function main() {
-  const result = runInstallHostAssets(process.argv[2], process.argv[3]);
-  console.log(JSON.stringify(result, null, 2));
+  try {
+    const result = runInstallHostAssets(process.argv[2], process.argv[3]);
+    if (process.stdout.isTTY) {
+      console.log(renderInstallHostAssetsReport(result));
+    } else {
+      console.log(JSON.stringify(result, null, 2));
+    }
+  } catch (error) {
+    if (process.stdout.isTTY) {
+      console.log(renderCliError('Context-Anchor Host Assets Failed', error.message, {
+        nextStep: 'Check the OpenClaw home and skills root paths, then rerun install-host-assets.'
+      }));
+    } else {
+      console.log(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+    }
+    process.exit(1);
+  }
 }
 
 if (require.main === module) {
@@ -164,5 +192,6 @@ if (require.main === module) {
 }
 
 module.exports = {
+  renderInstallHostAssetsReport,
   runInstallHostAssets
 };
