@@ -184,6 +184,96 @@ function appendBootstrapFile(event, name, filePath, content) {
   return true;
 }
 
+function summarizeHeartbeatHookResult(result = {}) {
+  return {
+    status: result.status || 'heartbeat_ok',
+    session_key: result.session_key || null,
+    project_id: result.project_id || null,
+    captured_summary: result.captured_summary || null,
+    legacy_memory_sync: result.legacy_memory_sync
+      ? {
+          synced_entries: Number(result.legacy_memory_sync.synced_entries || 0),
+          synced_files: Number(result.legacy_memory_sync.synced_files || 0),
+          skipped_files: Number(result.legacy_memory_sync.skipped_files || 0)
+        }
+      : null,
+    session_experiences: result.session_experiences
+      ? {
+          created: Number(result.session_experiences.created || 0),
+          updated: Number(result.session_experiences.updated || 0),
+          archived: Number(result.session_experiences.archived || 0)
+        }
+      : null,
+    promotions: result.promotions
+      ? {
+          project_promotions: Number(result.promotions.project_promotions || 0),
+          user_promotions: Number(result.promotions.user_promotions || 0)
+        }
+      : null,
+    reconcile: result.reconcile
+      ? {
+          project_archived: Number(result.reconcile.project_archived || 0),
+          user_archived: Number(result.reconcile.user_archived || 0),
+          project_reactivated: Number(result.reconcile.project_reactivated || 0),
+          user_reactivated: Number(result.reconcile.user_reactivated || 0)
+        }
+      : null,
+    governance: result.governance
+      ? {
+          active_after: Number(result.governance.totals?.active_after || 0),
+          archive_after: Number(result.governance.totals?.archive_after || 0),
+          archived: Number(result.governance.totals?.archived || 0),
+          pruned: Number(result.governance.totals?.pruned || 0)
+        }
+      : null,
+    pressure: result.pressure
+      ? {
+          status: result.pressure.status || null,
+          requires_compact: Boolean(result.pressure.requires_compact)
+        }
+      : null
+  };
+}
+
+function summarizeCompactHookResult(result = {}) {
+  return {
+    status: result.status || 'handled',
+    phase: result.phase || null,
+    session_key: result.session_key || null,
+    project_id: result.project_id || null,
+    user_id: result.user_id || null,
+    actions: Array.isArray(result.actions) ? result.actions : [],
+    heartbeat: result.heartbeat ? summarizeHeartbeatHookResult(result.heartbeat) : null,
+    legacy_memory_sync: result.legacy_memory_sync
+      ? {
+          synced_entries: Number(result.legacy_memory_sync.synced_entries || 0),
+          synced_files: Number(result.legacy_memory_sync.synced_files || 0)
+        }
+      : null,
+    session_experience_sync: result.session_experience_sync
+      ? {
+          created: Number(result.session_experience_sync.created || 0),
+          updated: Number(result.session_experience_sync.updated || 0),
+          archived: Number(result.session_experience_sync.archived || 0)
+        }
+      : null,
+    skill_draft: result.skill_draft
+      ? {
+          status: result.skill_draft.status || null,
+          skill_name: result.skill_draft.skill_name || null
+        }
+      : null,
+    compact: result.compact
+      ? {
+          status: result.compact.status || null,
+          compact_packet_file: result.compact.compact_packet_file || null
+        }
+      : null,
+    bootstrap: result.bootstrap || null,
+    task_state_summary: result.task_state_summary ? buildTaskStateSummary(result.task_state_summary) : null
+  };
+}
+
 function resolveManagedEventKey(event = {}) {
   if (!event?.type || !event?.action) {
     return null;
@@ -437,12 +527,12 @@ function handleManagedCompact(event) {
     status: 'handled',
     event: resolveManagedEventKey(event),
     actions: [`compact_${phase}`],
-    result: runSessionCompact(normalizedPayload.workspace, normalizedPayload.session_key, {
+    result: summarizeCompactHookResult(runSessionCompact(normalizedPayload.workspace, normalizedPayload.session_key, {
       phase,
       projectId: normalizedPayload.project_id,
       userId: normalizedPayload.user_id,
       eventContext: event.context || {}
-    })
+    }))
   };
 }
 
@@ -457,7 +547,7 @@ function handleHeartbeat(payload) {
     status: 'handled',
     event: 'heartbeat',
     actions: ['heartbeat'],
-    result: runHeartbeat(
+    result: summarizeHeartbeatHookResult(runHeartbeat(
       normalizedPayload.workspace,
       normalizedPayload.session_key,
       normalizedPayload.project_id,
@@ -465,7 +555,7 @@ function handleHeartbeat(payload) {
       {
         userId: normalizedPayload.user_id
       }
-    )
+    ))
   };
 }
 

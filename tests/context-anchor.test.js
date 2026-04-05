@@ -2310,6 +2310,8 @@ test('unregistered workspace auto-registers by default and continues hook handli
       assert.equal(startup.status, 'idle');
       assert.equal(heartbeat.status, 'handled');
       assert.equal(heartbeat.result.status, 'heartbeat_ok');
+      assert.equal(Object.prototype.hasOwnProperty.call(heartbeat.result, 'flow'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(heartbeat.result, 'heat'), false);
       assert.ok(
         hostConfig.workspaces.some(
           (entry) =>
@@ -4952,6 +4954,7 @@ test('managed compact hooks persist checkpoint before compaction and refresh com
       assert.equal(beforeResult.status, 'handled');
       assert.equal(beforeResult.result.phase, 'before');
       assert.equal(beforeResult.result.heartbeat.session_experiences.created, 1);
+      assert.equal(Object.prototype.hasOwnProperty.call(beforeResult.result.heartbeat, 'flow'), false);
       assert.ok(
         fs.existsSync(path.join(workspace, '.context-anchor', 'sessions', 'compact-hook', 'checkpoint.md'))
       );
@@ -4984,10 +4987,15 @@ test('managed compact hooks persist checkpoint before compaction and refresh com
         path.join(workspace, '.context-anchor', 'sessions', 'compact-hook', 'skills', 'index.json'),
         { skills: [] }
       ).skills;
+      const bootstrapContent = fs.readFileSync(
+        path.join(workspace, '.context-anchor', 'sessions', 'compact-hook', 'openclaw-bootstrap.md'),
+        'utf8'
+      );
 
       assert.equal(afterResult.status, 'handled');
       assert.equal(afterResult.result.phase, 'after');
       assert.equal(afterResult.result.skill_draft.status, 'created');
+      assert.equal(Object.prototype.hasOwnProperty.call(afterResult.result, 'runtime_state'), false);
       assert.ok(
         fs.existsSync(path.join(workspace, '.context-anchor', 'sessions', 'compact-hook', 'compact-packet.json'))
       );
@@ -4996,6 +5004,7 @@ test('managed compact hooks persist checkpoint before compaction and refresh com
       assert.equal(sessionSkills[0].summary, 'refresh checkout retries before compaction');
       assert.equal(sessionState.metadata.last_compaction_event, 'after');
       assert.equal(sessionState.metadata.compaction_compacted_count, 30);
+      assert.ok(Buffer.byteLength(bootstrapContent, 'utf8') <= 3201);
     });
   } finally {
     cleanupWorkspace(workspace);

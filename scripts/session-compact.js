@@ -20,6 +20,8 @@ const { runRuntimeStateUpdate } = require('./runtime-state-update');
 const { runSessionExperienceSync } = require('./session-experience-sync');
 const { runSkillDraftCreate } = require('./skill-draft-create');
 
+const POST_COMPACT_BOOTSTRAP_BUDGET_BYTES = 3200;
+
 function updateCompactMetadata(sessionState, phase, eventContext = {}) {
   sessionState.metadata = {
     ...(sessionState.metadata || {}),
@@ -44,9 +46,11 @@ function updateCompactMetadata(sessionState, phase, eventContext = {}) {
   }
 }
 
-function refreshBootstrapCache(workspace, sessionKey, ownership) {
+function refreshBootstrapCache(workspace, sessionKey, ownership, options = {}) {
   const bootstrapCache = buildBootstrapCachePath(workspace, sessionKey);
-  const content = buildMinimalBootstrapContent(workspace, sessionKey, ownership);
+  const content = buildMinimalBootstrapContent(workspace, sessionKey, ownership, {
+    budgetBytes: options.budgetBytes
+  });
   if (content.trim()) {
     writeBootstrapCache(bootstrapCache, content);
   }
@@ -131,6 +135,8 @@ function runSessionCompact(workspaceArg, sessionKeyArg, options = {}) {
   const bootstrap = refreshBootstrapCache(paths.workspace, sessionKey, {
     project_id: ownership.projectId,
     user_id: ownership.userId
+  }, {
+    budgetBytes: phase === 'after' ? POST_COMPACT_BOOTSTRAP_BUDGET_BYTES : undefined
   });
   result.bootstrap = bootstrap;
   if (bootstrap.bootstrap_content_written) {
