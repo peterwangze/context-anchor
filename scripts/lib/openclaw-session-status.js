@@ -1042,7 +1042,11 @@ function renderRepairStrategy(strategy) {
   const subtype =
     strategy.execution_mode === 'manual'
       ? strategy.manual_subtype === 'external_environment'
-        ? 'external-env'
+        ? strategy.external_issue_type === 'workspace_path_unresolved'
+          ? 'external-env/workspace-path'
+          : strategy.external_issue_type === 'workspace_registration_missing'
+          ? 'external-env/workspace-registration'
+          : 'external-env'
         : 'confirm'
       : null;
   const modeLabel = subtype ? `${mode}/${subtype}` : mode;
@@ -1059,7 +1063,11 @@ function renderRemediationNextStep(remediationSummary) {
   const subtype =
     nextStep.execution_mode === 'manual'
       ? nextStep.manual_subtype === 'external_environment'
-        ? 'external-env'
+        ? nextStep.external_issue_type === 'workspace_path_unresolved'
+          ? 'external-env/workspace-path'
+          : nextStep.external_issue_type === 'workspace_registration_missing'
+          ? 'external-env/workspace-registration'
+          : 'external-env'
         : 'confirm'
       : null;
   const modeLabel = subtype ? `${mode}/${subtype}` : mode;

@@ -297,7 +297,14 @@ function formatStrategyLabel(entry) {
   }
 
   if (entry.execution_mode === 'manual') {
-    const subtype = (entry.manual_subtype || 'confirm_only') === 'external_environment' ? 'external-env' : 'confirm';
+    const subtype =
+      (entry.manual_subtype || 'confirm_only') === 'external_environment'
+        ? entry.external_issue_type === 'workspace_path_unresolved'
+          ? 'external-env/workspace-path'
+          : entry.external_issue_type === 'workspace_registration_missing'
+          ? 'external-env/workspace-registration'
+          : 'external-env'
+        : 'confirm';
     return `manual/${subtype}:${entry.label}`;
   }
 
@@ -386,8 +393,17 @@ function buildInstallVerification(configuration, sessionUpgrade) {
           : 'none',
       automatic_count: repairStrategies.automatic.length,
       manual_count: repairStrategies.manual.length,
+      manual_confirm_only_count: repairStrategies.manual_confirm_only.length,
+      manual_external_environment_count: repairStrategies.manual_external_environment.length,
       automatic: repairStrategies.automatic,
       manual: repairStrategies.manual,
+      manual_confirm_only: repairStrategies.manual_confirm_only,
+      manual_external_environment: repairStrategies.manual_external_environment,
+      manual_external_issue_types: repairStrategies.manual_external_environment.reduce((acc, entry) => {
+        const key = entry.external_issue_type || 'unknown_external_issue';
+        acc[key] = Number(acc[key] || 0) + 1;
+        return acc;
+      }, {}),
       next_step: repairStrategies.automatic[0] || repairStrategies.manual[0] || null,
       recheck_commands: [...new Set([
         configurationVerification?.recheck_command || null,

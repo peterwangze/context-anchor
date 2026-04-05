@@ -16,6 +16,7 @@ function normalizeRemediationEntry(source, action = {}) {
     summary: strategy.summary || action?.summary || null,
     execution_mode: executionMode,
     manual_subtype: executionMode === 'manual' ? strategy.manual_subtype || 'confirm_only' : null,
+    external_issue_type: executionMode === 'manual' ? strategy.external_issue_type || null : null,
     requires_manual_confirmation: requiresManualConfirmation,
     recheck_command: recheckCommand,
     command: action?.command || null,
@@ -54,6 +55,11 @@ function buildRemediationSummary(pairs = []) {
   const manual = entries.filter((entry) => entry.execution_mode === 'manual');
   const manualConfirmOnly = manual.filter((entry) => entry.manual_subtype === 'confirm_only');
   const manualExternalEnvironment = manual.filter((entry) => entry.manual_subtype === 'external_environment');
+  const manualExternalIssueTypes = manualExternalEnvironment.reduce((acc, entry) => {
+    const key = entry.external_issue_type || 'unknown_external_issue';
+    acc[key] = Number(acc[key] || 0) + 1;
+    return acc;
+  }, {});
   const recheckCommands = [...new Set(entries.map((entry) => entry.recheck_command).filter(Boolean))];
   const nextStep = automatic[0] || manual[0] || null;
 
@@ -69,6 +75,7 @@ function buildRemediationSummary(pairs = []) {
     manual_count: manual.length,
     manual_confirm_only_count: manualConfirmOnly.length,
     manual_external_environment_count: manualExternalEnvironment.length,
+    manual_external_issue_types: manualExternalIssueTypes,
     next_step: nextStep,
     automatic,
     manual,

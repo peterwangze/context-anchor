@@ -159,6 +159,7 @@ function buildUpgradeRepairStrategy(verification = {}) {
       label: 'resolve workspace -> recheck',
       execution_mode: 'manual',
       manual_subtype: 'external_environment',
+      external_issue_type: 'workspace_path_unresolved',
       requires_manual_confirmation: true,
       summary: 'Resolve the missing workspace paths first, then rerun session status.'
     };
@@ -189,7 +190,14 @@ function formatUpgradeStrategyLabel(strategy) {
   }
 
   if (strategy.execution_mode === 'manual') {
-    const subtype = (strategy.manual_subtype || 'confirm_only') === 'external_environment' ? 'external-env' : 'confirm';
+    const subtype =
+      (strategy.manual_subtype || 'confirm_only') === 'external_environment'
+        ? strategy.external_issue_type === 'workspace_path_unresolved'
+          ? 'external-env/workspace-path'
+          : strategy.external_issue_type === 'workspace_registration_missing'
+          ? 'external-env/workspace-registration'
+          : 'external-env'
+        : 'confirm';
     return `manual/${subtype}:${strategy.label}`;
   }
 

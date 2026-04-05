@@ -341,6 +341,9 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 `manual` 现在还会继续细分：
 - `manual/confirm`：主要是需要用户确认或补一个明确输入
 - `manual/external-env`：主要是需要先修 workspace 路径、外部环境或宿主侧问题
+其中 `manual/external-env` 现在又会继续细分成更具体的类型，例如：
+- `workspace-registration-missing`
+- `workspace-path-unresolved`
 
 `configure-host.js` 和 `configure-sessions.js` 现在还会返回 `verification`。  
 如果这次 repair 没有真正把目标状态修到位，结果里会直接显示 `verification.status = needs_attention`，并附带 `recheck_command`，避免用户执行完修复后还要自己猜有没有生效。

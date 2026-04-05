@@ -2913,6 +2913,7 @@ test('one-click install can upgrade existing sessions after refreshing runtime a
       assert.ok(result.verification.remediation_summary.next_step);
       assert.ok(Array.isArray(result.verification.repair_strategies.manual_confirm_only));
       assert.ok(Array.isArray(result.verification.repair_strategies.manual_external_environment));
+      assert.ok(typeof result.verification.remediation_summary.manual_external_issue_types === 'object');
       assert.equal(result.session_upgrade.verification.status, 'verified');
       assert.ok(fs.existsSync(bootstrapFile));
       assert.match(fs.readFileSync(bootstrapFile, 'utf8'), /refresh runtime for stored session/);
@@ -3697,6 +3698,7 @@ test('doctor host audit flags drift in another registered workspace', async () =
       assert.equal(doctor.host_takeover_audit.recommended_action.repair_strategy.execution_mode, 'automatic');
       assert.ok(doctor.remediation_summary.manual_count >= 0);
       assert.ok(typeof doctor.remediation_summary.manual_external_environment_count === 'number');
+      assert.ok(typeof doctor.remediation_summary.manual_external_issue_types === 'object');
     });
   } finally {
     cleanupWorkspace(workspace);

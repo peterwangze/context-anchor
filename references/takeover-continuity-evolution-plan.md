@@ -126,6 +126,10 @@
   - install / upgrade 的 strategy 聚合已暴露 manual subtype 维度
   - 已补充自动化测试，覆盖 manual subtype 分类
 - `2026-04-05`
+  - `manual/external_environment` 已继续细分具体 external issue type
+  - 当前已显式区分 `workspace_registration_missing` 与 `workspace_path_unresolved`
+  - 已补充自动化测试，覆盖 external issue type 分类
+- `2026-04-05`
   - `doctor / sessions-status / sessions-diagnose / status-report / upgrade-sessions / install-one-click` 已开始返回统一的 `remediation_summary`
   - `remediation_summary` 已统一包含 next step、automatic/manual count 与 recheck commands
   - 已补充自动化测试，覆盖 unified remediation summary
@@ -503,6 +507,7 @@
   - remediation 的 next step 已开始直接进入文本输出
   - manual remediation 已开始区分“只需确认”和“需要修外部环境”
   - `doctor` 已不再只依赖 JSON 才能看懂 remediation 结果
+  - external environment 类手工修复已经开始区分更具体的问题来源
 - 仍待完成：
   - `doctor` / `sessions-diagnose` 还需要给出更细粒度 strict-mode auto-fix 路径
 

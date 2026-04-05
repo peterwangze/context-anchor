@@ -145,6 +145,7 @@ function buildRepairStrategy(type, options = {}) {
         label: 'review workspace -> recheck',
         execution_mode: 'manual',
         manual_subtype: 'external_environment',
+        external_issue_type: 'workspace_registration_missing',
         requires_manual_confirmation: true,
         summary: 'Fix or remove the broken workspace registration, then rerun doctor.'
       };
