@@ -161,7 +161,20 @@ function buildUpgradeRepairStrategy(verification = {}) {
       manual_subtype: 'external_environment',
       external_issue_type: 'workspace_path_unresolved',
       requires_manual_confirmation: true,
-      summary: 'Resolve the missing workspace paths first, then rerun session status.'
+      summary: 'Resolve the missing workspace paths first, then rerun session status.',
+      resolution_hint:
+        'This upgrade target could not recover a workspace path from the discovered session metadata. Re-run the upgrade with an explicit --workspace, or repair the session registration under the correct workspace first.',
+      command_examples: [
+        verification.example_session_key
+          ? buildUpgradeRecheckCommand(verification.openclawHome, verification.skillsRoot, {
+              workspace: '<workspace>',
+              sessionKey: verification.example_session_key
+            }).replace('status:sessions', 'upgrade:sessions')
+          : null,
+        verification.example_session_key
+          ? `npm run configure:sessions -- --openclaw-home ${quoteArg(verification.openclawHome)} --skills-root ${quoteArg(verification.skillsRoot)} --workspace ${quoteArg('<workspace>')} --session-key ${quoteArg(verification.example_session_key)} --yes`
+          : null
+      ].filter(Boolean)
     };
   }
 
@@ -306,7 +319,10 @@ function buildUpgradeVerification({
     repair_strategy: buildUpgradeRepairStrategy({
       remaining_attention_sessions: remainingAttention.length,
       unresolved_targets: unresolvedTargets.length,
-      configuration_required_targets: configurationRequiredTargets.length
+      configuration_required_targets: configurationRequiredTargets.length,
+      openclawHome,
+      skillsRoot,
+      example_session_key: unresolvedTargets[0]?.session_key || options.sessionKey || null
     }),
     readiness_transition: {
       changed,
@@ -337,7 +353,10 @@ function buildUpgradeVerification({
           repair_strategy: buildUpgradeRepairStrategy({
             remaining_attention_sessions: remainingAttention.length,
             unresolved_targets: unresolvedTargets.length,
-            configuration_required_targets: configurationRequiredTargets.length
+            configuration_required_targets: configurationRequiredTargets.length,
+            openclawHome,
+            skillsRoot,
+            example_session_key: unresolvedTargets[0]?.session_key || options.sessionKey || null
           })
         }
       }

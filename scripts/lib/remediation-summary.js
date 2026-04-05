@@ -20,7 +20,13 @@ function normalizeRemediationEntry(source, action = {}) {
     requires_manual_confirmation: requiresManualConfirmation,
     recheck_command: recheckCommand,
     command: action?.command || null,
-    follow_up_command: action?.follow_up_command || null
+    follow_up_command: action?.follow_up_command || null,
+    resolution_hint: strategy.resolution_hint || action?.resolution_hint || null,
+    command_examples: Array.isArray(strategy.command_examples)
+      ? strategy.command_examples.filter(Boolean)
+      : Array.isArray(action?.command_examples)
+      ? action.command_examples.filter(Boolean)
+      : []
   };
 }
 

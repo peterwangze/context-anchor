@@ -3563,6 +3563,7 @@ test('doctor reports installed absolute paths and wrapper returns a helpful payl
 test('doctor renders a concise remediation summary view by default', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');
+  const missingWorkspace = path.join(workspace, 'missing-workspace');
 
   try {
     await withOpenClawHome(workspace, async () => {
@@ -3573,7 +3574,13 @@ test('doctor renders a concise remediation summary view by default', async () =>
         defaultUserId: 'default-user',
         defaultWorkspace: workspace,
         addUsers: [],
-        addWorkspaces: []
+        addWorkspaces: [
+          {
+            workspace: missingWorkspace,
+            userId: 'default-user',
+            projectId: 'missing-project'
+          }
+        ]
       });
 
       fs.mkdirSync(path.join(workspace, 'memory'), { recursive: true });
@@ -3586,6 +3593,8 @@ test('doctor renders a concise remediation summary view by default', async () =>
       assert.match(rendered, /Remediation:/);
       assert.match(rendered, /External issues:/);
       assert.match(rendered, /Next step:/);
+      assert.match(rendered, /Guidance:/);
+      assert.match(rendered, /Example command:/);
       assert.match(rendered, /Recheck:/);
     });
   } finally {

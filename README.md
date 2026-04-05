@@ -358,6 +358,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 现在 `sessions-status.js` / `sessions-diagnose.js` 以及 install/upgrade 的进度输出，也会直接把 `remediation_summary.next_step` 渲染出来，用户不用再自己从多条 strategy 里猜下一步。
 `doctor.js` 现在默认也会直接输出一份更友好的文本摘要视图；如果你仍然需要完整 JSON，再显式加 `--json`。  
 如果当前存在手工外部问题，文本摘要里还会直接显示 `External issues:`，例如 `workspace_registration_missing` 或 `workspace_path_unresolved`，减少用户自己猜是哪类外部问题。
+对于这类外部问题，`doctor` 文本摘要现在还会直接给出 `Guidance` 和 `Example command`，方便用户按具体问题类型落地处理。
 
 如果你希望比定时 workspace monitor 更快地收敛外部 `MEMORY.md` / `memory/*.md` 变化，现在还可以直接运行：
 

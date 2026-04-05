@@ -102,6 +102,8 @@ function buildRepairSequence(command, followUpCommand, recheckCommand) {
 
 function buildRepairStrategy(type, options = {}) {
   const workspace = options.workspace ? path.resolve(options.workspace) : null;
+  const openclawHome = options.openClawHome || null;
+  const skillsRoot = options.skillsRoot || null;
   switch (type) {
     case 'migrate_then_enforce_then_recheck':
       return {
@@ -147,7 +149,23 @@ function buildRepairStrategy(type, options = {}) {
         manual_subtype: 'external_environment',
         external_issue_type: 'workspace_registration_missing',
         requires_manual_confirmation: true,
-        summary: 'Fix or remove the broken workspace registration, then rerun doctor.'
+        summary: 'Fix or remove the broken workspace registration, then rerun doctor.',
+        resolution_hint:
+          'This workspace is still registered in host config but is not present on disk. If it moved, update the registration to the new path. If it was removed, delete or replace the stale workspace entry.',
+        command_examples: [
+          buildNpmScriptCommand('configure:host', {
+            workspace: '<new-workspace>',
+            openclawHome,
+            skillsRoot,
+            applyConfig: true,
+            yes: true
+          }),
+          buildNpmScriptCommand('doctor', {
+            workspace: '<new-workspace>',
+            openclawHome,
+            skillsRoot
+          })
+        ]
       };
     case 'select_workspace_then_recheck':
       return {
@@ -208,7 +226,7 @@ function buildMemorySourceRecommendedAction(memorySourceHealth, options = {}) {
       repair_sequence: buildRepairSequence(command, followUpCommand, recheckCommand),
       repair_strategy: buildRepairStrategy(
         followUpCommand ? 'migrate_then_enforce_then_recheck' : 'migrate_then_recheck',
-        { workspace }
+        { workspace, openClawHome: options.openClawHome, skillsRoot: options.skillsRoot }
       )
     };
   }
@@ -229,7 +247,11 @@ function buildMemorySourceRecommendedAction(memorySourceHealth, options = {}) {
       follow_up_command: null,
       recheck_command: recheckCommand,
       repair_sequence: buildRepairSequence(command, null, recheckCommand),
-      repair_strategy: buildRepairStrategy('enforce_then_recheck', { workspace })
+      repair_strategy: buildRepairStrategy('enforce_then_recheck', {
+        workspace,
+        openClawHome: options.openClawHome,
+        skillsRoot: options.skillsRoot
+      })
     };
   }
 
@@ -342,7 +364,11 @@ function buildWorkspaceTakeoverInspection(target = {}, options = {}) {
             skillsRoot: options.skillsRoot
           })
         ),
-        repair_strategy: buildRepairStrategy('review_workspace_then_recheck', { workspace })
+        repair_strategy: buildRepairStrategy('review_workspace_then_recheck', {
+          workspace,
+          openClawHome: options.openClawHome,
+          skillsRoot: options.skillsRoot
+        })
       }
     };
   }
@@ -782,7 +808,11 @@ function buildTakeoverAudit(doctorResult = {}) {
           skillsRoot: doctorResult?.paths?.skills_root || null
         })
       ),
-      repair_strategy: buildRepairStrategy('configure_host_then_recheck', { workspace })
+      repair_strategy: buildRepairStrategy('configure_host_then_recheck', {
+        workspace,
+        openClawHome: doctorResult?.paths?.openclaw_home || null,
+        skillsRoot: doctorResult?.paths?.skills_root || null
+      })
     };
   } else if (!workspace) {
     issues.push('workspace_audit_missing');
@@ -799,7 +829,10 @@ function buildTakeoverAudit(doctorResult = {}) {
         skillsRoot: doctorResult?.paths?.skills_root || null
       }),
       repair_sequence: [],
-      repair_strategy: buildRepairStrategy('select_workspace_then_recheck', {})
+      repair_strategy: buildRepairStrategy('select_workspace_then_recheck', {
+        openClawHome: doctorResult?.paths?.openclaw_home || null,
+        skillsRoot: doctorResult?.paths?.skills_root || null
+      })
     };
   } else if (doctorResult?.memory_sources?.health?.status === 'drift_detected') {
     issues.push(mode === 'enforced' ? 'enforced_mode_external_drift' : 'best_effort_external_drift');
@@ -863,6 +896,9 @@ function renderDoctorRemediationSummary(remediationSummary = {}) {
   if (externalIssueSummary) {
     lines.push(`External issues: ${externalIssueSummary}`);
   }
+  const firstExternalManual = Array.isArray(remediationSummary.manual_external_environment)
+    ? remediationSummary.manual_external_environment[0]
+    : null;
   if (remediationSummary.next_step?.label) {
     const mode = remediationSummary.next_step.execution_mode === 'manual' ? 'manual' : 'auto';
     const subtype =
@@ -879,6 +915,18 @@ function renderDoctorRemediationSummary(remediationSummary = {}) {
       `Next step: [${mode}${subtype}] ${remediationSummary.next_step.label}` +
         `${remediationSummary.next_step.summary ? ` - ${remediationSummary.next_step.summary}` : ''}`
     );
+    if (remediationSummary.next_step.resolution_hint) {
+      lines.push(`Guidance: ${remediationSummary.next_step.resolution_hint}`);
+    }
+    if (Array.isArray(remediationSummary.next_step.command_examples) && remediationSummary.next_step.command_examples.length > 0) {
+      lines.push(`Example command: ${remediationSummary.next_step.command_examples[0]}`);
+    }
+  }
+  if (firstExternalManual?.resolution_hint) {
+    lines.push(`Guidance: ${firstExternalManual.resolution_hint}`);
+  }
+  if (Array.isArray(firstExternalManual?.command_examples) && firstExternalManual.command_examples.length > 0) {
+    lines.push(`Example command: ${firstExternalManual.command_examples[0]}`);
   }
   if (Array.isArray(remediationSummary.recheck_commands) && remediationSummary.recheck_commands.length > 0) {
     lines.push(`Recheck: ${remediationSummary.recheck_commands[0]}`);
