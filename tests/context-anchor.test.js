@@ -2658,6 +2658,7 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
       assert.ok(result.verification.remediation_summary);
       assert.equal(result.verification.remediation_summary.status, 'automatic_available');
       assert.equal(result.verification.remediation_summary.next_step.label, 'recheck upgraded sessions');
+      assert.ok(typeof result.verification.remediation_summary.manual_confirm_only_count === 'number');
       assert.equal(result.verification.readiness_transition.after.target_sessions, 1);
       assert.equal(result.verification.upgraded_sessions, 1);
       assert.equal(result.verification.remaining_attention_sessions, 0);
@@ -2910,6 +2911,8 @@ test('one-click install can upgrade existing sessions after refreshing runtime a
       assert.ok(result.verification.remediation_summary);
       assert.ok(typeof result.verification.remediation_summary.manual_count === 'number');
       assert.ok(result.verification.remediation_summary.next_step);
+      assert.ok(Array.isArray(result.verification.repair_strategies.manual_confirm_only));
+      assert.ok(Array.isArray(result.verification.repair_strategies.manual_external_environment));
       assert.equal(result.session_upgrade.verification.status, 'verified');
       assert.ok(fs.existsSync(bootstrapFile));
       assert.match(fs.readFileSync(bootstrapFile, 'utf8'), /refresh runtime for stored session/);
@@ -3661,6 +3664,7 @@ test('doctor host audit flags drift in another registered workspace', async () =
       assert.equal(doctor.host_takeover_audit.recommended_action.repair_strategy.type, 'migrate_then_recheck');
       assert.equal(doctor.host_takeover_audit.recommended_action.repair_strategy.execution_mode, 'automatic');
       assert.ok(doctor.remediation_summary.manual_count >= 0);
+      assert.ok(typeof doctor.remediation_summary.manual_external_environment_count === 'number');
     });
   } finally {
     cleanupWorkspace(workspace);

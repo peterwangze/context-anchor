@@ -285,7 +285,9 @@ function summarizeStrategyKinds(entries = []) {
   const normalized = dedupeStrategies(entries);
   return {
     automatic: normalized.filter((entry) => entry.execution_mode !== 'manual'),
-    manual: normalized.filter((entry) => entry.execution_mode === 'manual')
+    manual: normalized.filter((entry) => entry.execution_mode === 'manual'),
+    manual_confirm_only: normalized.filter((entry) => entry.execution_mode === 'manual' && (entry.manual_subtype || 'confirm_only') === 'confirm_only'),
+    manual_external_environment: normalized.filter((entry) => entry.execution_mode === 'manual' && entry.manual_subtype === 'external_environment')
   };
 }
 
@@ -294,7 +296,12 @@ function formatStrategyLabel(entry) {
     return null;
   }
 
-  return `${entry.execution_mode === 'manual' ? 'manual' : 'auto'}:${entry.label}`;
+  if (entry.execution_mode === 'manual') {
+    const subtype = (entry.manual_subtype || 'confirm_only') === 'external_environment' ? 'external-env' : 'confirm';
+    return `manual/${subtype}:${entry.label}`;
+  }
+
+  return `auto:${entry.label}`;
 }
 
 function extractInstallRepairStrategies(configuration, sessionUpgrade) {

@@ -122,6 +122,10 @@
   - strategy 现已显式标记 `requires_manual_confirmation`
   - 已补充自动化测试，覆盖 remediation mode 分类
 - `2026-04-05`
+  - `manual` remediation 已细分为 `confirm_only` 与 `external_environment`
+  - install / upgrade 的 strategy 聚合已暴露 manual subtype 维度
+  - 已补充自动化测试，覆盖 manual subtype 分类
+- `2026-04-05`
   - `doctor / sessions-status / sessions-diagnose / status-report / upgrade-sessions / install-one-click` 已开始返回统一的 `remediation_summary`
   - `remediation_summary` 已统一包含 next step、automatic/manual count 与 recheck commands
   - 已补充自动化测试，覆盖 unified remediation summary
@@ -493,6 +497,7 @@
   - strict repair strategy 已开始区分可自动执行与需要人工确认的步骤
   - 多入口 remediation 输出已开始收敛到统一结构
   - remediation 的 next step 已开始直接进入文本输出
+  - manual remediation 已开始区分“只需确认”和“需要修外部环境”
 - 仍待完成：
   - `doctor` / `sessions-diagnose` 还需要给出更细粒度 strict-mode auto-fix 路径
 

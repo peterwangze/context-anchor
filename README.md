@@ -338,6 +338,9 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 `doctor.js` 的 `recommended_action` 现在也会带 `recheck_command` 和 `repair_sequence`，可以直接把 strict-mode 下的修复步骤串起来执行。
 同时 `recommended_action.repair_strategy` 会给出更明确的修复策略标签，减少用户自己判断先后顺序。
 现在 `repair_strategy` 还会区分 `execution_mode = automatic|manual`，并标记 `requires_manual_confirmation`，帮助用户快速判断哪些步骤可以直接执行，哪些需要先人工确认。
+`manual` 现在还会继续细分：
+- `manual/confirm`：主要是需要用户确认或补一个明确输入
+- `manual/external-env`：主要是需要先修 workspace 路径、外部环境或宿主侧问题
 
 `configure-host.js` 和 `configure-sessions.js` 现在还会返回 `verification`。  
 如果这次 repair 没有真正把目标状态修到位，结果里会直接显示 `verification.status = needs_attention`，并附带 `recheck_command`，避免用户执行完修复后还要自己猜有没有生效。
@@ -347,6 +350,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 这样升级或一键安装结束后，你可以直接看“这轮是否已经验证通过”，而不是只看到 audit 告警再自己手工补检查。
 现在 `upgrade-sessions.js` 的 `verification` 也会带 `repair_strategy`，`install-one-click.js` 会把 config/session 两段的 strategy 聚合到 `verification.repair_strategies`，长流程里也能直接看到下一步应该怎么收口。
 `install-one-click.js` 聚合后的 `verification.repair_strategies` 现在也会按 `automatic` / `manual` 分类，方便在长流程结束后直接判断自助修复边界。
+同时聚合结果里也会继续拆出 `manual_confirm_only` 和 `manual_external_environment`，便于后续自动化或 UI 侧直接按风险类型分类展示。
 本轮开始，`doctor.js`、`sessions-status.js` / `sessions-diagnose.js`、`status-report.js`、`upgrade-sessions.js`、`install-one-click.js` 都会返回统一的 `remediation_summary` 结构，便于用一套逻辑读取 next step、automatic/manual count 和 recheck commands。
 现在 `sessions-status.js` / `sessions-diagnose.js` 以及 install/upgrade 的进度输出，也会直接把 `remediation_summary.next_step` 渲染出来，用户不用再自己从多条 strategy 里猜下一步。
 

@@ -1039,7 +1039,14 @@ function renderRepairStrategy(strategy) {
   }
 
   const mode = strategy.execution_mode === 'manual' ? 'manual' : 'auto';
-  return `Strategy: [${mode}] ${strategy.label}${strategy.summary ? ` (${strategy.summary})` : ''}`;
+  const subtype =
+    strategy.execution_mode === 'manual'
+      ? strategy.manual_subtype === 'external_environment'
+        ? 'external-env'
+        : 'confirm'
+      : null;
+  const modeLabel = subtype ? `${mode}/${subtype}` : mode;
+  return `Strategy: [${modeLabel}] ${strategy.label}${strategy.summary ? ` (${strategy.summary})` : ''}`;
 }
 
 function renderRemediationNextStep(remediationSummary) {
@@ -1049,7 +1056,14 @@ function renderRemediationNextStep(remediationSummary) {
   }
 
   const mode = nextStep.execution_mode === 'manual' ? 'manual' : 'auto';
-  return `Next step: [${mode}] ${nextStep.label}${nextStep.summary ? ` (${nextStep.summary})` : ''}`;
+  const subtype =
+    nextStep.execution_mode === 'manual'
+      ? nextStep.manual_subtype === 'external_environment'
+        ? 'external-env'
+        : 'confirm'
+      : null;
+  const modeLabel = subtype ? `${mode}/${subtype}` : mode;
+  return `Next step: [${modeLabel}] ${nextStep.label}${nextStep.summary ? ` (${nextStep.summary})` : ''}`;
 }
 
 function renderOpenClawSessionStatusReport(report) {

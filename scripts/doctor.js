@@ -138,6 +138,7 @@ function buildRepairStrategy(type, options = {}) {
         type,
         label: 'review workspace -> recheck',
         execution_mode: 'manual',
+        manual_subtype: 'external_environment',
         requires_manual_confirmation: true,
         summary: 'Fix or remove the broken workspace registration, then rerun doctor.'
       };
@@ -146,6 +147,7 @@ function buildRepairStrategy(type, options = {}) {
         type,
         label: 'select workspace -> recheck',
         execution_mode: 'manual',
+        manual_subtype: 'confirm_only',
         requires_manual_confirmation: true,
         summary: 'Pick the target workspace first, then rerun doctor.'
       };

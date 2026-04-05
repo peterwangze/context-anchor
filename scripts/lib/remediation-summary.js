@@ -15,6 +15,7 @@ function normalizeRemediationEntry(source, action = {}) {
     label,
     summary: strategy.summary || action?.summary || null,
     execution_mode: executionMode,
+    manual_subtype: executionMode === 'manual' ? strategy.manual_subtype || 'confirm_only' : null,
     requires_manual_confirmation: requiresManualConfirmation,
     recheck_command: recheckCommand,
     command: action?.command || null,
@@ -51,6 +52,8 @@ function buildRemediationSummary(pairs = []) {
   );
   const automatic = entries.filter((entry) => entry.execution_mode !== 'manual');
   const manual = entries.filter((entry) => entry.execution_mode === 'manual');
+  const manualConfirmOnly = manual.filter((entry) => entry.manual_subtype === 'confirm_only');
+  const manualExternalEnvironment = manual.filter((entry) => entry.manual_subtype === 'external_environment');
   const recheckCommands = [...new Set(entries.map((entry) => entry.recheck_command).filter(Boolean))];
   const nextStep = automatic[0] || manual[0] || null;
 
@@ -64,9 +67,13 @@ function buildRemediationSummary(pairs = []) {
         : 'none',
     automatic_count: automatic.length,
     manual_count: manual.length,
+    manual_confirm_only_count: manualConfirmOnly.length,
+    manual_external_environment_count: manualExternalEnvironment.length,
     next_step: nextStep,
     automatic,
     manual,
+    manual_confirm_only: manualConfirmOnly,
+    manual_external_environment: manualExternalEnvironment,
     recheck_commands: recheckCommands
   };
 }
