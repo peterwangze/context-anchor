@@ -384,6 +384,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 对于 `workspace_unresolved`、`workspace_registration_missing` 这类 manual / external-environment 问题，现在不会再误给 `Auto fix command`，而会明确显示 `Auto fix unavailable`，提醒用户先修外部环境再继续。
 对于 `manual/confirm_only` 这类问题，现在除了 `Auto fix unavailable` 之外，还会额外提示 `Auto fix resume`，说明补齐哪个确认输入后，自动修复才能继续，例如先显式传入 `--workspace`。
 这类 `Auto fix resume` 现在也会尽量指向更具体的缺失输入，例如 `--workspace`、`--session-key` 或目标 profile。
+同时系统现在还会直接给出 `Resume command` 模板，方便你在原命令基础上把缺失输入补上再继续。
 `sessions-diagnose.js` 现在也会把 remediation 的 `Guidance` 和 `Example command` 直接显示出来；`status-report.js` 的 `recommended_action` 也会带这两类字段，方便上层直接展示。
 `status-report.js` 现在默认也会输出轻量文本视图；如果你需要完整 JSON 或 snapshot，再显式用 JSON/snapshot 模式。
 `doctor.js` 现在默认也会直接输出一份更友好的文本摘要视图；如果你仍然需要完整 JSON，再显式加 `--json`。  

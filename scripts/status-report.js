@@ -163,6 +163,9 @@ function renderStatusReportText(report) {
     if (report.remediation_summary?.next_step?.auto_fix_resume_hint) {
       lines.push(field('Auto fix resume', report.remediation_summary.next_step.auto_fix_resume_hint, { kind: 'muted' }));
     }
+    if (report.remediation_summary?.next_step?.auto_fix_resume_command) {
+      lines.push(field('Resume command', command(report.remediation_summary.next_step.auto_fix_resume_command), { kind: 'command' }));
+    }
   }
   if (report.recommended_action?.resolution_hint) {
     lines.push(field('Guidance', report.recommended_action.resolution_hint, { kind: 'muted' }));

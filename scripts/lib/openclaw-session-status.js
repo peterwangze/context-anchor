@@ -1137,6 +1137,9 @@ function renderCommandSummary(report) {
     if (report.remediation_summary?.next_step?.auto_fix_resume_hint) {
       lines.push(field('Auto fix resume', report.remediation_summary.next_step.auto_fix_resume_hint, { kind: 'muted' }));
     }
+    if (report.remediation_summary?.next_step?.auto_fix_resume_command) {
+      lines.push(field('Resume command', command(report.remediation_summary.next_step.auto_fix_resume_command), { kind: 'command' }));
+    }
   }
   if (report.summary.drift_workspaces > 0) {
     lines.push(field('Attention', `Memory drift detected in ${report.summary.drift_workspaces} workspace(s); prefer the per-workspace repair command shown below.`, { kind: 'warning' }));
@@ -1351,6 +1354,9 @@ function renderOpenClawSessionStatusReport(report) {
         if (group.remediation_summary?.next_step?.auto_fix_resume_hint) {
           lines.push(field('Auto fix resume', group.remediation_summary.next_step.auto_fix_resume_hint, { indent: 2, kind: 'muted' }));
         }
+        if (group.remediation_summary?.next_step?.auto_fix_resume_command) {
+          lines.push(field('Resume command', command(group.remediation_summary.next_step.auto_fix_resume_command), { indent: 2, kind: 'command' }));
+        }
       }
       renderRemediationGuidance(group.remediation_summary).forEach((line) => {
         const [label, ...rest] = line.split(': ');
@@ -1428,6 +1434,9 @@ function renderOpenClawSessionDiagnosisReport(report) {
         if (group.remediation_summary?.next_step?.auto_fix_resume_hint) {
           lines.push(field('Auto fix resume', group.remediation_summary.next_step.auto_fix_resume_hint, { indent: 2, kind: 'muted' }));
         }
+        if (group.remediation_summary?.next_step?.auto_fix_resume_command) {
+          lines.push(field('Resume command', command(group.remediation_summary.next_step.auto_fix_resume_command), { indent: 2, kind: 'command' }));
+        }
       }
       renderRemediationGuidance(group.remediation_summary).forEach((line) => {
         const [label, ...rest] = line.split(': ');
@@ -1488,6 +1497,9 @@ function renderOpenClawSessionDiagnosisReport(report) {
       lines.push(field('Auto fix unavailable', group.remediation_summary.next_step.auto_fix_blocked_reason, { indent: 2, kind: 'warning' }));
       if (group.remediation_summary?.next_step?.auto_fix_resume_hint) {
         lines.push(field('Auto fix resume', group.remediation_summary.next_step.auto_fix_resume_hint, { indent: 2, kind: 'muted' }));
+      }
+      if (group.remediation_summary?.next_step?.auto_fix_resume_command) {
+        lines.push(field('Resume command', command(group.remediation_summary.next_step.auto_fix_resume_command), { indent: 2, kind: 'command' }));
       }
     }
     renderRemediationGuidance(group.remediation_summary).forEach((line) => {

@@ -14,13 +14,28 @@ function inferConfirmOnlyRequirement(action = {}, strategy = {}) {
     .filter(Boolean)
     .join('\n')
     .toLowerCase();
+  const templateCommands = [
+    ...(Array.isArray(strategy.command_examples) ? strategy.command_examples : []),
+    ...(Array.isArray(action?.command_examples) ? action.command_examples : []),
+    action?.command,
+    action?.recheck_command
+  ]
+    .filter(Boolean)
+    .map((entry) => String(entry));
+  const firstMatchingCommand = (predicate) => {
+    if (typeof predicate !== 'function') {
+      return templateCommands[0] || null;
+    }
+    return templateCommands.find((entry) => predicate(entry)) || templateCommands[0] || null;
+  };
 
   if (haystack.includes('<session-key>') || /--session-key\b/.test(haystack)) {
     return {
       key: 'session_key',
       blocked_reason: 'Select the target session first; auto-fix will stay unavailable until the session key is explicit.',
       resume_hint:
-        'Re-run the suggested command with an explicit --session-key, then auto-fix can resume on the selected session.'
+        'Re-run the suggested command with an explicit --session-key, then auto-fix can resume on the selected session.',
+      resume_command: firstMatchingCommand((entry) => entry.includes('<session-key>') || /--session-key\b/.test(entry))
     };
   }
 
@@ -29,7 +44,8 @@ function inferConfirmOnlyRequirement(action = {}, strategy = {}) {
       key: 'workspace',
       blocked_reason: 'Select the target workspace first; auto-fix will stay unavailable until the workspace is explicit.',
       resume_hint:
-        'Re-run the suggested command with an explicit --workspace, then auto-fix can resume on the resolved workspace.'
+        'Re-run the suggested command with an explicit --workspace, then auto-fix can resume on the resolved workspace.',
+      resume_command: firstMatchingCommand((entry) => entry.includes('<workspace>') || /--workspace\b/.test(entry))
     };
   }
 
@@ -38,7 +54,8 @@ function inferConfirmOnlyRequirement(action = {}, strategy = {}) {
       key: 'project_id',
       blocked_reason: 'Select the target project first; auto-fix will stay unavailable until the project is explicit.',
       resume_hint:
-        'Re-run the suggested command with an explicit --project-id, then auto-fix can resume on the selected project.'
+        'Re-run the suggested command with an explicit --project-id, then auto-fix can resume on the selected project.',
+      resume_command: firstMatchingCommand((entry) => entry.includes('<project-id>') || /--project-id\b/.test(entry))
     };
   }
 
@@ -47,7 +64,11 @@ function inferConfirmOnlyRequirement(action = {}, strategy = {}) {
       key: 'profile',
       blocked_reason: 'Select the target OpenClaw profile first; auto-fix will stay unavailable until the profile is explicit.',
       resume_hint:
-        'Re-run the suggested command with an explicit --openclaw-home or target profile, then auto-fix can resume on the selected profile.'
+        'Re-run the suggested command with an explicit --openclaw-home or target profile, then auto-fix can resume on the selected profile.',
+      resume_command:
+        firstMatchingCommand(
+          (entry) => entry.includes('<openclaw-home>') || /--openclaw-home\b/.test(entry) || /profile/.test(entry)
+        )
     };
   }
 
@@ -56,7 +77,8 @@ function inferConfirmOnlyRequirement(action = {}, strategy = {}) {
     blocked_reason:
       'This path still needs one manual confirmation before automation can continue, so auto-fix is intentionally disabled for now.',
     resume_hint:
-      'Finish the required confirmation step first, then rerun the suggested command to unlock auto-fix.'
+      'Finish the required confirmation step first, then rerun the suggested command to unlock auto-fix.',
+    resume_command: firstMatchingCommand(() => true)
   };
 }
 
@@ -118,6 +140,10 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
           }),
     auto_fix_blocked_reason: autoFixBlockedReason,
     auto_fix_resume_hint: autoFixResumeHint,
+    auto_fix_resume_command:
+      executionMode === 'manual' && manualSubtype !== 'external_environment'
+        ? confirmRequirement.resume_command || null
+        : null,
     resolution_hint: strategy.resolution_hint || action?.resolution_hint || null,
     command_examples: Array.isArray(strategy.command_examples)
       ? strategy.command_examples.filter(Boolean)

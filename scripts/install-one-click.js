@@ -875,6 +875,9 @@ function renderInstallReport(result) {
     if (verification.remediation_summary?.next_step?.auto_fix_resume_hint) {
       lines.push(field('Auto fix resume', verification.remediation_summary.next_step.auto_fix_resume_hint, { kind: 'muted' }));
     }
+    if (verification.remediation_summary?.next_step?.auto_fix_resume_command) {
+      lines.push(field('Resume command', command(verification.remediation_summary.next_step.auto_fix_resume_command), { kind: 'command' }));
+    }
   }
 
   return lines.join('\n');

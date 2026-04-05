@@ -4175,6 +4175,7 @@ test('manual confirm-only remediation can explain missing session-key input', ()
   assert.equal(summary.next_step.auto_fix_command, null);
   assert.match(summary.next_step.auto_fix_blocked_reason, /select the target session first/i);
   assert.match(summary.next_step.auto_fix_resume_hint, /explicit --session-key/i);
+  assert.match(summary.next_step.auto_fix_resume_command, /--session-key "<session-key>"/i);
 });
 
 test('doctor reports installed absolute paths and wrapper returns a helpful payload error', async () => {
