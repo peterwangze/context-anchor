@@ -4,6 +4,7 @@ const { createPaths, getRecentSessions } = require('./lib/context-anchor');
 const { ensureWorkspaceRegistration, getWorkspaceRegistrationStatus, resolveOwnership } = require('./lib/host-config');
 const { runLegacyMemorySync, summarizeExternalMemorySources } = require('./legacy-memory-sync');
 const { runSessionMaintenance } = require('./session-maintenance');
+const { field, renderCliError, section, status } = require('./lib/terminal-format');
 
 function sortRecentSessions(entries = []) {
   return [...entries].sort((left, right) => {
@@ -93,8 +94,51 @@ function runWorkspaceMonitor(workspaceArg, options = {}) {
 }
 
 function main() {
-  const result = runWorkspaceMonitor(process.argv[2]);
-  console.log(JSON.stringify(result, null, 2));
+  try {
+    const args = process.argv.slice(2);
+    const json = args.includes('--json');
+    const filtered = args.filter((arg) => arg !== '--json');
+    const result = runWorkspaceMonitor(filtered[0]);
+    if (json || !process.stdout.isTTY) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    const kind =
+      result.status === 'processed'
+        ? 'success'
+        : result.status === 'idle'
+        ? 'info'
+        : 'warning';
+    const lines = [];
+    lines.push(section('Context-Anchor Workspace Monitor', { kind }));
+    lines.push(field('Status', status(String(result.status || 'unknown').replace(/_/g, ' ').toUpperCase(), kind), { kind }));
+    lines.push(field('Workspace', result.workspace, { kind: 'muted' }));
+    if (result.status === 'needs_configuration') {
+      lines.push(field('Action', result.message, { kind: 'warning' }));
+    } else {
+      lines.push(
+        field(
+          'Sessions',
+          `Recent ${Number(result.recent_sessions || 0)} | Handled ${status(Number(result.handled_sessions || 0), Number(result.handled_sessions || 0) > 0 ? 'success' : 'info')}`,
+          { kind: Number(result.handled_sessions || 0) > 0 ? 'success' : 'info' }
+        )
+      );
+      if (result.memory_sources) {
+        lines.push(field('Memory sources', `External ${Number(result.memory_sources.external_source_count || 0)} | Unsynced ${Number(result.memory_sources.unsynced_source_count || 0)} | Last sync ${result.memory_sources.last_legacy_sync_at || '-'}`, { kind: 'info' }));
+      }
+    }
+    console.log(lines.join('\n'));
+  } catch (error) {
+    if (process.stdout.isTTY) {
+      console.log(renderCliError('Context-Anchor Workspace Monitor Failed', error.message, {
+        nextStep: 'Check the workspace path and rerun workspace-monitor.'
+      }));
+    } else {
+      console.log(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+    }
+    process.exit(1);
+  }
 }
 
 if (require.main === module) {

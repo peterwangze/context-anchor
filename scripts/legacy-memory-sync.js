@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { command, field, renderCliError, section, status } = require('./lib/terminal-format');
 
 const { createPaths, ensureAnchorDirs, readJson, resolveProjectId, writeJson } = require('./lib/context-anchor');
 const { runMemorySave } = require('./memory-save');
@@ -308,12 +309,48 @@ function runLegacyMemorySync(workspaceArg, sessionKeyArg, options = {}) {
 }
 
 function main() {
-  const result = runLegacyMemorySync(process.argv[2], process.argv[3], {
-    projectId: process.argv[4],
-    reason: process.argv[5],
-    force: process.argv[6] === 'force'
-  });
-  console.log(JSON.stringify(result, null, 2));
+  try {
+    const args = process.argv.slice(2);
+    const json = args.includes('--json');
+    const filtered = args.filter((arg) => arg !== '--json');
+    const result = runLegacyMemorySync(filtered[0], filtered[1], {
+      projectId: filtered[2],
+      reason: filtered[3],
+      force: filtered[4] === 'force'
+    });
+    if (json || !process.stdout.isTTY) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    const errorCount = Array.isArray(result.errors) ? result.errors.length : 0;
+    const kind = errorCount > 0 ? 'warning' : 'success';
+    const lines = [];
+    lines.push(section('Context-Anchor Legacy Memory Sync', { kind }));
+    lines.push(field('Status', status(String(result.status || 'ok').toUpperCase(), kind), { kind }));
+    lines.push(field('Workspace', result.workspace, { kind: 'muted' }));
+    lines.push(
+      field(
+        'Sync result',
+        `Detected ${Number(result.detected_files || 0)} | Synced files ${status(Number(result.synced_files || 0), Number(result.synced_files || 0) > 0 ? 'success' : 'info')} | Skipped ${Number(result.skipped_files || 0)} | Entries ${Number(result.synced_entries || 0)}`,
+        { kind: Number(result.synced_files || 0) > 0 ? 'success' : 'info' }
+      )
+    );
+    lines.push(field('Errors', status(errorCount, errorCount > 0 ? 'warning' : 'success'), { kind: errorCount > 0 ? 'warning' : 'success' }));
+    if (result.reason) {
+      lines.push(field('Reason', result.reason, { kind: 'info' }));
+    }
+    console.log(lines.join('\n'));
+  } catch (error) {
+    if (process.stdout.isTTY) {
+      console.log(renderCliError('Context-Anchor Legacy Memory Sync Failed', error.message, {
+        nextStep: 'Check the workspace/session/project arguments, then rerun legacy-memory-sync.'
+      }));
+    } else {
+      console.log(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+    }
+    process.exit(1);
+  }
 }
 
 if (require.main === module) {

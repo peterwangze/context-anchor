@@ -57,6 +57,7 @@ const {
 } = require('./lib/context-anchor');
 const { resolveOwnership } = require('./lib/host-config');
 const { recordGovernanceRun } = require('./lib/context-anchor-db');
+const { field, renderCliError, section, status } = require('./lib/terminal-format');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -570,13 +571,45 @@ function runStorageGovernance(workspaceArg, sessionKeyArg, options = {}) {
 }
 
 function main() {
-  const result = runStorageGovernance(process.argv[2], process.argv[3], {
-    projectId: process.argv[4],
-    userId: process.argv[5],
-    reason: process.argv[6],
-    mode: process.argv[7]
-  });
-  console.log(JSON.stringify(result, null, 2));
+  try {
+    const args = process.argv.slice(2);
+    const json = args.includes('--json');
+    const filtered = args.filter((arg) => arg !== '--json');
+    const result = runStorageGovernance(filtered[0], filtered[1], {
+      projectId: filtered[2],
+      userId: filtered[3],
+      reason: filtered[4],
+      mode: filtered[5]
+    });
+    if (json || !process.stdout.isTTY) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    const lines = [];
+    lines.push(section('Context-Anchor Storage Governance', { kind: result.applied ? 'success' : 'info' }));
+    lines.push(field('Status', status(String(result.status || 'ok').toUpperCase(), result.applied ? 'success' : 'info'), { kind: result.applied ? 'success' : 'info' }));
+    lines.push(field('Scope', `Workspace ${result.workspace} | Session ${result.session_key} | Project ${result.project_id} | User ${result.user_id}`, { kind: 'muted' }));
+    lines.push(field('Mode', `${String(result.mode || 'enforce').toUpperCase()} | prune archive ${result.prune_archive ? 'on' : 'off'} | applied ${result.applied ? 'yes' : 'no'}`, { kind: 'info' }));
+    lines.push(
+      field(
+        'Totals',
+        `Deduped ${Number(result.totals?.deduped || 0)} | Archived ${Number(result.totals?.archived || 0)} | Restored ${Number(result.totals?.restored || 0)} | Pruned ${Number(result.totals?.pruned || 0)}`,
+        { kind: Number(result.totals?.archived || 0) > 0 || Number(result.totals?.deduped || 0) > 0 ? 'success' : 'info' }
+      )
+    );
+    lines.push(field('Collections', `${Number((result.collections || []).length)} processed | Recorded ${result.recorded ? 'yes' : 'no'}`, { kind: 'muted' }));
+    console.log(lines.join('\n'));
+  } catch (error) {
+    if (process.stdout.isTTY) {
+      console.log(renderCliError('Context-Anchor Storage Governance Failed', error.message, {
+        nextStep: 'Check the workspace/session/project/user arguments, then rerun storage-governance.'
+      }));
+    } else {
+      console.log(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+    }
+    process.exit(1);
+  }
 }
 
 if (require.main === module) {

@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { runLegacyMemorySync, summarizeExternalMemorySources } = require('./legacy-memory-sync');
+const { field, renderCliError, section, status } = require('./lib/terminal-format');
 
 const DEFAULT_DEBOUNCE_MS = 800;
 
@@ -12,7 +13,8 @@ function parseArgs(argv) {
     sessionKey: 'external-memory-watch',
     projectId: null,
     debounceMs: DEFAULT_DEBOUNCE_MS,
-    durationMs: null
+    durationMs: null,
+    json: false
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -45,6 +47,11 @@ function parseArgs(argv) {
     if (arg === '--duration-ms') {
       options.durationMs = Number(argv[index + 1] || 0);
       index += 1;
+      continue;
+    }
+
+    if (arg === '--json') {
+      options.json = true;
       continue;
     }
   }
@@ -297,21 +304,38 @@ async function main() {
     throw new Error('external-memory-watch requires --workspace <workspace>');
   }
   const result = await runExternalMemoryWatch(options.workspace, options);
-  console.log(JSON.stringify(result, null, 2));
+  if (options.json || !process.stdout.isTTY) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  const errorCount = Array.isArray(result.errors) ? result.errors.length : 0;
+  const kind = errorCount > 0 ? 'warning' : 'success';
+  const lines = [];
+  lines.push(section('Context-Anchor External Memory Watch', { kind }));
+  lines.push(field('Status', status(String(result.status || 'stopped').toUpperCase(), kind), { kind }));
+  lines.push(field('Workspace', result.workspace, { kind: 'muted' }));
+  lines.push(
+    field(
+      'Observed',
+      `Events ${Number(result.observed_events || 0)} | Sync runs ${status(Number(result.sync_count || 0), Number(result.sync_count || 0) > 0 ? 'success' : 'info')} | Elapsed ${Number(result.elapsed_ms || 0)}ms`,
+      { kind: Number(result.sync_count || 0) > 0 ? 'success' : 'info' }
+    )
+  );
+  lines.push(field('Reason', result.reason || '-', { kind: 'info' }));
+  lines.push(field('Errors', status(errorCount, errorCount > 0 ? 'warning' : 'success'), { kind: errorCount > 0 ? 'warning' : 'success' }));
+  console.log(lines.join('\n'));
 }
 
 if (require.main === module) {
   main().catch((error) => {
-    console.log(
-      JSON.stringify(
-        {
-          status: 'error',
-          message: error.message
-        },
-        null,
-        2
-      )
-    );
+    if (process.stdout.isTTY) {
+      console.log(renderCliError('Context-Anchor External Memory Watch Failed', error.message, {
+        nextStep: 'Check the workspace and watcher arguments, then rerun watch:memory.'
+      }));
+    } else {
+      console.log(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+    }
     process.exit(1);
   });
 }
