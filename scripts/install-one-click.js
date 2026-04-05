@@ -826,6 +826,21 @@ function renderInstallReport(result) {
       )
     );
   }
+  const schedulerCleanup =
+    result.session_upgrade?.scheduler_cleanup?.status === 'cleaned'
+      ? result.session_upgrade.scheduler_cleanup
+      : result.configuration?.scheduler_cleanup?.status === 'cleaned'
+      ? result.configuration.scheduler_cleanup
+      : null;
+  if (schedulerCleanup) {
+    lines.push(
+      field(
+        'Scheduler cleanup',
+        `Removed tasks ${Number(schedulerCleanup.removed_tasks?.length || 0)} | Removed launchers ${Number(schedulerCleanup.removed_launchers?.length || 0)}`,
+        { kind: 'warning' }
+      )
+    );
+  }
   if (verification.recheck_command) {
     lines.push(field('Recheck', command(verification.recheck_command), { kind: 'command' }));
   }

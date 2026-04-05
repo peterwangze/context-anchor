@@ -18,7 +18,7 @@ const {
   resolveOwnership
 } = require('./lib/host-config');
 const { collectSessionCandidates, normalizeWorkspaceKey } = require('./lib/openclaw-session-candidates');
-const { runConfigureHost } = require('./configure-host');
+const { buildHostPaths, cleanupWindowsSchedulerState, runConfigureHost } = require('./configure-host');
 const { buildTakeoverAudit, runDoctor } = require('./doctor');
 const { buildRemediationSummary } = require('./lib/remediation-summary');
 const { runMirrorRebuild } = require('./mirror-rebuild');
@@ -478,6 +478,9 @@ function createCliProgressReporter(stream = process.stderr) {
       case 'verification:strategy':
         line = `${prefix()}verification strategy: ${accent(event.label)}${event.summary ? ` - ${event.summary}` : ''}`;
         break;
+      case 'scheduler:cleanup':
+        line = `${prefix('warning')}scheduler cleanup: removed tasks=${event.removed_tasks || 0} launchers=${event.removed_launchers || 0}`;
+        break;
       default:
         break;
     }
@@ -596,6 +599,23 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
       path.join(openClawHome, 'skills')
   );
   const progress = options.progress;
+  const schedulerCleanup = cleanupWindowsSchedulerState(
+    buildHostPaths(openClawHome, skillsRoot),
+    readHostConfig(openClawHome),
+    {
+      currentPlatform: options.currentPlatform || process.platform,
+      execFileSync: options.schedulerExecFileSync,
+      schedulerInspector: options.schedulerInspector,
+      schedulerTaskDeleter: options.schedulerTaskDeleter
+    }
+  );
+  if (schedulerCleanup.status === 'cleaned') {
+    emitProgress(progress, {
+      type: 'scheduler:cleanup',
+      removed_tasks: schedulerCleanup.removed_tasks.length,
+      removed_launchers: schedulerCleanup.removed_launchers.length
+    });
+  }
   emitProgress(progress, {
     type: 'scan:start'
   });
@@ -721,6 +741,7 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
     governance_runs: governanceRuns,
     verification,
     verification_report: verificationReport,
+    scheduler_cleanup: schedulerCleanup,
     takeover_audit: takeoverAudit,
     host_takeover_audit: doctorAudit.host_takeover_audit,
     profile_takeover_audit: doctorAudit.profile_takeover_audit,
@@ -786,6 +807,15 @@ function renderUpgradeReport(result) {
   );
   if (result.excluded_subagent_sessions || result.excluded_hidden_sessions) {
     lines.push(field('Filtered', `Subagents ${Number(result.excluded_subagent_sessions || 0)} | Hidden ${Number(result.excluded_hidden_sessions || 0)}`, { kind: 'muted' }));
+  }
+  if (result.scheduler_cleanup?.status === 'cleaned') {
+    lines.push(
+      field(
+        'Scheduler cleanup',
+        `Removed tasks ${Number(result.scheduler_cleanup.removed_tasks?.length || 0)} | Removed launchers ${Number(result.scheduler_cleanup.removed_launchers?.length || 0)}`,
+        { kind: 'warning' }
+      )
+    );
   }
   lines.push(
     field(

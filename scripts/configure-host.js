@@ -507,14 +507,19 @@ function parseWorkspaceSpec(spec) {
   };
 }
 
-function createSchedulerLauncher(paths, workspace, targetPlatform) {
+function computeSchedulerLauncherId(workspace) {
   const workspacePath = path.resolve(workspace);
   const launcherId = crypto
     .createHash('sha1')
     .update(workspacePath)
     .digest('hex')
     .slice(0, 8);
-  const baseName = `${path.basename(workspacePath).toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'workspace'}-${launcherId}`;
+  return `${path.basename(workspacePath).toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'workspace'}-${launcherId}`;
+}
+
+function createSchedulerLauncher(paths, workspace, targetPlatform) {
+  const workspacePath = path.resolve(workspace);
+  const baseName = computeSchedulerLauncherId(workspacePath);
   const launchersDir = path.join(path.dirname(paths.workspace_monitor_script), 'launchers');
   const isWindowsTarget = targetPlatform === 'windows';
   const launcherPath = path.join(launchersDir, `${baseName}${isWindowsTarget ? '.vbs' : '.sh'}`);
@@ -545,6 +550,123 @@ function createSchedulerLauncher(paths, workspace, targetPlatform) {
     workspace: workspacePath,
     launcher_id: baseName,
     launcher_path: launcherPath
+  };
+}
+
+function parseSchtasksCsv(stdout = '') {
+  return String(stdout || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      if (line.startsWith('"')) {
+        const end = line.indexOf('",');
+        if (end > 0) {
+          return line.slice(1, end);
+        }
+        return line.slice(1, line.endsWith('"') ? -1 : undefined);
+      }
+      return line.split(',')[0];
+    })
+    .filter(Boolean);
+}
+
+function listOpenClawWindowsSchedulerTasks(options = {}) {
+  if (typeof options.schedulerInspector === 'function') {
+    return options.schedulerInspector();
+  }
+
+  const execImpl = options.execFileSync || execFileSync;
+  try {
+    const stdout = execImpl('schtasks', ['/Query', '/FO', 'CSV', '/NH'], {
+      encoding: 'utf8'
+    });
+    return parseSchtasksCsv(stdout).filter((taskName) =>
+      String(taskName || '').replace(/^\\/, '').startsWith('OpenClaw Context Anchor ')
+    );
+  } catch {
+    return [];
+  }
+}
+
+function cleanupWindowsSchedulerState(paths, hostConfig, options = {}) {
+  const currentPlatform = options.currentPlatform || process.platform;
+  if (currentPlatform !== 'win32') {
+    return {
+      status: 'skipped',
+      reason: 'non_windows'
+    };
+  }
+
+  const launchersDir = path.join(path.dirname(paths.workspace_monitor_script), 'launchers');
+  ensureDir(launchersDir);
+  const schedulerPrefix = 'OpenClaw Context Anchor ';
+  const validLauncherIds = new Set(
+    [
+      hostConfig?.defaults?.workspace || null,
+      ...(Array.isArray(hostConfig?.workspaces) ? hostConfig.workspaces.map((entry) => entry.workspace) : [])
+    ]
+      .filter(Boolean)
+      .map((workspace) => computeSchedulerLauncherId(workspace))
+  );
+  const launcherFiles = fs.readdirSync(launchersDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && (entry.name.endsWith('.vbs') || entry.name.endsWith('.cmd')))
+    .map((entry) => entry.name);
+  const tasks = listOpenClawWindowsSchedulerTasks(options);
+  const deleteTask =
+    typeof options.schedulerTaskDeleter === 'function'
+      ? options.schedulerTaskDeleter
+      : (taskName) => {
+          const execImpl = options.execFileSync || execFileSync;
+          execImpl('schtasks', ['/Delete', '/TN', taskName, '/F'], {
+            encoding: 'utf8'
+          });
+        };
+
+  const removedTasks = [];
+  const removedLaunchers = [];
+  const staleTaskReasons = [];
+
+  tasks.forEach((taskName) => {
+    const normalizedName = String(taskName || '').replace(/^\\/, '');
+    if (!normalizedName.startsWith(schedulerPrefix)) {
+      return;
+    }
+    const launcherId = normalizedName.slice(schedulerPrefix.length);
+    const vbsLauncher = path.join(launchersDir, `${launcherId}.vbs`);
+    const cmdLauncher = path.join(launchersDir, `${launcherId}.cmd`);
+    const launcherExists = fs.existsSync(vbsLauncher) || fs.existsSync(cmdLauncher);
+    const validLauncher = validLauncherIds.has(launcherId);
+
+    if (launcherExists && validLauncher) {
+      return;
+    }
+
+    deleteTask(taskName);
+    removedTasks.push(taskName);
+    staleTaskReasons.push({
+      task_name: taskName,
+      launcher_id: launcherId,
+      reason: launcherExists ? 'workspace_no_longer_registered' : 'launcher_missing'
+    });
+  });
+
+  launcherFiles.forEach((fileName) => {
+    const parsed = path.parse(fileName);
+    if (validLauncherIds.has(parsed.name)) {
+      return;
+    }
+    fs.rmSync(path.join(launchersDir, fileName), { force: true });
+    removedLaunchers.push(fileName);
+  });
+
+  return {
+    status: removedTasks.length > 0 || removedLaunchers.length > 0 ? 'cleaned' : 'ok',
+    inspected_tasks: tasks.length,
+    valid_launcher_ids: [...validLauncherIds],
+    removed_tasks: removedTasks,
+    removed_launchers: removedLaunchers,
+    stale_tasks: staleTaskReasons
   };
 }
 
@@ -1078,6 +1200,13 @@ async function runConfigureHost(openClawHomeArg, skillsRootArg, options = {}) {
     ask,
     askText: askInput
   });
+  const refreshedHostConfig = readHostConfig(paths.openclaw_home);
+  const scheduler_cleanup = cleanupWindowsSchedulerState(paths, refreshedHostConfig, {
+    currentPlatform,
+    execFileSync: options.schedulerExecFileSync,
+    schedulerInspector: options.schedulerInspector,
+    schedulerTaskDeleter: options.schedulerTaskDeleter
+  });
 
   let enableScheduler = options.enableScheduler;
   if (typeof enableScheduler !== 'boolean') {
@@ -1163,6 +1292,7 @@ async function runConfigureHost(openClawHomeArg, skillsRootArg, options = {}) {
     },
     ownership,
     scheduler,
+    scheduler_cleanup,
     verification,
     takeover_audit: takeoverAudit,
     host_takeover_audit: doctorAudit.host_takeover_audit,
@@ -1213,6 +1343,15 @@ function renderConfigureHostReport(result) {
       { kind: schedulerKind }
     )
   );
+  if (result.scheduler_cleanup?.status === 'cleaned') {
+    lines.push(
+      field(
+        'Scheduler cleanup',
+        `Removed tasks ${Number(result.scheduler_cleanup.removed_tasks?.length || 0)} | Removed launchers ${Number(result.scheduler_cleanup.removed_launchers?.length || 0)}`,
+        { kind: 'warning' }
+      )
+    );
+  }
   if (Array.isArray(result.memory_takeover?.limitations) && result.memory_takeover.limitations.length > 0) {
     lines.push(field('Limitation', result.memory_takeover.limitations[0], { kind: 'warning' }));
   }
@@ -1250,6 +1389,8 @@ if (require.main === module) {
 }
 
 module.exports = {
+  cleanupWindowsSchedulerState,
+  computeSchedulerLauncherId,
   DEFAULT_INTERVAL_MINUTES,
   SUPPORTED_SCHEDULER_PLATFORMS,
   buildHostPaths,

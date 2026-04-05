@@ -45,7 +45,12 @@ const {
 } = require('../scripts/lib/context-anchor-db');
 const { findSessionByKey, getHostConfigFile, resolveOwnership } = require('../scripts/lib/host-config');
 const { runCheckpointCreate } = require('../scripts/checkpoint-create');
-const { runConfigureHost } = require('../scripts/configure-host');
+const {
+  buildHostPaths,
+  cleanupWindowsSchedulerState,
+  computeSchedulerLauncherId,
+  runConfigureHost
+} = require('../scripts/configure-host');
 const { runContextPressureHandle } = require('../scripts/context-pressure-handle');
 const { runContextPressureMonitor } = require('../scripts/context-pressure-monitor');
 const { handleHookEvent, handleManagedHookEvent } = require('../hooks/context-anchor-hook/handler');
@@ -2092,6 +2097,67 @@ test('legacy Windows scheduler launchers are reported as visible-console tasks',
   }
 });
 
+test('configure-host cleanup removes orphaned and stale Windows scheduler tasks', () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const skillsRoot = path.join(openClawHome, 'skills');
+  const validWorkspace = path.join(workspace, 'project-valid');
+  const staleWorkspace = path.join(workspace, 'project-stale');
+
+  try {
+    fs.mkdirSync(validWorkspace, { recursive: true });
+    fs.mkdirSync(staleWorkspace, { recursive: true });
+
+    const paths = buildHostPaths(openClawHome, skillsRoot);
+    const launchersDir = path.join(path.dirname(paths.workspace_monitor_script), 'launchers');
+    fs.mkdirSync(launchersDir, { recursive: true });
+
+    const validId = computeSchedulerLauncherId(validWorkspace);
+    const staleId = computeSchedulerLauncherId(staleWorkspace);
+    fs.writeFileSync(path.join(launchersDir, `${validId}.vbs`), 'valid', 'utf8');
+    fs.writeFileSync(path.join(launchersDir, `${staleId}.vbs`), 'stale', 'utf8');
+    fs.writeFileSync(path.join(launchersDir, `${staleId}.cmd`), '@echo off\r\n', 'utf8');
+
+    const deletedTasks = [];
+    const cleanup = cleanupWindowsSchedulerState(
+      paths,
+      {
+        defaults: {
+          workspace: validWorkspace
+        },
+        workspaces: [
+          {
+            workspace: validWorkspace
+          }
+        ]
+      },
+      {
+        currentPlatform: 'win32',
+        schedulerInspector: () => [
+          `\\OpenClaw Context Anchor ${validId}`,
+          `\\OpenClaw Context Anchor ${staleId}`,
+          '\\OpenClaw Context Anchor missing-launcher-id'
+        ],
+        schedulerTaskDeleter: (taskName) => {
+          deletedTasks.push(taskName);
+        }
+      }
+    );
+
+    assert.equal(cleanup.status, 'cleaned');
+    assert.deepEqual(deletedTasks, [
+      `\\OpenClaw Context Anchor ${staleId}`,
+      '\\OpenClaw Context Anchor missing-launcher-id'
+    ]);
+    assert.ok(cleanup.removed_launchers.includes(`${staleId}.vbs`));
+    assert.ok(cleanup.removed_launchers.includes(`${staleId}.cmd`));
+    assert.equal(fs.existsSync(path.join(launchersDir, `${validId}.vbs`)), true);
+    assert.equal(fs.existsSync(path.join(launchersDir, `${staleId}.vbs`)), false);
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('configure-host can prepare macOS and Linux scheduler assets by explicit platform choice', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');
@@ -2794,6 +2860,53 @@ test('upgrade-sessions reports structured progress events during long-running up
       assert.ok(progressEvents.some((event) => event.type === 'governance:start'));
       assert.ok(progressEvents.some((event) => event.type === 'governance:target:done'));
       assert.ok(progressEvents.some((event) => event.type === 'finish'));
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('upgrade-sessions automatically cleans stale Windows scheduler tasks during upgrade', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const activeWorkspace = path.join(workspace, 'active-project');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'peter',
+        defaultWorkspace: activeWorkspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      runSessionStart(activeWorkspace, 'active-session', 'active-project', {
+        userId: 'peter'
+      });
+
+      const staleWorkspace = path.join(workspace, 'stale-project');
+      const launchersDir = path.join(openClawHome, 'automation', 'context-anchor', 'launchers');
+      fs.mkdirSync(launchersDir, { recursive: true });
+      const staleLauncherId = computeSchedulerLauncherId(staleWorkspace);
+      fs.writeFileSync(path.join(launchersDir, `${staleLauncherId}.vbs`), 'stale', 'utf8');
+
+      const deletedTasks = [];
+      const progressEvents = [];
+      const result = runUpgradeSessions(openClawHome, path.join(openClawHome, 'skills'), {
+        currentPlatform: 'win32',
+        schedulerInspector: () => [`\\OpenClaw Context Anchor ${staleLauncherId}`],
+        schedulerTaskDeleter: (taskName) => deletedTasks.push(taskName),
+        progress: (event) => progressEvents.push(event)
+      });
+
+      assert.equal(result.scheduler_cleanup.status, 'cleaned');
+      assert.deepEqual(result.scheduler_cleanup.removed_tasks, [`\\OpenClaw Context Anchor ${staleLauncherId}`]);
+      assert.ok(result.scheduler_cleanup.removed_launchers.includes(`${staleLauncherId}.vbs`));
+      assert.deepEqual(deletedTasks, [`\\OpenClaw Context Anchor ${staleLauncherId}`]);
+      assert.ok(progressEvents.some((event) => event.type === 'scheduler:cleanup'));
     });
   } finally {
     cleanupWorkspace(workspace);
