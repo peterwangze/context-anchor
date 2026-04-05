@@ -3,6 +3,7 @@
 const { spawnSync } = require('child_process');
 const readline = require('readline');
 const { decodeAutoFixSequence, filterAutoFixSequence, normalizeRiskThreshold } = require('./lib/auto-fix');
+const { createPaths, DEFAULTS, loadUserState, resolveUserId, writeUserState } = require('./lib/context-anchor');
 const { command, field, renderCliError, section, status } = require('./lib/terminal-format');
 
 function parseArgs(argv) {
@@ -12,8 +13,12 @@ function parseArgs(argv) {
     dryRun: false,
     json: false,
     until: null,
-    skipRecheck: false,
-    riskThreshold: null
+    skipRecheck: null,
+    riskThreshold: null,
+    workspace: null,
+    userId: null,
+    saveDefaults: false,
+    clearDefaults: false
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -54,10 +59,77 @@ function parseArgs(argv) {
     if (arg === '--risk-threshold') {
       options.riskThreshold = normalizeRiskThreshold(argv[index + 1] || null);
       index += 1;
+      continue;
+    }
+
+    if (arg === '--workspace') {
+      options.workspace = argv[index + 1] || null;
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--user-id') {
+      options.userId = argv[index + 1] || null;
+      index += 1;
+      continue;
+    }
+
+    if (arg === '--save-defaults') {
+      options.saveDefaults = true;
+      continue;
+    }
+
+    if (arg === '--clear-defaults') {
+      options.clearDefaults = true;
     }
   }
 
   return options;
+}
+
+function loadAutoFixDefaults(options = {}) {
+  const paths = createPaths(options.workspace || process.cwd());
+  const userId = resolveUserId(options.userId || DEFAULTS.userId);
+  const userState = loadUserState(paths, userId);
+  const stored = userState.preferences?.auto_fix_defaults || {};
+  return {
+    paths,
+    userId,
+    userState,
+    defaults: {
+      until: stored.until || null,
+      skipRecheck: Boolean(stored.skip_recheck),
+      riskThreshold: normalizeRiskThreshold(stored.risk_threshold) || null
+    }
+  };
+}
+
+function persistAutoFixDefaults(context, strategy) {
+  const userState = context.userState || {};
+  userState.preferences = userState.preferences || {};
+  userState.preferences.auto_fix_defaults = {
+    until: strategy.until || null,
+    skip_recheck: Boolean(strategy.skipRecheck),
+    risk_threshold: strategy.riskThreshold || null
+  };
+  userState.last_updated = new Date().toISOString();
+  writeUserState(context.paths, context.userId, userState);
+}
+
+function clearAutoFixDefaults(context) {
+  const userState = context.userState || {};
+  userState.preferences = userState.preferences || {};
+  delete userState.preferences.auto_fix_defaults;
+  userState.last_updated = new Date().toISOString();
+  writeUserState(context.paths, context.userId, userState);
+}
+
+function resolveEffectiveStrategy(options = {}, defaults = {}) {
+  return {
+    until: options.until || defaults.until || null,
+    skipRecheck: options.skipRecheck === null ? Boolean(defaults.skipRecheck) : Boolean(options.skipRecheck),
+    riskThreshold: options.riskThreshold || defaults.riskThreshold || null
+  };
 }
 
 function renderPlan(sequence = [], options = {}) {
@@ -83,6 +155,9 @@ function renderPlan(sequence = [], options = {}) {
   }
   if (strategyParts.length > 0) {
     lines.push(field('Strategy', strategyParts.join(' | '), { kind: 'muted' }));
+  }
+  if (options.defaultsSource) {
+    lines.push(field('Defaults', options.defaultsSource, { kind: 'muted' }));
   }
   sequence.forEach((entry, index) => {
     const riskLabel = `${String(entry.risk_level || 'medium').toUpperCase()}${entry.requires_confirmation ? '/confirm' : ''}`;
@@ -181,10 +256,13 @@ async function runAutoFix(options = {}) {
   if (decodedSequence.length === 0) {
     throw new Error('No automatic remediation steps were provided.');
   }
-  const sequence = filterAutoFixSequence(decodedSequence, options);
+  const defaultsContext = loadAutoFixDefaults(options);
+  const strategy = resolveEffectiveStrategy(options, defaultsContext.defaults);
+  const sequence = filterAutoFixSequence(decodedSequence, strategy);
   if (sequence.length === 0) {
     throw new Error('No auto-fix steps remain after applying the selected strategy.');
   }
+  const defaultsChanged = options.saveDefaults || options.clearDefaults;
 
   if (options.dryRun) {
     return {
@@ -192,16 +270,41 @@ async function runAutoFix(options = {}) {
       total_steps: sequence.length,
       high_risk_steps: sequence.filter((entry) => entry.risk_level === 'high').length,
       strategy: {
-        until: options.until || null,
-        skip_recheck: Boolean(options.skipRecheck),
-        risk_threshold: options.riskThreshold || null
+        until: strategy.until || null,
+        skip_recheck: Boolean(strategy.skipRecheck),
+        risk_threshold: strategy.riskThreshold || null
       },
+      defaults: defaultsContext.defaults,
+      defaults_source:
+        defaultsContext.defaults.until || defaultsContext.defaults.skipRecheck || defaultsContext.defaults.riskThreshold
+          ? 'user preferences'
+          : 'none',
+      defaults_change:
+        defaultsChanged
+          ? options.clearDefaults
+            ? 'pending_clear'
+            : 'pending_save'
+          : null,
       steps: sequence
     };
   }
 
+  if (options.clearDefaults) {
+    clearAutoFixDefaults(defaultsContext);
+  } else if (options.saveDefaults) {
+    persistAutoFixDefaults(defaultsContext, strategy);
+  }
+
   if (process.stdout.isTTY) {
-    console.log(renderPlan(sequence, options));
+    console.log(
+      renderPlan(sequence, {
+        ...strategy,
+        defaultsSource:
+          defaultsContext.defaults.until || defaultsContext.defaults.skipRecheck || defaultsContext.defaults.riskThreshold
+            ? 'user preferences'
+            : 'none'
+      })
+    );
     console.log('');
   }
 
@@ -214,10 +317,21 @@ async function runAutoFix(options = {}) {
         completed_steps: 0,
         high_risk_steps: sequence.filter((entry) => entry.risk_level === 'high').length,
         strategy: {
-          until: options.until || null,
-          skip_recheck: Boolean(options.skipRecheck),
-          risk_threshold: options.riskThreshold || null
+          until: strategy.until || null,
+          skip_recheck: Boolean(strategy.skipRecheck),
+          risk_threshold: strategy.riskThreshold || null
         },
+        defaults: defaultsContext.defaults,
+        defaults_source:
+          defaultsContext.defaults.until || defaultsContext.defaults.skipRecheck || defaultsContext.defaults.riskThreshold
+            ? 'user preferences'
+            : 'none',
+        defaults_change:
+          defaultsChanged
+            ? options.clearDefaults
+              ? 'cleared'
+              : 'saved'
+            : null,
         steps: sequence
       };
     }
@@ -228,10 +342,21 @@ async function runAutoFix(options = {}) {
     ...result,
     high_risk_steps: sequence.filter((entry) => entry.risk_level === 'high').length,
     strategy: {
-      until: options.until || null,
-      skip_recheck: Boolean(options.skipRecheck),
-      risk_threshold: options.riskThreshold || null
-    }
+      until: strategy.until || null,
+      skip_recheck: Boolean(strategy.skipRecheck),
+      risk_threshold: strategy.riskThreshold || null
+    },
+    defaults: defaultsContext.defaults,
+    defaults_source:
+      defaultsContext.defaults.until || defaultsContext.defaults.skipRecheck || defaultsContext.defaults.riskThreshold
+        ? 'user preferences'
+        : 'none',
+    defaults_change:
+      defaultsChanged
+        ? options.clearDefaults
+          ? 'cleared'
+          : 'saved'
+        : null
   };
 }
 
@@ -257,6 +382,12 @@ function renderResult(result) {
   }
   if (strategyParts.length > 0) {
     lines.push(field('Strategy', strategyParts.join(' | '), { kind: 'muted' }));
+  }
+  if (result.defaults_source) {
+    lines.push(field('Defaults', result.defaults_source, { kind: 'muted' }));
+  }
+  if (result.defaults_change) {
+    lines.push(field('Defaults update', String(result.defaults_change).replace(/_/g, '-'), { kind: 'info' }));
   }
   const steps = Array.isArray(result.steps) ? result.steps : [];
   steps.forEach((entry, index) => {

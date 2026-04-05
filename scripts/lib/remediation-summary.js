@@ -1,6 +1,6 @@
 const { buildAutoFixCommand } = require('./auto-fix');
 
-function normalizeRemediationEntry(source, action = {}) {
+function normalizeRemediationEntry(source, action = {}, options = {}) {
   const strategy = action?.repair_strategy || action || {};
   const label = strategy.label || null;
   const executionMode = strategy.execution_mode === 'manual' ? 'manual' : 'automatic';
@@ -24,7 +24,7 @@ function normalizeRemediationEntry(source, action = {}) {
     command: action?.command || null,
     follow_up_command: action?.follow_up_command || null,
     command_sequence: buildRemediationCommandSequence(action),
-    auto_fix_command: buildAutoFixCommand(buildRemediationCommandSequence(action)),
+    auto_fix_command: buildAutoFixCommand(buildRemediationCommandSequence(action), options.auto_fix_options || {}),
     resolution_hint: strategy.resolution_hint || action?.resolution_hint || null,
     command_examples: Array.isArray(strategy.command_examples)
       ? strategy.command_examples.filter(Boolean)
@@ -76,10 +76,10 @@ function dedupeEntries(entries = []) {
   });
 }
 
-function buildRemediationSummary(pairs = []) {
+function buildRemediationSummary(pairs = [], options = {}) {
   const entries = dedupeEntries(
     (Array.isArray(pairs) ? pairs : [])
-      .map((pair) => normalizeRemediationEntry(pair?.source, pair?.action))
+      .map((pair) => normalizeRemediationEntry(pair?.source, pair?.action, options))
       .filter(Boolean)
   );
   const automatic = entries.filter((entry) => entry.execution_mode !== 'manual');

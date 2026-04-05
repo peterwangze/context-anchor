@@ -424,7 +424,8 @@ function buildGroupScope(group, options = {}) {
   return {
     workspace: normalizeScopeWorkspace(group.workspace || firstResolvedSession?.workspace),
     sessionKey: !group.workspace && group.sessions.length > 0 ? group.sessions[0].session_key : null,
-    projectId: options.projectId || firstResolvedSession?.project_id || null
+    projectId: options.projectId || firstResolvedSession?.project_id || null,
+    userId: options.userId || firstResolvedSession?.user_id || null
   };
 }
 
@@ -886,12 +887,13 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
       process.env.CONTEXT_ANCHOR_SKILLS_ROOT ||
       path.join(resolvedOpenClawHome, 'skills')
   );
+  const hostConfig = readHostConfig(resolvedOpenClawHome);
   const scope = {
     workspace: normalizeScopeWorkspace(options.workspace || null),
-    sessionKey: options.sessionKey ? sanitizeKey(options.sessionKey) : null
+    sessionKey: options.sessionKey ? sanitizeKey(options.sessionKey) : null,
+    userId: hostConfig?.defaults?.user_id || null
   };
   const doctor = runDoctor({ openclawHome: resolvedOpenClawHome, skillsRoot });
-  const hostConfig = readHostConfig(resolvedOpenClawHome);
   const collected = collectSessionCandidates(resolvedOpenClawHome, {
     includeSubagents: Boolean(options.includeSubagents),
     includeHiddenSessions: Boolean(options.includeHiddenSessions)
@@ -942,6 +944,11 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
         workspaceStatus?.workspaceEntry?.project_id ||
         workspaceStatus?.suggestedProjectId ||
         group.sessions[0]?.project_id ||
+        null,
+      userId:
+        workspaceStatus?.workspaceEntry?.user_id ||
+        group.sessions[0]?.user_id ||
+        hostConfig.defaults.user_id ||
         null
     });
     const commands = buildActionCommands(commandScope, {
@@ -989,17 +996,25 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
       recheck_command: commands.recheck_command,
       repair_sequence: commands.repair_sequence,
       repair_strategy: commands.repair_strategy,
-      remediation_summary: buildRemediationSummary([
+      remediation_summary: buildRemediationSummary(
+        [
+          {
+            source: 'session_status',
+            action: {
+              ...commands,
+              command: commands.repair_command,
+              follow_up_command: commands.follow_up_command,
+              recheck_command: commands.recheck_command
+            }
+          }
+        ],
         {
-          source: 'session_status',
-          action: {
-            ...commands,
-            command: commands.repair_command,
-            follow_up_command: commands.follow_up_command,
-            recheck_command: commands.recheck_command
+          auto_fix_options: {
+            workspace: commandScope.workspace,
+            userId: commandScope.userId
           }
         }
-      ]),
+      ),
       task_state_summary: primaryTaskStateSession?.task_state_summary || buildTaskStateSummary({}),
       task_state_session_key: primaryTaskStateSession?.session_key || null,
       last_benefit_summary: primaryBenefitSession?.last_benefit_summary || null,
@@ -1045,17 +1060,25 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
     },
     summary,
     commands: globalCommands,
-    remediation_summary: buildRemediationSummary([
+    remediation_summary: buildRemediationSummary(
+      [
+        {
+          source: 'session_status_global',
+          action: {
+            ...globalCommands,
+            command: globalCommands.repair_command,
+            follow_up_command: globalCommands.follow_up_command,
+            recheck_command: globalCommands.recheck_command
+          }
+        }
+      ],
       {
-        source: 'session_status_global',
-        action: {
-          ...globalCommands,
-          command: globalCommands.repair_command,
-          follow_up_command: globalCommands.follow_up_command,
-          recheck_command: globalCommands.recheck_command
+        auto_fix_options: {
+          workspace: scope.workspace,
+          userId: scope.userId
         }
       }
-    ]),
+    ),
     groups,
     sessions
   };

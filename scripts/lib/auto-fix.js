@@ -135,6 +135,14 @@ function buildAutoFixCommand(sequence = [], options = {}) {
     args.push('--yes');
   }
 
+  if (options.workspace) {
+    args.push('--workspace', `"${String(options.workspace)}"`);
+  }
+
+  if (options.userId) {
+    args.push('--user-id', `"${String(options.userId)}"`);
+  }
+
   if (options.dryRun) {
     args.push('--dry-run');
   }

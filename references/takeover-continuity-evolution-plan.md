@@ -179,6 +179,14 @@
   - `auto-fix.js` 已增加批量策略参数：`--until`、`--skip-recheck`、`--risk-threshold`
   - 用户现在可以按阶段、是否回检、风险上限裁剪 automatic remediation 链路
   - 已补充自动化测试，覆盖批量策略过滤与命令生成
+- `2026-04-06`
+  - `auto-fix.js` 已开始支持用户级默认策略记忆：`--save-defaults` / `--clear-defaults`
+  - 当前默认策略保存在 user state 中，可跨后续 auto-fix 调用继承
+  - 已补充自动化测试，覆盖默认策略保存、继承与清理
+- `2026-04-06`
+  - `doctor / status-report / sessions-status / sessions-diagnose / upgrade-sessions` 生成的 `Auto fix command` 已开始自动透传 `--workspace` / `--user-id`
+  - auto-fix 默认策略继承现在更容易落到正确 user/workspace，上下文补参成本进一步降低
+  - 已补充自动化测试，覆盖 remediation summary auto-fix 上下文命令生成
 
 当前仍未完成的重点：
 
@@ -553,7 +561,7 @@
   - session 观测与 upgrade 默认口径已开始优先贴近用户真实感知
   - strict-mode 自动修复路径已开始在 doctor / session diagnose / status-report / install / upgrade / configure 输出中显式化
 - 仍待完成：
-  - strict-mode auto-fix 还缺少可记忆的用户级默认策略与跨命令策略继承
+  - strict-mode auto-fix 还缺少按问题类型自动选择更合适默认策略的上下文感知规则
 
 ## 测试设计
 

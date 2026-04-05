@@ -268,6 +268,17 @@ function buildUpgradeVerification({
   sessionReport
 }) {
   const upgradedResults = results.filter((entry) => entry.action === 'upgraded');
+  const autoFixWorkspace =
+    options.workspace ||
+    upgradedResults.find((entry) => entry.workspace)?.workspace ||
+    results.find((entry) => entry.workspace)?.workspace ||
+    null;
+  const autoFixOwnership = resolveOwnership(openClawHome, {
+    workspace: autoFixWorkspace,
+    sessionKey: options.sessionKey || upgradedResults[0]?.session_key || null,
+    projectId: options.projectId || null,
+    userId: options.userId || null
+  });
   const upgradedKeys = new Set(upgradedResults.map((entry) => sanitizeKey(entry.session_key)));
   const verifiedSessions = sessionReport.sessions.filter((entry) => upgradedKeys.has(sanitizeKey(entry.session_key)));
   const remainingAttention = verifiedSessions.filter((entry) => {
@@ -354,27 +365,35 @@ function buildUpgradeVerification({
     unresolved_targets: unresolvedTargets.length,
     configuration_required_targets: configurationRequiredTargets.length,
     session_report_status: sessionReport.status,
-    remediation_summary: buildRemediationSummary([
+    remediation_summary: buildRemediationSummary(
+      [
+        {
+          source: 'upgrade_verification',
+          action: {
+            type: 'upgrade_verification',
+            summary,
+            recheck_command: buildUpgradeRecheckCommand(openClawHome, skillsRoot, {
+              workspace: options.workspace || null,
+              sessionKey: options.sessionKey || null
+            }),
+            repair_strategy: buildUpgradeRepairStrategy({
+              remaining_attention_sessions: remainingAttention.length,
+              unresolved_targets: unresolvedTargets.length,
+              configuration_required_targets: configurationRequiredTargets.length,
+              openClawHome,
+              skillsRoot,
+              example_session_key: unresolvedTargets[0]?.session_key || options.sessionKey || null
+            })
+          }
+        }
+      ],
       {
-        source: 'upgrade_verification',
-        action: {
-          type: 'upgrade_verification',
-          summary,
-          recheck_command: buildUpgradeRecheckCommand(openClawHome, skillsRoot, {
-            workspace: options.workspace || null,
-            sessionKey: options.sessionKey || null
-          }),
-          repair_strategy: buildUpgradeRepairStrategy({
-            remaining_attention_sessions: remainingAttention.length,
-            unresolved_targets: unresolvedTargets.length,
-            configuration_required_targets: configurationRequiredTargets.length,
-            openClawHome,
-            skillsRoot,
-            example_session_key: unresolvedTargets[0]?.session_key || options.sessionKey || null
-          })
+        auto_fix_options: {
+          workspace: autoFixWorkspace,
+          userId: autoFixOwnership.userId || null
         }
       }
-    ]),
+    ),
     recheck_command: buildUpgradeRecheckCommand(openClawHome, skillsRoot, {
       workspace: options.workspace || null,
       sessionKey: options.sessionKey || null

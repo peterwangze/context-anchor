@@ -88,6 +88,7 @@ const { runScopePromote } = require('../scripts/scope-promote');
 const { runPerfBenchmark } = require('../scripts/perf-benchmark');
 const { runSkillReconcile } = require('../scripts/skill-reconcile');
 const { renderStatusReportText, runStatusReport } = require('../scripts/status-report');
+const { buildRemediationSummary } = require('../scripts/lib/remediation-summary');
 const { calculateRetentionScore, compareGovernanceEntries, governCollection } = require('../scripts/storage-governance');
 const { runSkillSupersede } = require('../scripts/skill-supersede');
 const { runSessionClose } = require('../scripts/session-close');
@@ -3878,6 +3879,93 @@ test('auto-fix supports batch strategy filters for until, skip-recheck, and risk
   assert.equal(result.strategy.until, 'follow_up');
   assert.equal(result.strategy.skip_recheck, true);
   assert.equal(result.strategy.risk_threshold, 'high');
+});
+
+test('auto-fix persists user default strategy and reuses it on later runs', async () => {
+  const workspace = makeWorkspace();
+
+  try {
+    const sequence = [
+      { step: 'repair', command: 'node -e "process.exit(0)"' },
+      { step: 'follow_up', command: 'node -e "process.exit(0)"' },
+      { step: 'recheck', command: 'node -e "process.exit(0)"' }
+    ];
+    const token = encodeAutoFixSequence(sequence);
+
+    const saved = await runAutoFix({
+      steps: token,
+      workspace,
+      userId: 'alice',
+      until: 'follow_up',
+      skipRecheck: true,
+      riskThreshold: 'high',
+      saveDefaults: true,
+      assumeYes: true
+    });
+    const paths = createPaths(workspace);
+    const userState = loadUserState(paths, 'alice');
+    const inherited = await runAutoFix({
+      steps: token,
+      workspace,
+      userId: 'alice',
+      dryRun: true
+    });
+    const cleared = await runAutoFix({
+      steps: token,
+      workspace,
+      userId: 'alice',
+      clearDefaults: true,
+      assumeYes: true
+    });
+    const afterClear = loadUserState(paths, 'alice');
+
+    assert.equal(saved.defaults_change, 'saved');
+    assert.deepEqual(userState.preferences.auto_fix_defaults, {
+      until: 'follow_up',
+      skip_recheck: true,
+      risk_threshold: 'high'
+    });
+    assert.equal(inherited.strategy.until, 'follow_up');
+    assert.equal(inherited.strategy.skip_recheck, true);
+    assert.equal(inherited.strategy.risk_threshold, 'high');
+    assert.equal(inherited.total_steps, 2);
+    assert.equal(inherited.defaults_source, 'user preferences');
+    assert.equal(cleared.defaults_change, 'cleared');
+    assert.equal(afterClear.preferences.auto_fix_defaults, undefined);
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('remediation summary auto-fix command carries workspace and user context', () => {
+  const summary = buildRemediationSummary(
+    [
+      {
+        source: 'demo',
+        action: {
+          type: 'sync_legacy_memory',
+          command: 'npm run migrate:memory -- --workspace "D:/demo"',
+          follow_up_command: 'npm run configure:host -- --workspace "D:/demo" --apply-config',
+          recheck_command: 'npm run doctor -- --workspace "D:/demo"',
+          repair_strategy: {
+            type: 'migrate_then_recheck',
+            label: 'migrate -> recheck',
+            execution_mode: 'automatic',
+            summary: 'Centralize then recheck.'
+          }
+        }
+      }
+    ],
+    {
+      auto_fix_options: {
+        workspace: 'D:/demo',
+        userId: 'alice'
+      }
+    }
+  );
+
+  assert.match(summary.next_step.auto_fix_command, /--workspace "D:\/demo"/);
+  assert.match(summary.next_step.auto_fix_command, /--user-id "alice"/);
 });
 
 test('doctor reports installed absolute paths and wrapper returns a helpful payload error', async () => {

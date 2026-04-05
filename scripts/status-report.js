@@ -491,15 +491,23 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
     external_sources: externalSources,
     memory_source_health: memorySourceHealth,
     recommended_action: recommendedAction,
-    remediation_summary: buildRemediationSummary([
+    remediation_summary: buildRemediationSummary(
+      [
+        {
+          source: 'status_report',
+          action: {
+            ...recommendedAction,
+            recheck_command: buildStatusReportRecheckCommand(paths.workspace, sessionKey, projectId, userId)
+          }
+        }
+      ],
       {
-        source: 'status_report',
-        action: {
-          ...recommendedAction,
-          recheck_command: buildStatusReportRecheckCommand(paths.workspace, sessionKey, projectId, userId)
+        auto_fix_options: {
+          workspace: paths.workspace,
+          userId
         }
       }
-    ]),
+    ),
     storage_governance: summarizeStorageGovernance(paths, sessionKey, projectId, userId),
     skills: skillStatusCounts
   };
