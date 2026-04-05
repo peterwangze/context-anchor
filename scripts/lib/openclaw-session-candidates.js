@@ -27,8 +27,12 @@ function isEphemeralSubagentSession(candidate = {}) {
 
 function collectHiddenSessionReasons(candidate = {}) {
   const reasons = [];
+  const hasVisibleTranscript = candidate.discovered === true && candidate.transcript_exists === true;
   if (!candidate.registered && !candidate.discovered) {
     reasons.push('not_registered_or_discovered');
+  }
+  if (candidate.registered && !hasVisibleTranscript) {
+    reasons.push('registered_without_visible_transcript');
   }
   if (!candidate.registered && !candidate.transcript_exists) {
     reasons.push('missing_transcript');
@@ -46,11 +50,15 @@ function collectHiddenSessionReasons(candidate = {}) {
 }
 
 function isUserVisibleSession(candidate = {}) {
-  if (candidate.registered) {
+  if (candidate.discovered === true && candidate.transcript_exists === true) {
     return true;
   }
 
-  return collectHiddenSessionReasons(candidate).length === 0;
+  if (candidate.registered && candidate.discovered === true && candidate.transcript_exists === true) {
+    return true;
+  }
+
+  return false;
 }
 
 function upsertCandidate(map, candidate) {

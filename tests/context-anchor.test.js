@@ -3290,6 +3290,74 @@ test('session status can include hidden sessions when explicitly requested', asy
   }
 });
 
+test('registered host-only stale sessions are hidden by default from status and upgrade', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const visibleWorkspace = path.join(workspace, 'visible-workspace');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        assumeYes: true,
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'peter',
+        defaultWorkspace: visibleWorkspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      runSessionStart(visibleWorkspace, 'agent:main:visible', 'visible-workspace', {
+        userId: 'peter',
+        openClawSessionId: 'visible-session-id'
+      });
+
+      const hostConfigFile = getHostConfigFile(openClawHome);
+      const hostConfig = readJson(hostConfigFile, {});
+      hostConfig.sessions = [
+        ...(hostConfig.sessions || []),
+        {
+          workspace: path.resolve(path.join(workspace, 'stale-workspace')),
+          session_key: 'agent:main:stale',
+          user_id: 'peter',
+          project_id: 'stale-workspace',
+          status: 'active',
+          started_at: new Date().toISOString(),
+          last_active: new Date().toISOString(),
+          closed_at: null,
+          updated_at: new Date().toISOString()
+        }
+      ];
+      writeJson(hostConfigFile, hostConfig);
+
+      const agentSessionsDir = path.join(openClawHome, 'agents', 'main', 'sessions');
+      fs.mkdirSync(agentSessionsDir, { recursive: true });
+      const visibleTranscript = path.join(agentSessionsDir, 'visible.jsonl');
+      const sessionsIndex = path.join(agentSessionsDir, 'sessions.json');
+      writeSessionTranscript(visibleTranscript, visibleWorkspace, 'visible-session-id');
+      writeJson(sessionsIndex, {
+        'agent:main:visible': {
+          sessionId: 'visible-session-id',
+          sessionFile: visibleTranscript,
+          updatedAt: 1774705704043,
+          chatType: 'direct'
+        }
+      });
+
+      const statusReport = buildOpenClawSessionStatusReport(openClawHome, path.join(openClawHome, 'skills'));
+      const upgradeResult = runUpgradeSessions(openClawHome, path.join(openClawHome, 'skills'));
+
+      assert.equal(statusReport.summary.total_sessions, 1);
+      assert.equal(statusReport.summary.excluded_hidden_sessions, 1);
+      assert.equal(upgradeResult.selected_sessions, 1);
+      assert.equal(upgradeResult.excluded_hidden_sessions, 1);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('session status highlights task continuity and last visible benefit per workspace', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');
