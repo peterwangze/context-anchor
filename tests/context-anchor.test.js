@@ -30,6 +30,13 @@ const {
 } = require('../scripts/lib/context-anchor');
 const { buildBootstrapCacheContent } = require('../scripts/lib/bootstrap-cache');
 const {
+  buildAutoFixCommand,
+  classifyAutoFixRisk,
+  decodeAutoFixSequence,
+  encodeAutoFixSequence,
+  filterAutoFixSequence
+} = require('../scripts/lib/auto-fix');
+const {
   describeCollectionFile,
   describeDocumentFile,
   readCatalogItemRows,
@@ -56,6 +63,7 @@ const { runContextPressureMonitor } = require('../scripts/context-pressure-monit
 const { handleHookEvent, handleManagedHookEvent } = require('../hooks/context-anchor-hook/handler');
 const { renderExperienceValidateReport, runExperienceValidate } = require('../scripts/experience-validate');
 const { runInstallHostAssets } = require('../scripts/install-host-assets');
+const { runAutoFix } = require('../scripts/auto-fix');
 const { runExternalMemoryWatch } = require('../scripts/external-memory-watch');
 const { runLegacyMemorySync } = require('../scripts/legacy-memory-sync');
 const { runOneClickInstall } = require('../scripts/install-one-click');
@@ -3748,6 +3756,8 @@ test('session status surfaces external memory drift and recommends migrate-memor
       assert.match(diagnosisRendered, /Follow-up:/);
       assert.match(diagnosisRendered, /Recheck:/);
       assert.match(diagnosisRendered, /Strategy: \[auto\] migrate -> enforce -> recheck/);
+      assert.match(diagnosisRendered, /Auto fix path:/);
+      assert.match(diagnosisRendered, /Auto fix command:/);
       assert.match(diagnosisRendered, /Guidance:/);
       assert.match(diagnosisRendered, /Example command:/);
       assert.match(diagnosisRendered, /Repair path:/);
@@ -3783,6 +3793,91 @@ test('configure-host refuses to overwrite an invalid openclaw.json', async () =>
   } finally {
     cleanupWorkspace(workspace);
   }
+});
+
+test('auto-fix helper encodes a command sequence into a reusable one-click command', async () => {
+  const sequence = [
+    { step: 'repair', command: 'npm run migrate:memory -- --workspace "D:/demo"' },
+    { step: 'recheck', command: 'npm run doctor -- --workspace "D:/demo"' }
+  ];
+
+  const token = encodeAutoFixSequence(sequence);
+  const commandLine = buildAutoFixCommand(sequence);
+  const decoded = decodeAutoFixSequence(token);
+  const result = await runAutoFix({
+    steps: token,
+    dryRun: true
+  });
+
+  assert.ok(token);
+  assert.match(commandLine, /scripts[\\/]+auto-fix\.js/);
+  assert.doesNotMatch(commandLine, /--yes/);
+  assert.equal(decoded[0].risk_level, 'medium');
+  assert.equal(decoded[0].requires_confirmation, false);
+  assert.equal(decoded[1].risk_level, 'low');
+  assert.equal(decoded[1].requires_confirmation, false);
+  assert.equal(result.status, 'planned');
+  assert.equal(result.total_steps, 2);
+  assert.equal(result.high_risk_steps, 0);
+  assert.equal(result.steps[0].risk_level, 'medium');
+  assert.equal(result.steps[1].risk_level, 'low');
+});
+
+test('auto-fix classifies host configuration changes as high-risk with confirmation', async () => {
+  const sequence = [
+    { step: 'repair', command: 'npm run configure:host -- --workspace "D:/demo" --apply-config --enable-scheduler' },
+    { step: 'recheck', command: 'npm run doctor -- --workspace "D:/demo"' }
+  ];
+
+  const risk = classifyAutoFixRisk(sequence[0].command, sequence[0].step);
+  const result = await runAutoFix({
+    steps: encodeAutoFixSequence(sequence),
+    dryRun: true
+  });
+
+  assert.equal(risk.risk_level, 'high');
+  assert.equal(risk.requires_confirmation, true);
+  assert.equal(result.high_risk_steps, 1);
+  assert.equal(result.steps[0].risk_level, 'high');
+  assert.equal(result.steps[0].requires_confirmation, true);
+});
+
+test('auto-fix supports batch strategy filters for until, skip-recheck, and risk-threshold', async () => {
+  const sequence = [
+    { step: 'repair', command: 'npm run migrate:memory -- --workspace "D:/demo"' },
+    { step: 'follow_up', command: 'npm run configure:host -- --workspace "D:/demo" --apply-config --enable-scheduler' },
+    { step: 'recheck', command: 'npm run doctor -- --workspace "D:/demo"' }
+  ];
+
+  const filteredUntil = filterAutoFixSequence(sequence, { until: 'repair' });
+  const filteredRisk = filterAutoFixSequence(sequence, { riskThreshold: 'medium' });
+  const commandLine = buildAutoFixCommand(sequence, {
+    until: 'follow_up',
+    skipRecheck: true,
+    riskThreshold: 'high'
+  });
+  const result = await runAutoFix({
+    steps: encodeAutoFixSequence(sequence),
+    until: 'follow_up',
+    skipRecheck: true,
+    riskThreshold: 'high',
+    dryRun: true
+  });
+
+  assert.equal(filteredUntil.length, 1);
+  assert.equal(filteredUntil[0].step, 'repair');
+  assert.equal(filteredRisk.length, 2);
+  assert.deepEqual(filteredRisk.map((entry) => entry.step), ['repair', 'recheck']);
+  assert.match(commandLine, /--until follow_up/);
+  assert.match(commandLine, /--skip-recheck/);
+  assert.match(commandLine, /--risk-threshold high/);
+  assert.equal(result.total_steps, 2);
+  assert.equal(result.steps[0].step, 'repair');
+  assert.equal(result.steps[1].step, 'follow_up');
+  assert.equal(result.high_risk_steps, 1);
+  assert.equal(result.strategy.until, 'follow_up');
+  assert.equal(result.strategy.skip_recheck, true);
+  assert.equal(result.strategy.risk_threshold, 'high');
 });
 
 test('doctor reports installed absolute paths and wrapper returns a helpful payload error', async () => {
@@ -3861,6 +3956,8 @@ test('doctor renders a concise remediation summary view by default', async () =>
       assert.match(rendered, /Remediation:/);
       assert.match(rendered, /External issues:/);
       assert.match(rendered, /Next step:/);
+      assert.match(rendered, /Auto fix:/);
+      assert.match(rendered, /Auto fix command:/);
       assert.match(rendered, /Guidance:/);
       assert.match(rendered, /Example command:/);
       assert.match(rendered, /Recheck:/);
@@ -6799,6 +6896,8 @@ test('status report renders a concise remediation-aware text view', () => {
       assert.match(rendered, /Context-Anchor Status Report/);
       assert.match(rendered, /Memory health:/);
       assert.match(rendered, /Next step:/);
+      assert.match(rendered, /Auto fix:/);
+      assert.match(rendered, /Auto fix command:/);
       assert.match(rendered, /Guidance:/);
       assert.match(rendered, /Example command:/);
     });

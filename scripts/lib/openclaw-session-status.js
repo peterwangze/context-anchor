@@ -1101,6 +1101,13 @@ function renderCommandSummary(report) {
   if (nextStepLine) {
     lines.push(field('Next step', nextStepLine.replace(/^Next step:\s*/, ''), { kind: 'info' }));
   }
+  const autoFixPath = renderAutoFixPath(report.remediation_summary);
+  if (autoFixPath) {
+    lines.push(field('Auto fix path', autoFixPath, { kind: 'command' }));
+  }
+  if (report.remediation_summary?.next_step?.auto_fix_command) {
+    lines.push(field('Auto fix command', command(report.remediation_summary.next_step.auto_fix_command), { kind: 'command' }));
+  }
   if (report.summary.drift_workspaces > 0) {
     lines.push(field('Attention', `Memory drift detected in ${report.summary.drift_workspaces} workspace(s); prefer the per-workspace repair command shown below.`, { kind: 'warning' }));
   }
@@ -1179,6 +1186,22 @@ function renderRemediationGuidance(remediationSummary) {
     lines.push(`Example command: ${nextStep.command_examples[0]}`);
   }
   return lines;
+}
+
+function renderAutoFixPath(remediationSummary) {
+  const nextStep = remediationSummary?.next_step;
+  if (
+    !nextStep ||
+    nextStep.execution_mode === 'manual' ||
+    !Array.isArray(nextStep.command_sequence) ||
+    nextStep.command_sequence.length === 0
+  ) {
+    return null;
+  }
+
+  return nextStep.command_sequence
+    .map((entry, index) => `${index + 1}) ${entry.step}: ${entry.command}`)
+    .join(' | ');
 }
 
 function renderOpenClawSessionStatusReport(report) {
@@ -1287,6 +1310,13 @@ function renderOpenClawSessionStatusReport(report) {
       if (nextStepLine) {
         lines.push(field('Next step', nextStepLine.replace(/^Next step:\s*/, ''), { indent: 2, kind: 'info' }));
       }
+      const autoFixPath = renderAutoFixPath(group.remediation_summary);
+      if (autoFixPath) {
+        lines.push(field('Auto fix path', autoFixPath, { indent: 2, kind: 'command' }));
+      }
+      if (group.remediation_summary?.next_step?.auto_fix_command) {
+        lines.push(field('Auto fix command', command(group.remediation_summary.next_step.auto_fix_command), { indent: 2, kind: 'command' }));
+      }
       renderRemediationGuidance(group.remediation_summary).forEach((line) => {
         const [label, ...rest] = line.split(': ');
         lines.push(field(label, rest.join(': '), { indent: 2, kind: label === 'Example command' ? 'command' : 'muted' }));
@@ -1352,6 +1382,13 @@ function renderOpenClawSessionDiagnosisReport(report) {
       if (nextStepLine) {
         lines.push(field('Next step', nextStepLine.replace(/^Next step:\s*/, ''), { indent: 2, kind: 'info' }));
       }
+      const autoFixPath = renderAutoFixPath(group.remediation_summary);
+      if (autoFixPath) {
+        lines.push(field('Auto fix path', autoFixPath, { indent: 2, kind: 'command' }));
+      }
+      if (group.remediation_summary?.next_step?.auto_fix_command) {
+        lines.push(field('Auto fix command', command(group.remediation_summary.next_step.auto_fix_command), { indent: 2, kind: 'command' }));
+      }
       renderRemediationGuidance(group.remediation_summary).forEach((line) => {
         const [label, ...rest] = line.split(': ');
         lines.push(field(label, rest.join(': '), { indent: 2, kind: label === 'Example command' ? 'command' : 'muted' }));
@@ -1400,6 +1437,13 @@ function renderOpenClawSessionDiagnosisReport(report) {
     const nextStepLine = renderRemediationNextStep(group.remediation_summary);
     if (nextStepLine) {
       lines.push(field('Next step', nextStepLine.replace(/^Next step:\s*/, ''), { indent: 2, kind: 'info' }));
+    }
+    const autoFixPath = renderAutoFixPath(group.remediation_summary);
+    if (autoFixPath) {
+      lines.push(field('Auto fix path', autoFixPath, { indent: 2, kind: 'command' }));
+    }
+    if (group.remediation_summary?.next_step?.auto_fix_command) {
+      lines.push(field('Auto fix command', command(group.remediation_summary.next_step.auto_fix_command), { indent: 2, kind: 'command' }));
     }
     renderRemediationGuidance(group.remediation_summary).forEach((line) => {
       const [label, ...rest] = line.split(': ');

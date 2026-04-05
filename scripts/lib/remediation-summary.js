@@ -1,3 +1,5 @@
+const { buildAutoFixCommand } = require('./auto-fix');
+
 function normalizeRemediationEntry(source, action = {}) {
   const strategy = action?.repair_strategy || action || {};
   const label = strategy.label || null;
@@ -21,6 +23,8 @@ function normalizeRemediationEntry(source, action = {}) {
     recheck_command: recheckCommand,
     command: action?.command || null,
     follow_up_command: action?.follow_up_command || null,
+    command_sequence: buildRemediationCommandSequence(action),
+    auto_fix_command: buildAutoFixCommand(buildRemediationCommandSequence(action)),
     resolution_hint: strategy.resolution_hint || action?.resolution_hint || null,
     command_examples: Array.isArray(strategy.command_examples)
       ? strategy.command_examples.filter(Boolean)
@@ -28,6 +32,27 @@ function normalizeRemediationEntry(source, action = {}) {
       ? action.command_examples.filter(Boolean)
       : []
   };
+}
+
+function buildRemediationCommandSequence(action = {}) {
+  if (Array.isArray(action?.repair_sequence) && action.repair_sequence.length > 0) {
+    return action.repair_sequence
+      .map((entry) =>
+        entry?.command
+          ? {
+              step: entry.step || 'repair',
+              command: entry.command
+            }
+          : null
+      )
+      .filter(Boolean);
+  }
+
+  return [
+    action?.command ? { step: 'repair', command: action.command } : null,
+    action?.follow_up_command ? { step: 'follow_up', command: action.follow_up_command } : null,
+    action?.recheck_command ? { step: 'recheck', command: action.recheck_command } : null
+  ].filter(Boolean);
 }
 
 function dedupeEntries(entries = []) {
@@ -93,6 +118,7 @@ function buildRemediationSummary(pairs = []) {
 
 module.exports = {
   buildRemediationSummary,
+  buildRemediationCommandSequence,
   dedupeEntries,
   normalizeRemediationEntry
 };

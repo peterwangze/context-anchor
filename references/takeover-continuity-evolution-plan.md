@@ -161,6 +161,24 @@
   - `sessions-status / sessions-diagnose / upgrade-sessions` 已默认跳过用户无感知的 hidden session
   - 已新增 `--include-hidden-sessions` 作为显式排查开关
   - 已补充自动化测试，覆盖 hidden session 默认隐藏与显式显示
+- `2026-04-05`
+  - `remediation_summary.next_step` 已统一携带结构化 `command_sequence`
+  - `doctor / status-report / configure-host / configure-sessions / upgrade-sessions / install-one-click` 已开始直接展示 strict-mode `Auto fix`
+  - `sessions-status / sessions-diagnose` 已开始直接展示 `Auto fix path`
+  - 已补充自动化测试，覆盖 doctor / status-report / sessions-diagnose 的 auto-fix 可见性
+- `2026-04-05`
+  - 已新增统一 `auto-fix.js` CLI，可直接执行 automatic remediation 的 `repair -> follow-up -> recheck`
+  - `remediation_summary.next_step` 已统一携带 `auto_fix_command`
+  - `doctor / sessions-status / sessions-diagnose / status-report / configure-host / configure-sessions / upgrade-sessions / install-one-click` 已开始直接展示 `Auto fix command`
+  - 已补充自动化测试，覆盖 auto-fix 编码与命令可见性
+- `2026-04-05`
+  - `auto-fix.js` 已增加步骤风险分级，当前显式区分 `low / medium / high`
+  - 默认只在高风险步骤前做逐步确认，降低低风险修复路径的打断感
+  - 已补充自动化测试，覆盖 host config high-risk 分类与确认策略
+- `2026-04-05`
+  - `auto-fix.js` 已增加批量策略参数：`--until`、`--skip-recheck`、`--risk-threshold`
+  - 用户现在可以按阶段、是否回检、风险上限裁剪 automatic remediation 链路
+  - 已补充自动化测试，覆盖批量策略过滤与命令生成
 
 当前仍未完成的重点：
 
@@ -533,8 +551,9 @@
   - `sessions-diagnose / status-report` 也开始给出更具体的外部问题修复提示
   - `status-report` 已不再只依赖 JSON 才能快速阅读 remediation 信息
   - session 观测与 upgrade 默认口径已开始优先贴近用户真实感知
+  - strict-mode 自动修复路径已开始在 doctor / session diagnose / status-report / install / upgrade / configure 输出中显式化
 - 仍待完成：
-  - `doctor` / `sessions-diagnose` 还需要给出更细粒度 strict-mode auto-fix 路径
+  - strict-mode auto-fix 还缺少可记忆的用户级默认策略与跨命令策略继承
 
 ## 测试设计
 

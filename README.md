@@ -368,6 +368,12 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 同时聚合结果里也会继续拆出 `manual_confirm_only` 和 `manual_external_environment`，便于后续自动化或 UI 侧直接按风险类型分类展示。
 本轮开始，`doctor.js`、`sessions-status.js` / `sessions-diagnose.js`、`status-report.js`、`upgrade-sessions.js`、`install-one-click.js` 都会返回统一的 `remediation_summary` 结构，便于用一套逻辑读取 next step、automatic/manual count 和 recheck commands。
 现在 `sessions-status.js` / `sessions-diagnose.js` 以及 install/upgrade 的进度输出，也会直接把 `remediation_summary.next_step` 渲染出来，用户不用再自己从多条 strategy 里猜下一步。
+对于可自动执行的修复路径，文本输出现在还会直接给出 `Auto fix command`；执行这条命令后，会按 `repair -> follow-up -> recheck` 顺序自动跑完整条闭环。
+`auto-fix` 现在还会做风险分级：默认只在高风险步骤（例如 host 配置或 scheduler 变更）前做逐步确认，低风险和中风险步骤尽量减少打断；如果你已经确认环境，也可以显式加 `--yes` 跳过这些确认。
+如果你只想执行部分自动修复链路，现在还支持批量策略参数：
+- `--until repair|follow_up|recheck`：只执行到指定阶段
+- `--skip-recheck`：跳过最后的只读回检
+- `--risk-threshold low|medium|high`：只执行不高于该风险级别的步骤
 `sessions-diagnose.js` 现在也会把 remediation 的 `Guidance` 和 `Example command` 直接显示出来；`status-report.js` 的 `recommended_action` 也会带这两类字段，方便上层直接展示。
 `status-report.js` 现在默认也会输出轻量文本视图；如果你需要完整 JSON 或 snapshot，再显式用 JSON/snapshot 模式。
 `doctor.js` 现在默认也会直接输出一份更友好的文本摘要视图；如果你仍然需要完整 JSON，再显式加 `--json`。  

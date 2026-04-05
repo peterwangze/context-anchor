@@ -853,6 +853,24 @@ function renderInstallReport(result) {
       )
     );
   }
+  if (
+    verification.remediation_summary?.next_step?.execution_mode !== 'manual' &&
+    Array.isArray(verification.remediation_summary?.next_step?.command_sequence) &&
+    verification.remediation_summary.next_step.command_sequence.length > 0
+  ) {
+    lines.push(
+      field(
+        'Auto fix',
+        verification.remediation_summary.next_step.command_sequence
+          .map((entry, index) => `${index + 1}) ${entry.step}: ${command(entry.command)}`)
+          .join(' | '),
+        { kind: 'command' }
+      )
+    );
+  }
+  if (verification.remediation_summary?.next_step?.auto_fix_command) {
+    lines.push(field('Auto fix command', command(verification.remediation_summary.next_step.auto_fix_command), { kind: 'command' }));
+  }
 
   return lines.join('\n');
 }

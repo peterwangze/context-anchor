@@ -143,6 +143,22 @@ function renderStatusReportText(report) {
       { kind: report.remediation_summary.next_step.execution_mode === 'manual' ? 'warning' : 'info' }
     ));
   }
+  if (
+    report.remediation_summary?.next_step?.execution_mode !== 'manual' &&
+    Array.isArray(report.remediation_summary?.next_step?.command_sequence) &&
+    report.remediation_summary.next_step.command_sequence.length > 0
+  ) {
+    lines.push(field(
+      'Auto fix',
+      report.remediation_summary.next_step.command_sequence
+        .map((entry, index) => `${index + 1}) ${entry.step}: ${command(entry.command)}`)
+        .join(' | '),
+      { kind: 'command' }
+    ));
+  }
+  if (report.remediation_summary?.next_step?.auto_fix_command) {
+    lines.push(field('Auto fix command', command(report.remediation_summary.next_step.auto_fix_command), { kind: 'command' }));
+  }
   if (report.recommended_action?.resolution_hint) {
     lines.push(field('Guidance', report.recommended_action.resolution_hint, { kind: 'muted' }));
   }

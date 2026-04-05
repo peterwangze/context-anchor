@@ -943,6 +943,24 @@ function renderDoctorRemediationSummary(remediationSummary = {}) {
     if (remediationSummary.next_step.resolution_hint) {
       lines.push(field('Guidance', remediationSummary.next_step.resolution_hint, { kind: 'muted' }));
     }
+    if (
+      remediationSummary.next_step.execution_mode !== 'manual' &&
+      Array.isArray(remediationSummary.next_step.command_sequence) &&
+      remediationSummary.next_step.command_sequence.length > 0
+    ) {
+      lines.push(
+        field(
+          'Auto fix',
+          remediationSummary.next_step.command_sequence
+            .map((entry, index) => `${index + 1}) ${entry.step}: ${command(entry.command)}`)
+            .join(' | '),
+          { kind: 'command' }
+        )
+      );
+    }
+    if (remediationSummary.next_step.auto_fix_command) {
+      lines.push(field('Auto fix command', command(remediationSummary.next_step.auto_fix_command), { kind: 'command' }));
+    }
     if (Array.isArray(remediationSummary.next_step.command_examples) && remediationSummary.next_step.command_examples.length > 0) {
       lines.push(field('Example command', command(remediationSummary.next_step.command_examples[0]), { kind: 'command' }));
     }
