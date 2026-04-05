@@ -2,13 +2,97 @@ function hasOwnValue(target, key) {
   return Object.prototype.hasOwnProperty.call(target || {}, key);
 }
 
+function stringifyStructuredTaskState(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    const items = value.map((entry) => normalizeTaskStateText(entry)).filter(Boolean);
+    return items.length > 0 ? items.join('; ') : null;
+  }
+
+  if (typeof value === 'object') {
+    const preferredKeys = ['summary', 'text', 'title', 'goal', 'what', 'current_goal', 'label', 'name'];
+    for (const key of preferredKeys) {
+      if (hasOwnValue(value, key)) {
+        const normalized = normalizeTaskStateText(value[key]);
+        if (normalized) {
+          return normalized;
+        }
+      }
+    }
+
+    const structuredEntries = Object.entries(value)
+      .map(([key, entryValue]) => {
+        const normalized = normalizeTaskStateText(entryValue);
+        return normalized ? `${key}=${normalized}` : null;
+      })
+      .filter(Boolean);
+    return structuredEntries.length > 0 ? structuredEntries.join('; ') : null;
+  }
+
+  return null;
+}
+
 function normalizeTaskStateText(value) {
   if (value === null || value === undefined) {
     return null;
   }
 
-  const text = String(value).trim();
-  return text ? text : null;
+  const text = stringifyStructuredTaskState(value);
+  if (!text) {
+    return null;
+  }
+
+  const normalized = String(text).trim();
+  if (!normalized || normalized === '[object Object]') {
+    return null;
+  }
+  return normalized ? normalized : null;
+}
+
+function buildTaskStateSummaryLine(parts) {
+  const text = parts.filter(Boolean).join(' ; ');
+  return text || 'No task-state continuity summary available.';
+}
+
+function buildTaskStateSummary(state = {}) {
+  const currentGoal = normalizeTaskStateText(state.current_goal);
+  const latestVerifiedResult = normalizeTaskStateText(state.latest_verified_result);
+  const nextStep = normalizeTaskStateText(state.next_step);
+  const blockedBy = normalizeTaskStateText(state.blocked_by);
+  const lastUserVisibleProgress = normalizeTaskStateText(state.last_user_visible_progress);
+  const visible =
+    Boolean(currentGoal) ||
+    Boolean(latestVerifiedResult) ||
+    Boolean(nextStep) ||
+    Boolean(blockedBy) ||
+    Boolean(lastUserVisibleProgress);
+
+  return {
+    visible,
+    current_goal: currentGoal,
+    latest_verified_result: latestVerifiedResult,
+    next_step: nextStep,
+    blocked_by: blockedBy,
+    last_user_visible_progress: lastUserVisibleProgress,
+    summary: visible
+      ? buildTaskStateSummaryLine([
+          currentGoal ? `goal=${currentGoal}` : null,
+          latestVerifiedResult ? `result=${latestVerifiedResult}` : null,
+          nextStep ? `next=${nextStep}` : null,
+          blockedBy ? `blocked_by=${blockedBy}` : null,
+          !currentGoal && !latestVerifiedResult && !nextStep && !blockedBy && lastUserVisibleProgress
+            ? `progress=${lastUserVisibleProgress}`
+            : null
+        ])
+      : 'No task-state continuity summary available.'
+  };
 }
 
 function extractNextStepFromSessionState(sessionState = {}) {
@@ -46,37 +130,6 @@ function buildTaskStateFields(sessionState = {}, existing = {}, options = {}) {
     next_step: normalizeTaskStateText(nextStep),
     blocked_by: normalizeTaskStateText(blockedBy),
     last_user_visible_progress: normalizeTaskStateText(lastUserVisibleProgress)
-  };
-}
-
-function buildTaskStateSummary(state = {}) {
-  const currentGoal = normalizeTaskStateText(state.current_goal);
-  const latestVerifiedResult = normalizeTaskStateText(state.latest_verified_result);
-  const nextStep = normalizeTaskStateText(state.next_step);
-  const blockedBy = normalizeTaskStateText(state.blocked_by);
-  const lastUserVisibleProgress = normalizeTaskStateText(state.last_user_visible_progress);
-  const visible =
-    Boolean(currentGoal) ||
-    Boolean(latestVerifiedResult) ||
-    Boolean(nextStep) ||
-    Boolean(blockedBy) ||
-    Boolean(lastUserVisibleProgress);
-
-  return {
-    visible,
-    current_goal: currentGoal,
-    latest_verified_result: latestVerifiedResult,
-    next_step: nextStep,
-    blocked_by: blockedBy,
-    last_user_visible_progress: lastUserVisibleProgress,
-    summary: visible
-      ? [
-          currentGoal ? `goal=${currentGoal}` : null,
-          latestVerifiedResult ? `result=${latestVerifiedResult}` : null,
-          nextStep ? `next=${nextStep}` : null,
-          blockedBy ? `blocked_by=${blockedBy}` : null
-        ].filter(Boolean).join(' ; ')
-      : 'No task-state continuity summary available.'
   };
 }
 

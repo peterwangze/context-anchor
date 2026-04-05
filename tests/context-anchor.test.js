@@ -3467,6 +3467,19 @@ test('session status highlights task continuity and last visible benefit per wor
   }
 });
 
+test('task-state summary stringifies structured current goal values for user-facing reports', () => {
+  const { buildTaskStateSummary } = require('../scripts/lib/task-state');
+
+  const summary = buildTaskStateSummary({
+    current_goal: { goal: 'stabilize checkout retries', owner: 'ci' },
+    next_step: { summary: 'ship checkout retry fix' }
+  });
+
+  assert.equal(summary.current_goal, 'stabilize checkout retries');
+  assert.equal(summary.next_step, 'ship checkout retry fix');
+  assert.match(summary.summary, /goal=stabilize checkout retries/);
+});
+
 test('session status recommends configure-host when only monitor setup is missing', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');

@@ -961,6 +961,18 @@ function renderDoctorRemediationSummary(remediationSummary = {}) {
 
 function renderDoctorReport(report) {
   const lines = [];
+  const takeoverLabel =
+    String(report.configuration.memory_takeover_mode || 'best_effort').toLowerCase() === 'best_effort'
+      ? 'BEST EFFORT'
+      : String(report.configuration.memory_takeover_mode || 'best_effort').replace(/_/g, ' ').toUpperCase();
+  const memoryHealthLabel =
+    String(report.memory_sources.health?.status || 'unknown').toLowerCase() === 'single_source'
+      ? 'SINGLE SOURCE'
+      : String(report.memory_sources.health?.status || 'unknown').toLowerCase() === 'best_effort'
+      ? 'BEST EFFORT'
+      : String(report.memory_sources.health?.status || 'unknown').toLowerCase() === 'drift_detected'
+      ? 'DRIFT DETECTED'
+      : String(report.memory_sources.health?.status || 'unknown').replace(/_/g, ' ').toUpperCase();
   lines.push(section('Context-Anchor Doctor'));
   lines.push(field('Platform', report.platform_label, { kind: 'muted' }));
   lines.push(
@@ -968,14 +980,14 @@ function renderDoctorReport(report) {
       'Readiness',
       `Installation ${status(report.installation.ready ? 'READY' : 'NOT READY', report.installation.ready ? 'success' : 'warning')} | ` +
         `Configuration ${status(report.configuration.ready ? 'READY' : 'NOT READY', report.configuration.ready ? 'success' : 'warning')} | ` +
-        `Takeover ${status(String(report.configuration.memory_takeover_mode || 'best_effort').toUpperCase(), report.configuration.memory_takeover_enforced ? 'success' : 'warning')}`,
+        `Takeover ${status(takeoverLabel, report.configuration.memory_takeover_enforced ? 'success' : 'warning')}`,
       { kind: report.installation.ready && report.configuration.ready ? 'success' : 'warning' }
     )
   );
   lines.push(
     field(
       'Workspace',
-      `${report.paths.workspace || 'not selected'} | Memory health ${status(String(report.memory_sources.health?.status || 'unknown').toUpperCase(), report.memory_sources.health?.status === 'drift_detected' ? 'warning' : report.memory_sources.health?.status === 'single_source' ? 'success' : 'info')}`,
+      `${report.paths.workspace || 'not selected'} | Memory health ${status(memoryHealthLabel, report.memory_sources.health?.status === 'drift_detected' ? 'warning' : report.memory_sources.health?.status === 'single_source' ? 'success' : 'info')}`,
       { kind: report.paths.workspace ? 'info' : 'muted' }
     )
   );

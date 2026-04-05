@@ -6,13 +6,14 @@ const { execFileSync } = require('child_process');
 const { runDoctor } = require('../doctor');
 const {
   createPaths,
+  loadSessionState,
   loadSessionSummary,
   readRuntimeStateSnapshot,
   sanitizeKey
 } = require('./context-anchor');
 const { summarizeCatalogDatabase } = require('./context-anchor-db');
 const { buildRemediationSummary } = require('./remediation-summary');
-const { buildTaskStateSummary } = require('./task-state');
+const { buildTaskStateFields, buildTaskStateSummary } = require('./task-state');
 const {
   command,
   field,
@@ -193,10 +194,18 @@ function buildSessionVisibilityDetails(session) {
     readRuntimeStateSnapshot(paths, session.session_key, session.project_id || undefined, {
       userId: session.user_id || undefined
     }) || {};
+  const sessionState = loadSessionState(paths, session.session_key, session.project_id || undefined, {
+    createIfMissing: false,
+    touch: false
+  }) || {};
   const sessionSummary = loadSessionSummary(paths, session.session_key);
+  const taskStateSummary = buildTaskStateSummary({
+    ...runtimeState,
+    ...buildTaskStateFields(sessionState, runtimeState)
+  });
 
   return {
-    task_state_summary: buildTaskStateSummary(runtimeState),
+    task_state_summary: taskStateSummary,
     last_benefit_summary: normalizeBenefitSummary(sessionSummary?.benefit_summary)
   };
 }
@@ -271,6 +280,45 @@ function summarizeStatusKind(value) {
     default:
       return 'info';
   }
+}
+
+function formatHealthDisplay(statusValue) {
+  switch (String(statusValue || '').toLowerCase()) {
+    case 'single_source':
+      return 'SINGLE SOURCE';
+    case 'best_effort':
+      return 'BEST EFFORT';
+    case 'drift_detected':
+      return 'DRIFT DETECTED';
+    case 'workspace_missing':
+      return 'WORKSPACE MISSING';
+    case 'workspace_unresolved':
+      return 'WORKSPACE UNRESOLVED';
+    default:
+      return String(statusValue || 'unknown')
+        .replace(/_/g, ' ')
+        .toUpperCase();
+  }
+}
+
+function formatMonitorDisplay(statusValue, runtimeValue) {
+  const normalized = String(statusValue || '').toLowerCase();
+  if (normalized === 'running') {
+    return 'RUNNING';
+  }
+  if (normalized === 'ready') {
+    return runtimeValue ? `CONFIGURED (${String(runtimeValue).toUpperCase()})` : 'CONFIGURED';
+  }
+  if (normalized === 'legacy') {
+    return 'LEGACY';
+  }
+  if (normalized === 'off') {
+    return 'OFF';
+  }
+  if (normalized === 'unknown') {
+    return 'UNKNOWN';
+  }
+  return String(statusValue || 'unknown').toUpperCase();
 }
 
 function buildSessionRepairStrategy(type) {
@@ -1169,8 +1217,8 @@ function renderOpenClawSessionStatusReport(report) {
   lines.push(
     field(
       'Memory sources',
-      `${status('SINGLE_SOURCE', 'success')} ${report.summary.single_source_workspaces} | ` +
-        `${status('BEST_EFFORT', 'warning')} ${report.summary.best_effort_workspaces} | ` +
+      `${status('SINGLE SOURCE', 'success')} ${report.summary.single_source_workspaces} | ` +
+        `${status('BEST EFFORT', 'warning')} ${report.summary.best_effort_workspaces} | ` +
         `${status('DRIFT', 'warning')} ${report.summary.drift_workspaces}`,
       { kind: report.summary.drift_workspaces > 0 ? 'warning' : 'info' }
     )
@@ -1186,7 +1234,7 @@ function renderOpenClawSessionStatusReport(report) {
       field(
         'Runtime',
         `Hook ${status(group.hook_status.toUpperCase(), summarizeStatusKind(group.hook_status))} | ` +
-          `Monitor ${status(group.monitor_status.toUpperCase(), summarizeStatusKind(group.monitor_status))} | ` +
+          `Monitor ${status(formatMonitorDisplay(group.monitor_status, group.sessions[0]?.classification?.monitor_runtime), summarizeStatusKind(group.monitor_status))} | ` +
           `Sessions ${group.session_count} | Ready ${group.ready_count} | Attention ${group.attention_count}`,
         { indent: 2, kind: group.attention_count > 0 ? 'warning' : 'success' }
       )
@@ -1202,7 +1250,7 @@ function renderOpenClawSessionStatusReport(report) {
     lines.push(
       field(
         'Memory',
-        `${status(group.memory_sources.health.status.toUpperCase(), summarizeStatusKind(group.memory_sources.health.status))} | ` +
+        `${status(formatHealthDisplay(group.memory_sources.health.status), summarizeStatusKind(group.memory_sources.health.status))} | ` +
           `External ${group.memory_sources.external_source_count} | Unsynced ${group.memory_sources.unsynced_source_count} | Last sync ${group.memory_sources.last_legacy_sync_at || '-'}`,
         { indent: 2, kind: summarizeStatusKind(group.memory_sources.health.status) }
       )
@@ -1254,7 +1302,7 @@ function renderOpenClawSessionStatusReport(report) {
     lines.push('');
   }
 
-  lines.push(field('Legend', 'READY = linked session state and host registration; PARTIAL = only one side is present; ON = hook is enabled; RUNNING = monitor task is active; DRIFT = external memory files changed after the last central sync.', { kind: 'muted' }));
+  lines.push(field('Legend', 'READY = linked session state and host registration; PARTIAL = only one side is present; ON = hook is enabled; RUNNING = monitor task is active; CONFIGURED = monitor assets exist but the scheduler is idle/queued; DRIFT = external memory files changed after the last central sync.', { kind: 'muted' }));
 
   return lines.join('\n');
 }
@@ -1273,7 +1321,7 @@ function renderOpenClawSessionDiagnosisReport(report) {
     for (const group of report.groups) {
       lines.push(section(`Workspace: ${group.workspace || 'unresolved'}`, { kind: 'success' }));
       lines.push(field('Mirror', `${group.mirror.available ? status('ON', 'success') : status('OFF', 'warning')} | Collections ${group.mirror.collections} | Docs ${group.mirror.documents} | Indexed sessions ${group.mirror.indexed_sessions}`, { indent: 2, kind: group.mirror.available ? 'success' : 'warning' }));
-      lines.push(field('Memory', `${status(group.memory_sources.health.status.toUpperCase(), summarizeStatusKind(group.memory_sources.health.status))} | External ${group.memory_sources.external_source_count} | Unsynced ${group.memory_sources.unsynced_source_count} | Last sync ${group.memory_sources.last_legacy_sync_at || '-'}`, { indent: 2, kind: summarizeStatusKind(group.memory_sources.health.status) }));
+      lines.push(field('Memory', `${status(formatHealthDisplay(group.memory_sources.health.status), summarizeStatusKind(group.memory_sources.health.status))} | External ${group.memory_sources.external_source_count} | Unsynced ${group.memory_sources.unsynced_source_count} | Last sync ${group.memory_sources.last_legacy_sync_at || '-'}`, { indent: 2, kind: summarizeStatusKind(group.memory_sources.health.status) }));
       const taskStateLine = renderVisibleSummaryLine(
         'Task continuity',
         formatTaskStateDisplay(group.task_state_summary),
@@ -1321,7 +1369,7 @@ function renderOpenClawSessionDiagnosisReport(report) {
   for (const group of problemGroups) {
     lines.push(section(`Workspace: ${group.workspace || 'unresolved'}`, { kind: 'warning' }));
     lines.push(field('Mirror', `${group.mirror.available ? status('ON', 'success') : status('OFF', 'warning')} | Collections ${group.mirror.collections} | Docs ${group.mirror.documents} | Indexed sessions ${group.mirror.indexed_sessions}`, { indent: 2, kind: group.mirror.available ? 'success' : 'warning' }));
-    lines.push(field('Memory', `${status(group.memory_sources.health.status.toUpperCase(), summarizeStatusKind(group.memory_sources.health.status))} | External ${group.memory_sources.external_source_count} | Unsynced ${group.memory_sources.unsynced_source_count} | Last sync ${group.memory_sources.last_legacy_sync_at || '-'}`, { indent: 2, kind: summarizeStatusKind(group.memory_sources.health.status) }));
+    lines.push(field('Memory', `${status(formatHealthDisplay(group.memory_sources.health.status), summarizeStatusKind(group.memory_sources.health.status))} | External ${group.memory_sources.external_source_count} | Unsynced ${group.memory_sources.unsynced_source_count} | Last sync ${group.memory_sources.last_legacy_sync_at || '-'}`, { indent: 2, kind: summarizeStatusKind(group.memory_sources.health.status) }));
     const taskStateLine = renderVisibleSummaryLine(
       'Task continuity',
       formatTaskStateDisplay(group.task_state_summary),

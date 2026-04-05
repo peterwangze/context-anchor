@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+const path = require('path');
+
 const {
   DEFAULTS,
   buildAdaptiveBudget,
@@ -108,13 +110,21 @@ function renderStatusReportText(report) {
       : report.memory_source_health.status === 'single_source'
       ? 'success'
       : 'info';
+  const memoryHealthLabel =
+    String(report.memory_source_health.status || 'unknown').toLowerCase() === 'single_source'
+      ? 'SINGLE SOURCE'
+      : String(report.memory_source_health.status || 'unknown').toLowerCase() === 'best_effort'
+      ? 'BEST EFFORT'
+      : String(report.memory_source_health.status || 'unknown').toLowerCase() === 'drift_detected'
+      ? 'DRIFT DETECTED'
+      : String(report.memory_source_health.status || 'unknown').replace(/_/g, ' ').toUpperCase();
   lines.push(section('Context-Anchor Status Report'));
   lines.push(field('Workspace', report.workspace, { kind: 'info' }));
   lines.push(field('Scope', `User ${report.user.id} | Project ${report.project.id} | Session ${report.session.key}`, { kind: 'muted' }));
   lines.push(
     field(
       'Health',
-      `Memory ${status(String(report.memory_source_health.status || 'unknown').toUpperCase(), memoryHealthKind)} | ` +
+      `Memory ${status(memoryHealthLabel, memoryHealthKind)} | ` +
         `Governance active=${Number(report.governance.active || 0)} | budgeted_out=${Number(report.governance.budgeted_out || 0)}`,
       { kind: memoryHealthKind }
     )
