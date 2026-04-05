@@ -52,10 +52,38 @@ function recommendAutoFixStrategy(options = {}) {
     issues.includes('workspace_needs_configuration');
 
   if (isUpgradeRecoveryFlow) {
+    if (issues.includes('workspace_needs_configuration')) {
+      return {
+        until: 'repair',
+        skipRecheck: hasRecheck,
+        riskThreshold: 'medium'
+      };
+    }
+
+    if (issues.includes('upgraded_session_not_materialized')) {
+      return {
+        until: hasRecheck ? 'recheck' : 'repair',
+        skipRecheck: false,
+        riskThreshold: 'high'
+      };
+    }
+
     return {
       until: hasRecheck ? 'recheck' : null,
       skipRecheck: false,
       riskThreshold: 'high'
+    };
+  }
+
+  const isSessionLinkRepairFlow =
+    strategyType.includes('configure_sessions') ||
+    issues.includes('session_not_ready');
+
+  if (isSessionLinkRepairFlow) {
+    return {
+      until: hasRecheck ? 'repair' : null,
+      skipRecheck: hasRecheck,
+      riskThreshold: 'medium'
     };
   }
 
@@ -237,8 +265,7 @@ module.exports = {
   decodeAutoFixSequence,
   encodeAutoFixSequence,
   filterAutoFixSequence,
-  normalizeCommandSequence
-  ,
+  normalizeCommandSequence,
   normalizeRiskThreshold,
   recommendAutoFixStrategy
 };

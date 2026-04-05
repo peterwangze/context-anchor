@@ -380,6 +380,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 - `--workspace` / `--user-id`：显式指定默认策略写入哪个 workspace / user
 现在多数 `Auto fix command` 还会自动带上当前问题对应的 `--workspace` / `--user-id` 上下文，尽量减少你手工补参数的成本，并确保默认策略继承落到正确用户。
 同时 `Auto fix command` 已开始按问题类型选择更贴合场景的默认策略：例如 drift 归并链路会优先停在 `follow_up` 并默认跳过立即 `recheck`，而 host 配置修复仍会默认保留 `recheck`。
+更细一层，workspace 还未配置完成这类问题现在会优先给出“先 repair、不急着立刻 recheck”的默认链路；而“升级后 session 仍未 materialize”这类问题则默认保留完整 `recheck` 闭环。
 `sessions-diagnose.js` 现在也会把 remediation 的 `Guidance` 和 `Example command` 直接显示出来；`status-report.js` 的 `recommended_action` 也会带这两类字段，方便上层直接展示。
 `status-report.js` 现在默认也会输出轻量文本视图；如果你需要完整 JSON 或 snapshot，再显式用 JSON/snapshot 模式。
 `doctor.js` 现在默认也会直接输出一份更友好的文本摘要视图；如果你仍然需要完整 JSON，再显式加 `--json`。  

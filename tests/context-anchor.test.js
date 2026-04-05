@@ -4023,6 +4023,63 @@ test('auto-fix keeps recheck in host-configuration flows by default', () => {
   assert.doesNotMatch(commandLine, /--skip-recheck/);
 });
 
+test('auto-fix prefers repair-only defaults for workspace configuration recovery flows', () => {
+  const strategy = recommendAutoFixStrategy({
+    actionType: 'upgrade_verification',
+    strategyType: 'configure_sessions_then_recheck',
+    issues: ['workspace_needs_configuration'],
+    hasRecheck: true
+  });
+  const commandLine = buildAutoFixCommand(
+    [
+      { step: 'repair', command: 'npm run configure:sessions -- --workspace "D:/demo" --session-key "s1" --yes' },
+      { step: 'recheck', command: 'npm run status:sessions -- --workspace "D:/demo" --session-key "s1"' }
+    ],
+    {
+      workspace: 'D:/demo',
+      userId: 'alice',
+      actionType: 'upgrade_verification',
+      strategyType: 'configure_sessions_then_recheck',
+      issues: ['workspace_needs_configuration']
+    }
+  );
+
+  assert.equal(strategy.until, 'repair');
+  assert.equal(strategy.skipRecheck, true);
+  assert.equal(strategy.riskThreshold, 'medium');
+  assert.match(commandLine, /--until repair/);
+  assert.match(commandLine, /--skip-recheck/);
+  assert.match(commandLine, /--risk-threshold medium/);
+});
+
+test('auto-fix keeps full recheck path for upgraded session materialization failures', () => {
+  const strategy = recommendAutoFixStrategy({
+    actionType: 'upgrade_verification',
+    strategyType: 'repair_sessions_then_recheck',
+    issues: ['upgraded_session_not_materialized'],
+    hasRecheck: true
+  });
+  const commandLine = buildAutoFixCommand(
+    [
+      { step: 'repair', command: 'npm run configure:sessions -- --workspace "D:/demo" --session-key "s1" --yes' },
+      { step: 'recheck', command: 'npm run status:sessions -- --workspace "D:/demo" --session-key "s1"' }
+    ],
+    {
+      workspace: 'D:/demo',
+      userId: 'alice',
+      actionType: 'upgrade_verification',
+      strategyType: 'repair_sessions_then_recheck',
+      issues: ['upgraded_session_not_materialized']
+    }
+  );
+
+  assert.equal(strategy.until, 'recheck');
+  assert.equal(strategy.skipRecheck, false);
+  assert.equal(strategy.riskThreshold, 'high');
+  assert.match(commandLine, /--until recheck/);
+  assert.doesNotMatch(commandLine, /--skip-recheck/);
+});
+
 test('doctor reports installed absolute paths and wrapper returns a helpful payload error', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');
