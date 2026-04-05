@@ -4402,6 +4402,93 @@ test('bootstrap cache compacts semantically under a tight budget instead of hard
   }
 });
 
+test('bootstrap cache prefers compact profile under the default budget to protect context headroom', () => {
+  const summary = {
+    session: {
+      key: 'default-budget-session',
+      project: 'demo',
+      user: 'default-user',
+      restored: true,
+      continued_from: 'older-session'
+    },
+    recovery: {
+      active_task: 'stabilize checkout retries with a very long task description that should stay compact',
+      pending_commitments: [
+        { what: 'ship retry fix', when: null }
+      ],
+      checkpoint_excerpt: '- line one\n- line two\n- line three\n- line four\n- line five',
+      task_state_summary: {
+        visible: true,
+        current_goal: 'stabilize checkout retries',
+        latest_verified_result: 'validated retry direction',
+        next_step: 'ship retry fix',
+        blocked_by: null,
+        last_user_visible_progress: 'captured retry constraints'
+      },
+      continuity_summary: {
+        visible: true,
+        source_session_key: 'older-session',
+        restored_goal: 'stabilize checkout retries',
+        latest_result: 'validated retry direction',
+        next_step: 'ship retry fix',
+        blocked_by: null,
+        last_user_visible_progress: 'captured retry constraints',
+        recovered_assets: {
+          summary: true,
+          compact_packet: true,
+          checkpoint: true
+        }
+      }
+    },
+    memories_to_inject: [
+      {
+        source: 'short_term_hot_memories',
+        entries: Array.from({ length: 4 }, (_, index) => ({
+          source: 'current_session',
+          type: 'best_practice',
+          heat: 95 - index,
+          summary: `hot memory ${index} checkout retry stabilization details`
+        }))
+      }
+    ],
+    effective_skills: Array.from({ length: 4 }, (_, index) => ({
+      scope: 'project',
+      name: `skill-${index}`
+    })),
+    recommended_reuse: {
+      experiences: Array.from({ length: 3 }, (_, index) => ({
+        scope: 'project',
+        summary: `experience ${index} for retry stabilization`,
+        reasons: ['context_overlap']
+      })),
+      skills: Array.from({ length: 3 }, (_, index) => ({
+        scope: 'project',
+        name: `reuse-skill-${index}`,
+        reasons: ['active_skill_fallback']
+      }))
+    },
+    persistent_memory: {
+      catalogs: Array.from({ length: 5 }, (_, index) => ({
+        tier: 'warm',
+        scope: 'project',
+        source: `catalog-${index}`,
+        count: 12 + index,
+        hot_count: 2,
+        validated_count: 1
+      }))
+    },
+    related_sessions: Array.from({ length: 3 }, (_, index) => ({
+      session_key: `related-${index}`,
+      project_id: 'demo'
+    }))
+  };
+
+  const bootstrap = buildBootstrapCacheContent(summary);
+
+  assert.ok(Buffer.byteLength(bootstrap, 'utf8') <= 6000);
+  assert.doesNotMatch(bootstrap, /\+2 more items/);
+});
+
 test('session-start continues from the latest related session and recommends reusable assets', () => {
   const workspace = makeWorkspace();
 
@@ -5004,7 +5091,7 @@ test('managed compact hooks persist checkpoint before compaction and refresh com
       assert.equal(sessionSkills[0].summary, 'refresh checkout retries before compaction');
       assert.equal(sessionState.metadata.last_compaction_event, 'after');
       assert.equal(sessionState.metadata.compaction_compacted_count, 30);
-      assert.ok(Buffer.byteLength(bootstrapContent, 'utf8') <= 3201);
+      assert.ok(Buffer.byteLength(bootstrapContent, 'utf8') <= 2201);
     });
   } finally {
     cleanupWorkspace(workspace);

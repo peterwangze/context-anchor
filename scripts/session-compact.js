@@ -20,7 +20,7 @@ const { runRuntimeStateUpdate } = require('./runtime-state-update');
 const { runSessionExperienceSync } = require('./session-experience-sync');
 const { runSkillDraftCreate } = require('./skill-draft-create');
 
-const POST_COMPACT_BOOTSTRAP_BUDGET_BYTES = 3200;
+const POST_COMPACT_BOOTSTRAP_BUDGET_BYTES = 2200;
 
 function updateCompactMetadata(sessionState, phase, eventContext = {}) {
   sessionState.metadata = {

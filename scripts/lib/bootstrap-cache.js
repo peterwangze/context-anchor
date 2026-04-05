@@ -54,26 +54,26 @@ const RENDER_PROFILES = [
       related: false
     },
     limits: {
-      pending: 4,
-      preferences: 4,
-      hot: 4,
-      skills: 4,
+      pending: 3,
+      preferences: 3,
+      hot: 2,
+      skills: 2,
       reuseExperiences: 1,
       reuseSkills: 1,
-      catalogs: 5,
+      catalogs: 4,
       related: 1,
-      checkpointLines: 4
+      checkpointLines: 3
     },
     widths: {
-      header: 220,
-      task: 220,
-      pending: 150,
-      preference: 150,
-      hot: 220,
-      checkpoint: 180,
-      skill: 120,
-      reuse: 180,
-      catalog: 180,
+      header: 190,
+      task: 180,
+      pending: 120,
+      preference: 120,
+      hot: 170,
+      checkpoint: 140,
+      skill: 96,
+      reuse: 150,
+      catalog: 150,
       related: 120
     }
   },
@@ -177,6 +177,10 @@ const RENDER_PROFILES = [
     }
   }
 ];
+
+const DEFAULT_BOOTSTRAP_BUDGET_BYTES = Math.min(DEFAULTS.bootstrapContextBudget, 6000);
+const MINIMAL_BOOTSTRAP_BUDGET_BYTES = 2200;
+const DEFAULT_PROFILE_ORDER = ['compact', 'dense', 'micro', 'emergency', 'rich'];
 
 function utf8Bytes(value) {
   return Buffer.byteLength(String(value || ''), 'utf8');
@@ -611,6 +615,13 @@ function chooseBudgetedRender(renderers, budgetBytes) {
   return candidates[candidates.length - 1] || '';
 }
 
+function orderProfiles(profileNames = []) {
+  const rank = new Map(DEFAULT_PROFILE_ORDER.map((name, index) => [name, index]));
+  return [...profileNames].sort((left, right) => {
+    return (rank.get(left.name) ?? Number.MAX_SAFE_INTEGER) - (rank.get(right.name) ?? Number.MAX_SAFE_INTEGER);
+  });
+}
+
 function buildBootstrapCachePath(workspace, sessionKey) {
   const paths = createPaths(workspace);
   return path.join(paths.sessionsDir, sanitizeKey(sessionKey), 'openclaw-bootstrap.md');
@@ -626,9 +637,10 @@ function writeBootstrapCache(targetFile, content) {
 }
 
 function buildBootstrapCacheContent(summary, options = {}) {
-  const budgetBytes = Number(options.budgetBytes || DEFAULTS.bootstrapContextBudget);
+  const budgetBytes = Number(options.budgetBytes || DEFAULT_BOOTSTRAP_BUDGET_BYTES);
+  const profiles = orderProfiles(RENDER_PROFILES);
   return chooseBudgetedRender(
-    RENDER_PROFILES.map((profile) => () => renderSummaryWithProfile(summary, profile, budgetBytes)),
+    profiles.map((profile) => () => renderSummaryWithProfile(summary, profile, budgetBytes)),
     budgetBytes
   );
 }
@@ -705,7 +717,10 @@ function buildMinimalSummary(sessionState, pendingCommitments, checkpoint, budge
 
 function buildMinimalBootstrapContent(workspace, sessionKey, ownership, options = {}) {
   const paths = createPaths(workspace);
-  const budgetBytes = Number(options.budgetBytes || DEFAULTS.bootstrapContextBudget);
+  const budgetBytes = Math.min(
+    Number(options.budgetBytes || DEFAULT_BOOTSTRAP_BUDGET_BYTES),
+    MINIMAL_BOOTSTRAP_BUDGET_BYTES
+  );
   const sessionState = loadSessionState(paths, sessionKey, ownership.project_id, {
     createIfMissing: false,
     touch: false
@@ -738,7 +753,7 @@ function buildMinimalBootstrapContent(workspace, sessionKey, ownership, options 
   );
 
   return chooseBudgetedRender(
-    RENDER_PROFILES.map((profile) => () => renderSummaryWithProfile(summary, profile, budgetBytes)),
+    orderProfiles(RENDER_PROFILES).map((profile) => () => renderSummaryWithProfile(summary, profile, budgetBytes)),
     budgetBytes
   );
 }
