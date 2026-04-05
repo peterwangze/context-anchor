@@ -74,7 +74,7 @@ const { runSkillDiagnose } = require('../scripts/skill-diagnose');
 const { runScopePromote } = require('../scripts/scope-promote');
 const { runPerfBenchmark } = require('../scripts/perf-benchmark');
 const { runSkillReconcile } = require('../scripts/skill-reconcile');
-const { runStatusReport } = require('../scripts/status-report');
+const { renderStatusReportText, runStatusReport } = require('../scripts/status-report');
 const { calculateRetentionScore, compareGovernanceEntries, governCollection } = require('../scripts/storage-governance');
 const { runSkillSupersede } = require('../scripts/skill-supersede');
 const { runSessionClose } = require('../scripts/session-close');
@@ -6353,6 +6353,32 @@ test('status report summarizes user project session counts and governance', () =
       assert.ok(report.remediation_summary);
       assert.equal(report.remediation_summary.status, 'automatic_available');
       assert.ok(report.evidence.project_skills);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('status report renders a concise remediation-aware text view', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'text-report-session', 'demo');
+      const paths = createPaths(workspace);
+      const stateFile = sessionStateFile(paths, 'text-report-session');
+      const state = readJson(stateFile, {});
+      state.active_task = 'stabilize checkout retries';
+      writeJson(stateFile, state);
+
+      const report = runStatusReport(workspace, 'text-report-session', 'demo', 'default-user');
+      const rendered = renderStatusReportText(report);
+
+      assert.match(rendered, /Context-Anchor Status Report/);
+      assert.match(rendered, /Memory health:/);
+      assert.match(rendered, /Next step:/);
+      assert.match(rendered, /Guidance:/);
+      assert.match(rendered, /Example command:/);
     });
   } finally {
     cleanupWorkspace(workspace);

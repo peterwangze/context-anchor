@@ -357,6 +357,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 本轮开始，`doctor.js`、`sessions-status.js` / `sessions-diagnose.js`、`status-report.js`、`upgrade-sessions.js`、`install-one-click.js` 都会返回统一的 `remediation_summary` 结构，便于用一套逻辑读取 next step、automatic/manual count 和 recheck commands。
 现在 `sessions-status.js` / `sessions-diagnose.js` 以及 install/upgrade 的进度输出，也会直接把 `remediation_summary.next_step` 渲染出来，用户不用再自己从多条 strategy 里猜下一步。
 `sessions-diagnose.js` 现在也会把 remediation 的 `Guidance` 和 `Example command` 直接显示出来；`status-report.js` 的 `recommended_action` 也会带这两类字段，方便上层直接展示。
+`status-report.js` 现在默认也会输出轻量文本视图；如果你需要完整 JSON 或 snapshot，再显式用 JSON/snapshot 模式。
 `doctor.js` 现在默认也会直接输出一份更友好的文本摘要视图；如果你仍然需要完整 JSON，再显式加 `--json`。  
 如果当前存在手工外部问题，文本摘要里还会直接显示 `External issues:`，例如 `workspace_registration_missing` 或 `workspace_path_unresolved`，减少用户自己猜是哪类外部问题。
 对于这类外部问题，`doctor` 文本摘要现在还会直接给出 `Guidance` 和 `Example command`，方便用户按具体问题类型落地处理。

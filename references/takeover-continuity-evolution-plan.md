@@ -153,6 +153,10 @@
   - `sessions-diagnose` 已开始显示 remediation `Guidance` 与 `Example command`
   - `status-report` 的 `recommended_action` 已开始返回 `resolution_hint` 与 `command_examples`
   - 已补充自动化测试，覆盖 diagnose / status-report external guidance
+- `2026-04-05`
+  - `status-report` 已新增默认文本摘要视图
+  - `status-report` 文本视图已开始直接显示 remediation next step / guidance / example command
+  - 已补充自动化测试，覆盖 status-report text summary
 
 当前仍未完成的重点：
 
@@ -523,6 +527,7 @@
   - `doctor` 文本摘要已开始直接暴露 external issue type
   - `doctor` 文本摘要已开始根据 external issue type 给出定向修复提示
   - `sessions-diagnose / status-report` 也开始给出更具体的外部问题修复提示
+  - `status-report` 已不再只依赖 JSON 才能快速阅读 remediation 信息
 - 仍待完成：
   - `doctor` / `sessions-diagnose` 还需要给出更细粒度 strict-mode auto-fix 路径
 

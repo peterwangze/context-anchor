@@ -93,6 +93,38 @@ function buildStatusReportRecheckCommand(workspace, sessionKey, projectId, userI
   return args.join(' ');
 }
 
+function renderStatusReportText(report) {
+  const lines = [];
+  lines.push('Context-Anchor Status Report');
+  lines.push(`Workspace: ${report.workspace}`);
+  lines.push(
+    `User: ${report.user.id} | Project: ${report.project.id} | Session: ${report.session.key}`
+  );
+  lines.push(
+    `Memory health: ${String(report.memory_source_health.status || 'unknown').toUpperCase()} | ` +
+      `Governance active=${Number(report.governance.active || 0)} | budgeted_out=${Number(report.governance.budgeted_out || 0)}`
+  );
+  if (report.session.task_state_summary?.visible) {
+    lines.push(`Task state: ${report.session.task_state_summary.summary}`);
+  }
+  if (report.session.last_benefit_summary?.visible) {
+    lines.push(`Last benefit: ${report.session.last_benefit_summary.summary}`);
+  }
+  if (report.remediation_summary?.next_step?.label) {
+    lines.push(
+      `Next step: ${report.remediation_summary.next_step.label}` +
+        `${report.remediation_summary.next_step.summary ? ` - ${report.remediation_summary.next_step.summary}` : ''}`
+    );
+  }
+  if (report.recommended_action?.resolution_hint) {
+    lines.push(`Guidance: ${report.recommended_action.resolution_hint}`);
+  }
+  if (Array.isArray(report.recommended_action?.command_examples) && report.recommended_action.command_examples.length > 0) {
+    lines.push(`Example command: ${report.recommended_action.command_examples[0]}`);
+  }
+  return lines.join('\n');
+}
+
 function summarizeSkillEvidence(skills = []) {
   const entries = skills.flatMap((skill) =>
     (Array.isArray(skill.evidence) ? skill.evidence : []).map((event) => ({
@@ -454,7 +486,11 @@ function main() {
       writeSnapshot: process.argv[6] === 'snapshot'
     }
   );
-  console.log(JSON.stringify(result, null, 2));
+  if (process.argv.includes('--json') || process.argv[6] === 'snapshot') {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log(renderStatusReportText(result));
+  }
 }
 
 if (require.main === module) {
@@ -462,5 +498,6 @@ if (require.main === module) {
 }
 
 module.exports = {
+  renderStatusReportText,
   runStatusReport
 };
