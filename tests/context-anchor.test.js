@@ -61,7 +61,7 @@ const { runMemorySave } = require('../scripts/memory-save');
 const { runHeartbeat } = require('../scripts/heartbeat');
 const { runHeatEvaluation } = require('../scripts/heat-eval');
 const { runMemorySearch } = require('../scripts/memory-search');
-const { runDoctor } = require('../scripts/doctor');
+const { renderDoctorReport, runDoctor } = require('../scripts/doctor');
 const { discoverOpenClawSessions } = require('../scripts/lib/openclaw-session-discovery');
 const {
   buildOpenClawSessionStatusReport,
@@ -3553,6 +3553,38 @@ test('doctor reports installed absolute paths and wrapper returns a helpful payl
           return true;
         }
       );
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('doctor renders a concise remediation summary view by default', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: workspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      fs.mkdirSync(path.join(workspace, 'memory'), { recursive: true });
+      fs.writeFileSync(path.join(workspace, 'memory', 'model-note.md'), '# Drift\n\nNeeds centralization.', 'utf8');
+
+      const doctor = runDoctor({ openclawHome, workspace });
+      const rendered = renderDoctorReport(doctor);
+
+      assert.match(rendered, /Context-Anchor Doctor/);
+      assert.match(rendered, /Remediation:/);
+      assert.match(rendered, /Next step:/);
+      assert.match(rendered, /Recheck:/);
     });
   } finally {
     cleanupWorkspace(workspace);

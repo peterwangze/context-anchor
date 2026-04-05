@@ -133,6 +133,10 @@
   - `sessions-status / sessions-diagnose` 已开始直接展示 `remediation_summary.next_step`
   - install / upgrade 进度输出已开始直接展示 remediation next step
   - 已补充自动化测试，覆盖 next step 文本可见性
+- `2026-04-05`
+  - `doctor` 已新增默认文本摘要视图
+  - `doctor --json` 可保留完整 JSON 输出
+  - 已补充自动化测试，覆盖 doctor remediation 文本摘要
 
 当前仍未完成的重点：
 
@@ -498,6 +502,7 @@
   - 多入口 remediation 输出已开始收敛到统一结构
   - remediation 的 next step 已开始直接进入文本输出
   - manual remediation 已开始区分“只需确认”和“需要修外部环境”
+  - `doctor` 已不再只依赖 JSON 才能看懂 remediation 结果
 - 仍待完成：
   - `doctor` / `sessions-diagnose` 还需要给出更细粒度 strict-mode auto-fix 路径
 

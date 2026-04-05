@@ -14,7 +14,8 @@ function parseArgs(argv) {
   const options = {
     workspace: null,
     openclawHome: null,
-    skillsRoot: null
+    skillsRoot: null,
+    json: false
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -35,6 +36,11 @@ function parseArgs(argv) {
     if (arg === '--skills-root') {
       options.skillsRoot = argv[index + 1] || null;
       index += 1;
+      continue;
+    }
+
+    if (arg === '--json') {
+      options.json = true;
     }
   }
 
@@ -838,6 +844,63 @@ function runProfileTakeoverAudit(options = {}) {
   return runDoctor(options).profile_takeover_audit;
 }
 
+function renderDoctorRemediationSummary(remediationSummary = {}) {
+  const lines = [];
+  lines.push(
+    `Remediation: ${String(remediationSummary.status || 'none').toUpperCase()} | ` +
+      `auto=${Number(remediationSummary.automatic_count || 0)} | ` +
+      `manual=${Number(remediationSummary.manual_count || 0)}`
+  );
+  lines.push(
+    `Manual split: confirm=${Number(remediationSummary.manual_confirm_only_count || 0)} | ` +
+      `external-env=${Number(remediationSummary.manual_external_environment_count || 0)}`
+  );
+  if (remediationSummary.next_step?.label) {
+    const mode = remediationSummary.next_step.execution_mode === 'manual' ? 'manual' : 'auto';
+    const subtype =
+      remediationSummary.next_step.execution_mode === 'manual'
+        ? remediationSummary.next_step.manual_subtype === 'external_environment'
+          ? '/external-env'
+          : '/confirm'
+        : '';
+    lines.push(
+      `Next step: [${mode}${subtype}] ${remediationSummary.next_step.label}` +
+        `${remediationSummary.next_step.summary ? ` - ${remediationSummary.next_step.summary}` : ''}`
+    );
+  }
+  if (Array.isArray(remediationSummary.recheck_commands) && remediationSummary.recheck_commands.length > 0) {
+    lines.push(`Recheck: ${remediationSummary.recheck_commands[0]}`);
+  }
+  return lines;
+}
+
+function renderDoctorReport(report) {
+  const lines = [];
+  lines.push('Context-Anchor Doctor');
+  lines.push(`Platform: ${report.platform_label}`);
+  lines.push(
+    `Installation: ${report.installation.ready ? 'READY' : 'NOT READY'} | ` +
+      `Configuration: ${report.configuration.ready ? 'READY' : 'NOT READY'} | ` +
+      `Takeover: ${String(report.configuration.memory_takeover_mode || 'best_effort').toUpperCase()}`
+  );
+  lines.push(
+    `Workspace: ${report.paths.workspace || 'not selected'} | ` +
+      `Memory health: ${String(report.memory_sources.health?.status || 'unknown').toUpperCase()}`
+  );
+  lines.push(
+    `Host audit: ${String(report.host_takeover_audit.status || 'unknown').toUpperCase()} | ` +
+      `Profile audit: ${String(report.profile_takeover_audit.status || 'unknown').toUpperCase()}`
+  );
+  lines.push(...renderDoctorRemediationSummary(report.remediation_summary));
+  lines.push('');
+  lines.push(`Config path: ${report.paths.config_file}`);
+  lines.push(`Configure command: ${report.commands.configure}`);
+  if (report.commands.sync_legacy_memory) {
+    lines.push(`Sync command: ${report.commands.sync_legacy_memory}`);
+  }
+  return lines.join('\n');
+}
+
 function runDoctor(options = {}) {
   const openClawHome = getOpenClawHome(options.openclawHome || null);
   const skillsRoot = path.resolve(
@@ -1049,8 +1112,13 @@ function runDoctor(options = {}) {
 }
 
 function main() {
-  const result = runDoctor(parseArgs(process.argv.slice(2)));
-  console.log(JSON.stringify(result, null, 2));
+  const options = parseArgs(process.argv.slice(2));
+  const result = runDoctor(options);
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log(renderDoctorReport(result));
+  }
 }
 
 if (require.main === module) {
@@ -1061,6 +1129,7 @@ module.exports = {
   buildTakeoverAudit,
   buildHostTakeoverAudit,
   buildProfileTakeoverAudit,
+  renderDoctorReport,
   runDoctor,
   runHostTakeoverAudit,
   runProfileTakeoverAudit,
