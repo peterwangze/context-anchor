@@ -135,6 +135,75 @@ These commands now have readable text-mode output and styled error handling:
 - humanized health and monitor wording
 - task continuity summaries protected against structured-object leakage
 
+## Stage review
+
+### Current direction is correct
+
+The current CLI UX evolution path is working and should be preserved:
+
+- high-frequency user-facing commands were prioritized first
+- a shared formatter was introduced before broad rollout
+- automation compatibility was preserved through TTY text / non-TTY JSON behavior
+- wording and summary quality were improved incrementally based on real command output
+
+This has already produced visible gains in:
+
+- status comprehension
+- long-running command trust
+- error readability
+- terminology consistency
+
+### New risk discovered during rollout
+
+As more commands adopt the UX model, a new maintenance risk appears:
+
+- command entrypoints are still wiring TTY detection, JSON fallback, error handling, and summary rendering manually
+- status wording logic can still drift if each command keeps its own small formatting rules
+- repeated CLI boilerplate will make future slices slower and more fragile
+
+This is not yet an architecture problem, but it will become one if the rollout continues command-by-command without a small platforming step.
+
+## Platforming checkpoint
+
+Before scaling the UX rollout much further, the project should insert a small platforming checkpoint.
+
+### Goal
+
+Reduce repeated CLI UX boilerplate so future command improvements do not corrode maintainability.
+
+### Why now
+
+- enough commands have already adopted the new UX model to expose repetition patterns
+- future slices will otherwise copy the same TTY / JSON / error-handling logic repeatedly
+- a small shared helper layer now will make Slice B and later slices faster and more consistent
+
+### Scope
+
+This platforming step should stay intentionally lightweight. It does not need a large framework.
+
+Candidate shared helpers:
+
+- a shared command entry wrapper such as:
+  - `runCliMain({ run, renderText, allowJson, renderError })`
+- a shared output-mode decision helper such as:
+  - `shouldRenderJson({ args, stdout })`
+- shared human-readable status label helpers for:
+  - verification states
+  - memory health states
+  - monitor / scheduler states
+  - remediation state labels
+- optional shared success-summary helpers for:
+  - counts
+  - scope lines
+  - next-step lines
+
+### Definition of done for the platforming step
+
+- at least one or two representative commands migrate to the new wrapper successfully
+- repeated entrypoint logic is reduced
+- canonical wording helpers move closer to one shared place
+- later command slices can reuse the pattern instead of copying it
+
 ## Remaining command inventory
 
 ### P0 - keep stable, continue polishing only when regression appears
@@ -154,11 +223,6 @@ These are already in the user-critical path and should stay stable:
 
 These commands are either user-visible or likely to be run manually during maintenance and debugging:
 
-- `external-memory-watch.js`
-- `legacy-memory-sync.js`
-- `workspace-monitor.js`
-- `context-pressure-monitor.js`
-- `storage-governance.js`
 - `skill-diagnose.js`
 - `skill-create.js`
 - `skill-status-update.js`
@@ -310,6 +374,29 @@ Expected result:
 
 - clearer manual-debug experience without changing their data model
 
+Current state:
+
+- completed
+- command coverage delivered for:
+  - `external-memory-watch.js`
+  - `legacy-memory-sync.js`
+  - `workspace-monitor.js`
+  - `context-pressure-monitor.js`
+  - `storage-governance.js`
+
+### Slice A.5 - CLI Platforming
+
+Target:
+
+- reduce repeated CLI entrypoint boilerplate before broadening the rollout further
+
+Expected result:
+
+- better maintainability
+- less wording drift
+- faster implementation of later slices
+- lower regression risk during future CLI UX work
+
 ### Slice B - skill workflow command UX
 
 Target commands:
@@ -347,10 +434,11 @@ A command is considered UX-aligned when all of the following are true:
 
 ## Suggested execution order
 
-1. P1 maintenance commands
-2. skill workflow commands
-3. optional `--text` support
-4. opportunistic cleanup of residual raw enum rendering
+1. complete Slice A validation and stabilize it
+2. implement Slice A.5 CLI Platforming
+3. skill workflow commands
+4. optional `--text` support
+5. opportunistic cleanup of residual raw enum rendering
 
 ## Progress tracking
 
@@ -358,6 +446,7 @@ A command is considered UX-aligned when all of the following are true:
 
 - shared terminal formatting layer created
 - high-frequency install / upgrade / doctor / status / configure paths upgraded
+- Slice A maintenance commands upgraded
 - task continuity summary object leakage fixed
 - memory-health wording humanized
 - monitor wording normalized
@@ -365,10 +454,11 @@ A command is considered UX-aligned when all of the following are true:
 
 ### In progress
 
-- full command inventory audit documented here
+- CLI UX audit documented here
+- deciding exact scope of the CLI platforming checkpoint
 
 ### Next checkpoints
 
-- complete Slice A
+- define and implement Slice A.5 CLI Platforming
 - complete Slice B
 - decide whether explicit `--text` should become a standard affordance
