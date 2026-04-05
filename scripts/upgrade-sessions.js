@@ -24,7 +24,8 @@ const { buildRemediationSummary } = require('./lib/remediation-summary');
 const { runMirrorRebuild } = require('./mirror-rebuild');
 const { runSessionStart } = require('./session-start');
 const { runStorageGovernance } = require('./storage-governance');
-const { color, command, field, renderCliError, section, status, tag } = require('./lib/terminal-format');
+const { color, command, field, section, status, tag } = require('./lib/terminal-format');
+const { runCliMain } = require('./lib/cli-runtime');
 
 function parseArgs(argv) {
   const options = {
@@ -804,43 +805,34 @@ function renderUpgradeReport(result) {
 }
 
 async function main() {
-  try {
-    const options = parseArgs(process.argv.slice(2));
-    let memoryTakeover = options.memoryTakeover;
-    if (typeof memoryTakeover !== 'boolean' && process.stdin.isTTY) {
-      memoryTakeover = await askYesNo(
-        buildMemoryTakeoverPrompt(options.openclawHome, options.skillsRoot),
-        true
-      );
-    }
-    if (memoryTakeover) {
-      await runConfigureHost(options.openclawHome, options.skillsRoot, {
-        assumeYes: true,
-        applyConfig: true,
-        memoryTakeover: true,
-        enableScheduler: false
+  return runCliMain(process.argv.slice(2), {
+    parseArgs,
+    run: async (options) => {
+      let memoryTakeover = options.memoryTakeover;
+      if (typeof memoryTakeover !== 'boolean' && process.stdin.isTTY) {
+        memoryTakeover = await askYesNo(
+          buildMemoryTakeoverPrompt(options.openclawHome, options.skillsRoot),
+          true
+        );
+      }
+      if (memoryTakeover) {
+        await runConfigureHost(options.openclawHome, options.skillsRoot, {
+          assumeYes: true,
+          applyConfig: true,
+          memoryTakeover: true,
+          enableScheduler: false
+        });
+      }
+      return runUpgradeSessions(options.openclawHome, options.skillsRoot, {
+        ...options,
+        memoryTakeover,
+        progress: createCliProgressReporter(process.stderr)
       });
-    }
-    const result = runUpgradeSessions(options.openclawHome, options.skillsRoot, {
-      ...options,
-      memoryTakeover,
-      progress: createCliProgressReporter(process.stderr)
-    });
-    if (options.json || !process.stdout.isTTY) {
-      console.log(JSON.stringify(result, null, 2));
-    } else {
-      console.log(renderUpgradeReport(result));
-    }
-  } catch (error) {
-    if (process.stdout.isTTY) {
-      console.log(renderCliError('Context-Anchor Session Upgrade Failed', error.message, {
-        nextStep: 'Review the upgrade arguments, then rerun upgrade:sessions.'
-      }));
-    } else {
-      console.log(JSON.stringify({ status: 'error', message: error.message }, null, 2));
-    }
-    process.exit(1);
-  }
+    },
+    renderText: renderUpgradeReport,
+    errorTitle: 'Context-Anchor Session Upgrade Failed',
+    errorNextStep: 'Review the upgrade arguments, then rerun upgrade:sessions.'
+  });
 }
 
 if (require.main === module) {

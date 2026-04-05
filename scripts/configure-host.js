@@ -21,7 +21,8 @@ const {
   upsertWorkspace,
   writeHostConfig
 } = require('./lib/host-config');
-const { command, color, field, renderCliError, section, status, tag } = require('./lib/terminal-format');
+const { command, color, field, section, status, tag } = require('./lib/terminal-format');
+const { runCliMain } = require('./lib/cli-runtime');
 
 const DEFAULT_INTERVAL_MINUTES = 5;
 const SUPPORTED_SCHEDULER_PLATFORMS = ['windows', 'macos', 'linux'];
@@ -1235,24 +1236,13 @@ function renderConfigureHostReport(result) {
 }
 
 async function main() {
-  try {
-    const options = parseArgs(process.argv.slice(2));
-    const result = await runConfigureHost(options.openclawHome, options.skillsRoot, options);
-    if (options.json) {
-      console.log(JSON.stringify(result, null, 2));
-    } else {
-      console.log(renderConfigureHostReport(result));
-    }
-  } catch (error) {
-    if (options?.json || !process.stdout.isTTY) {
-      console.log(JSON.stringify({ status: 'error', message: error.message }, null, 2));
-    } else {
-      console.log(renderCliError('Context-Anchor Host Configuration Failed', error.message, {
-        nextStep: 'Review the prompt answers or path arguments, then rerun configure:host.'
-      }));
-    }
-    process.exit(1);
-  }
+  return runCliMain(process.argv.slice(2), {
+    parseArgs,
+    run: async (options) => runConfigureHost(options.openclawHome, options.skillsRoot, options),
+    renderText: renderConfigureHostReport,
+    errorTitle: 'Context-Anchor Host Configuration Failed',
+    errorNextStep: 'Review the prompt answers or path arguments, then rerun configure:host.'
+  });
 }
 
 if (require.main === module) {

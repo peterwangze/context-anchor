@@ -6,7 +6,8 @@ const readline = require('readline');
 const { getOpenClawHome } = require('./lib/context-anchor');
 const { runConfigureHost } = require('./configure-host');
 const { runInstallHostAssets } = require('./install-host-assets');
-const { color, command, field, renderCliError, section, status, tag } = require('./lib/terminal-format');
+const { color, command, field, section, status, tag } = require('./lib/terminal-format');
+const { runCliMain } = require('./lib/cli-runtime');
 const { runMirrorRebuild } = require('./mirror-rebuild');
 const { runUpgradeSessions } = require('./upgrade-sessions');
 
@@ -842,27 +843,17 @@ function renderInstallReport(result) {
 }
 
 async function main() {
-  try {
-    const options = parseArgs(process.argv.slice(2));
-    const result = await runOneClickInstall(options.openclawHome, options.skillsRoot, {
-      ...options,
-      progress: createCliProgressReporter(process.stderr)
-    });
-    if (options.json || !process.stdout.isTTY) {
-      console.log(JSON.stringify(result, null, 2));
-    } else {
-      console.log(renderInstallReport(result));
-    }
-  } catch (error) {
-    if (process.stdout.isTTY) {
-      console.log(renderCliError('Context-Anchor Installation Failed', error.message, {
-        nextStep: 'Review the install arguments, then rerun install:host.'
-      }));
-    } else {
-      console.log(JSON.stringify({ status: 'error', message: error.message }, null, 2));
-    }
-    process.exit(1);
-  }
+  return runCliMain(process.argv.slice(2), {
+    parseArgs,
+    run: async (options) =>
+      runOneClickInstall(options.openclawHome, options.skillsRoot, {
+        ...options,
+        progress: createCliProgressReporter(process.stderr)
+      }),
+    renderText: renderInstallReport,
+    errorTitle: 'Context-Anchor Installation Failed',
+    errorNextStep: 'Review the install arguments, then rerun install:host.'
+  });
 }
 
 if (require.main === module) {

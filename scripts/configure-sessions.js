@@ -17,7 +17,8 @@ const {
 } = require('./lib/host-config');
 const { discoverOpenClawSessions } = require('./lib/openclaw-session-discovery');
 const { getOpenClawHome, sanitizeKey } = require('./lib/context-anchor');
-const { command, field, renderCliError, section, status, tag } = require('./lib/terminal-format');
+const { command, field, section, status, tag } = require('./lib/terminal-format');
+const { runCliMain } = require('./lib/cli-runtime');
 
 function parseArgs(argv) {
   const options = {
@@ -613,24 +614,13 @@ function renderConfigureSessionsReport(result) {
 }
 
 async function main() {
-  try {
-    const options = parseArgs(process.argv.slice(2));
-    const result = await runConfigureSessions(options.openclawHome, options.skillsRoot, options);
-    if (options.json) {
-      console.log(JSON.stringify(result, null, 2));
-    } else {
-      console.log(renderConfigureSessionsReport(result));
-    }
-  } catch (error) {
-    if (options?.json || !process.stdout.isTTY) {
-      console.log(JSON.stringify({ status: 'error', message: error.message }, null, 2));
-    } else {
-      console.log(renderCliError('Context-Anchor Session Configuration Failed', error.message, {
-        nextStep: 'Review the selected workspace/session arguments, then rerun configure:sessions.'
-      }));
-    }
-    process.exit(1);
-  }
+  return runCliMain(process.argv.slice(2), {
+    parseArgs,
+    run: async (options) => runConfigureSessions(options.openclawHome, options.skillsRoot, options),
+    renderText: renderConfigureSessionsReport,
+    errorTitle: 'Context-Anchor Session Configuration Failed',
+    errorNextStep: 'Review the selected workspace/session arguments, then rerun configure:sessions.'
+  });
 }
 
 if (require.main === module) {
