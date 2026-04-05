@@ -184,6 +184,19 @@ function appendBootstrapFile(event, name, filePath, content) {
   return true;
 }
 
+function shouldPreferLeanBootstrap(existingSessionState, openClawSessionId) {
+  if (!existingSessionState || !openClawSessionId) {
+    return false;
+  }
+
+  const cachedSessionId = existingSessionState?.metadata?.openclaw_session_id || null;
+  if (!cachedSessionId || cachedSessionId === openClawSessionId) {
+    return false;
+  }
+
+  return existingSessionState?.metadata?.last_compaction_event === 'after';
+}
+
 function summarizeHeartbeatHookResult(result = {}) {
   return {
     status: result.status || 'heartbeat_ok',
@@ -474,6 +487,7 @@ function handleManagedBootstrap(event) {
   });
   const openClawSessionId = typeof event.context?.sessionId === 'string' ? event.context.sessionId.trim() : null;
   const cachedSessionId = existingSessionState?.metadata?.openclaw_session_id || null;
+  const preferLeanBootstrap = shouldPreferLeanBootstrap(existingSessionState, openClawSessionId);
   let bootstrapContent = readText(bootstrapCache, '').trim();
   const mustRefresh = !bootstrapContent || !existingSessionState || (openClawSessionId && cachedSessionId !== openClawSessionId);
 
@@ -483,7 +497,13 @@ function handleManagedBootstrap(event) {
       openClawSessionId,
       reopenClosed: true
     });
-    bootstrapContent = buildBootstrapCacheContent(summary);
+    bootstrapContent = preferLeanBootstrap
+      ? buildMinimalBootstrapContent(
+          normalizedPayload.workspace,
+          normalizedPayload.session_key,
+          normalizedPayload
+        )
+      : buildBootstrapCacheContent(summary);
     writeBootstrapCache(bootstrapCache, bootstrapContent);
   } else if (!bootstrapContent) {
     bootstrapContent = buildMinimalBootstrapContent(

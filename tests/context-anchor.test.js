@@ -5222,6 +5222,68 @@ test('managed compact hooks persist checkpoint before compaction and refresh com
   }
 });
 
+test('bootstrap stays lean after compact when a new OpenClaw session id resumes the same managed session', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'compact-lean-bootstrap', 'demo', {
+        openClawSessionId: 'openclaw-compact-original'
+      });
+      runMemorySave(
+        workspace,
+        'compact-lean-bootstrap',
+        'session',
+        'best_practice',
+        'refresh checkout retries before compaction',
+        JSON.stringify({ heat: 96, details: 'compact lifecycle accumulation' })
+      );
+
+      handleManagedHookEvent({
+        type: 'session',
+        action: 'compact:before',
+        sessionKey: 'compact-lean-bootstrap',
+        context: {
+          sessionId: 'openclaw-compact-original',
+          tokenCount: 3200
+        }
+      });
+      handleManagedHookEvent({
+        type: 'session',
+        action: 'compact:after',
+        sessionKey: 'compact-lean-bootstrap',
+        context: {
+          sessionId: 'openclaw-compact-original',
+          tokenCount: 900,
+          compactedCount: 30
+        }
+      });
+
+      const event = {
+        type: 'agent',
+        action: 'bootstrap',
+        sessionKey: 'compact-lean-bootstrap',
+        context: {
+          sessionId: 'openclaw-compact-new',
+          sessionKey: 'compact-lean-bootstrap',
+          workspaceDir: workspace,
+          bootstrapFiles: []
+        }
+      };
+      const result = handleManagedHookEvent(event);
+      const content = event.context.bootstrapFiles[0].content;
+
+      assert.equal(result.status, 'handled');
+      assert.equal(event.context.bootstrapFiles.length, 1);
+      assert.ok(Buffer.byteLength(content, 'utf8') <= 2201);
+      assert.doesNotMatch(content, /## Suggested Reuse/);
+      assert.doesNotMatch(content, /## Related Sessions/);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('session-close refreshes an existing compact-generated draft instead of duplicating it', () => {
   const workspace = makeWorkspace();
 
