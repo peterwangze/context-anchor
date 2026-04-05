@@ -5,6 +5,63 @@ const RISK_ORDER = {
   high: 2
 };
 
+function recommendAutoFixStrategy(options = {}) {
+  const strategyType = String(options.strategyType || '').toLowerCase();
+  const actionType = String(options.actionType || '').toLowerCase();
+  const issues = Array.isArray(options.issues) ? options.issues.map((entry) => String(entry).toLowerCase()) : [];
+  const hasFollowUp = Boolean(options.hasFollowUp);
+  const hasRecheck = Boolean(options.hasRecheck);
+
+  const defaults = {
+    until: null,
+    skipRecheck: false,
+    riskThreshold: 'high'
+  };
+
+  const isDriftFlow =
+    actionType === 'sync_legacy_memory' ||
+    issues.includes('legacy_memory_never_synced') ||
+    issues.includes('legacy_memory_changed_since_sync') ||
+    strategyType.includes('migrate_then');
+
+  if (isDriftFlow) {
+    return {
+      until: hasFollowUp ? 'follow_up' : 'repair',
+      skipRecheck: hasRecheck,
+      riskThreshold: 'high'
+    };
+  }
+
+  const isHostConfigFlow =
+    strategyType.includes('configure_host') ||
+    issues.includes('hook_not_configured') ||
+    issues.includes('monitor_not_configured') ||
+    issues.includes('monitor_legacy_window');
+
+  if (isHostConfigFlow) {
+    return {
+      until: hasRecheck ? 'recheck' : hasFollowUp ? 'follow_up' : null,
+      skipRecheck: false,
+      riskThreshold: 'high'
+    };
+  }
+
+  const isUpgradeRecoveryFlow =
+    actionType === 'upgrade_verification' ||
+    issues.includes('upgraded_session_not_materialized') ||
+    issues.includes('workspace_needs_configuration');
+
+  if (isUpgradeRecoveryFlow) {
+    return {
+      until: hasRecheck ? 'recheck' : null,
+      skipRecheck: false,
+      riskThreshold: 'high'
+    };
+  }
+
+  return defaults;
+}
+
 function classifyAutoFixRisk(command = '', step = '') {
   const normalizedCommand = String(command || '').toLowerCase();
   const normalizedStep = String(step || '').toLowerCase();
@@ -147,16 +204,28 @@ function buildAutoFixCommand(sequence = [], options = {}) {
     args.push('--dry-run');
   }
 
-  if (options.until) {
-    args.push('--until', String(options.until));
+  const recommendedStrategy = recommendAutoFixStrategy({
+    strategyType: options.strategyType,
+    actionType: options.actionType,
+    issues: options.issues,
+    hasFollowUp: normalizeCommandSequence(sequence).some((entry) => entry.step === 'follow_up'),
+    hasRecheck: normalizeCommandSequence(sequence).some((entry) => entry.step === 'recheck')
+  });
+  const effectiveUntil = options.until || recommendedStrategy.until;
+  const effectiveSkipRecheck =
+    typeof options.skipRecheck === 'boolean' ? options.skipRecheck : recommendedStrategy.skipRecheck;
+  const effectiveRiskThreshold = normalizeRiskThreshold(options.riskThreshold || recommendedStrategy.riskThreshold);
+
+  if (effectiveUntil) {
+    args.push('--until', String(effectiveUntil));
   }
 
-  if (options.skipRecheck) {
+  if (effectiveSkipRecheck) {
     args.push('--skip-recheck');
   }
 
-  if (normalizeRiskThreshold(options.riskThreshold)) {
-    args.push('--risk-threshold', normalizeRiskThreshold(options.riskThreshold));
+  if (effectiveRiskThreshold) {
+    args.push('--risk-threshold', effectiveRiskThreshold);
   }
 
   return args.join(' ');
@@ -170,5 +239,6 @@ module.exports = {
   filterAutoFixSequence,
   normalizeCommandSequence
   ,
-  normalizeRiskThreshold
+  normalizeRiskThreshold,
+  recommendAutoFixStrategy
 };

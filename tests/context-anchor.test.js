@@ -34,7 +34,8 @@ const {
   classifyAutoFixRisk,
   decodeAutoFixSequence,
   encodeAutoFixSequence,
-  filterAutoFixSequence
+  filterAutoFixSequence,
+  recommendAutoFixStrategy
 } = require('../scripts/lib/auto-fix');
 const {
   describeCollectionFile,
@@ -3966,6 +3967,60 @@ test('remediation summary auto-fix command carries workspace and user context', 
 
   assert.match(summary.next_step.auto_fix_command, /--workspace "D:\/demo"/);
   assert.match(summary.next_step.auto_fix_command, /--user-id "alice"/);
+});
+
+test('auto-fix recommends drift flows to stop after follow-up and skip recheck by default', () => {
+  const strategy = recommendAutoFixStrategy({
+    actionType: 'sync_legacy_memory',
+    strategyType: 'migrate_then_enforce_then_recheck',
+    hasFollowUp: true,
+    hasRecheck: true
+  });
+  const commandLine = buildAutoFixCommand(
+    [
+      { step: 'repair', command: 'npm run migrate:memory -- --workspace "D:/demo"' },
+      { step: 'follow_up', command: 'npm run configure:host -- --workspace "D:/demo" --apply-config --enforce-memory-takeover --yes' },
+      { step: 'recheck', command: 'npm run doctor -- --workspace "D:/demo"' }
+    ],
+    {
+      workspace: 'D:/demo',
+      userId: 'alice',
+      actionType: 'sync_legacy_memory',
+      strategyType: 'migrate_then_enforce_then_recheck'
+    }
+  );
+
+  assert.equal(strategy.until, 'follow_up');
+  assert.equal(strategy.skipRecheck, true);
+  assert.match(commandLine, /--until follow_up/);
+  assert.match(commandLine, /--skip-recheck/);
+});
+
+test('auto-fix keeps recheck in host-configuration flows by default', () => {
+  const strategy = recommendAutoFixStrategy({
+    actionType: 'host_repair',
+    strategyType: 'configure_host_then_recheck',
+    issues: ['monitor_not_configured'],
+    hasFollowUp: false,
+    hasRecheck: true
+  });
+  const commandLine = buildAutoFixCommand(
+    [
+      { step: 'repair', command: 'npm run configure:host -- --workspace "D:/demo" --apply-config --enable-scheduler --yes' },
+      { step: 'recheck', command: 'npm run doctor -- --workspace "D:/demo"' }
+    ],
+    {
+      workspace: 'D:/demo',
+      userId: 'alice',
+      strategyType: 'configure_host_then_recheck',
+      issues: ['monitor_not_configured']
+    }
+  );
+
+  assert.equal(strategy.until, 'recheck');
+  assert.equal(strategy.skipRecheck, false);
+  assert.match(commandLine, /--until recheck/);
+  assert.doesNotMatch(commandLine, /--skip-recheck/);
 });
 
 test('doctor reports installed absolute paths and wrapper returns a helpful payload error', async () => {

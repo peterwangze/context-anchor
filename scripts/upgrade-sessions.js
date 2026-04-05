@@ -372,6 +372,7 @@ function buildUpgradeVerification({
           action: {
             type: 'upgrade_verification',
             summary,
+            issues,
             recheck_command: buildUpgradeRecheckCommand(openClawHome, skillsRoot, {
               workspace: options.workspace || null,
               sessionKey: options.sessionKey || null

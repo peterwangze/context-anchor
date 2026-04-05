@@ -1001,10 +1001,11 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
           {
             source: 'session_status',
             action: {
-              ...commands,
-              command: commands.repair_command,
-              follow_up_command: commands.follow_up_command,
-              recheck_command: commands.recheck_command
+            ...commands,
+            issues,
+            command: commands.repair_command,
+            follow_up_command: commands.follow_up_command,
+            recheck_command: commands.recheck_command
             }
           }
         ],
@@ -1066,6 +1067,7 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
           source: 'session_status_global',
           action: {
             ...globalCommands,
+            issues: doctor.configuration.ready ? [] : ['hook_not_configured'],
             command: globalCommands.repair_command,
             follow_up_command: globalCommands.follow_up_command,
             recheck_command: globalCommands.recheck_command
