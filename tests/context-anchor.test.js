@@ -3584,6 +3584,7 @@ test('doctor renders a concise remediation summary view by default', async () =>
 
       assert.match(rendered, /Context-Anchor Doctor/);
       assert.match(rendered, /Remediation:/);
+      assert.match(rendered, /External issues:/);
       assert.match(rendered, /Next step:/);
       assert.match(rendered, /Recheck:/);
     });

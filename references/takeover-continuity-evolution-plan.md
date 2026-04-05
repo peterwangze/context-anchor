@@ -141,6 +141,10 @@
   - `doctor` 已新增默认文本摘要视图
   - `doctor --json` 可保留完整 JSON 输出
   - 已补充自动化测试，覆盖 doctor remediation 文本摘要
+- `2026-04-05`
+  - `doctor` 文本摘要已开始直接显示 `External issues`
+  - manual external issue type 现在不只存在于结构化数据，也已进入文本视图
+  - 已补充自动化测试，覆盖 external issue text visibility
 
 当前仍未完成的重点：
 
@@ -508,6 +512,7 @@
   - manual remediation 已开始区分“只需确认”和“需要修外部环境”
   - `doctor` 已不再只依赖 JSON 才能看懂 remediation 结果
   - external environment 类手工修复已经开始区分更具体的问题来源
+  - `doctor` 文本摘要已开始直接暴露 external issue type
 - 仍待完成：
   - `doctor` / `sessions-diagnose` 还需要给出更细粒度 strict-mode auto-fix 路径
 

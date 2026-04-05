@@ -856,12 +856,23 @@ function renderDoctorRemediationSummary(remediationSummary = {}) {
     `Manual split: confirm=${Number(remediationSummary.manual_confirm_only_count || 0)} | ` +
       `external-env=${Number(remediationSummary.manual_external_environment_count || 0)}`
   );
+  const externalIssueTypes = remediationSummary.manual_external_issue_types || {};
+  const externalIssueSummary = Object.entries(externalIssueTypes)
+    .map(([key, count]) => `${key}=${count}`)
+    .join(', ');
+  if (externalIssueSummary) {
+    lines.push(`External issues: ${externalIssueSummary}`);
+  }
   if (remediationSummary.next_step?.label) {
     const mode = remediationSummary.next_step.execution_mode === 'manual' ? 'manual' : 'auto';
     const subtype =
       remediationSummary.next_step.execution_mode === 'manual'
         ? remediationSummary.next_step.manual_subtype === 'external_environment'
-          ? '/external-env'
+          ? remediationSummary.next_step.external_issue_type === 'workspace_registration_missing'
+            ? '/external-env/workspace-registration'
+            : remediationSummary.next_step.external_issue_type === 'workspace_path_unresolved'
+            ? '/external-env/workspace-path'
+            : '/external-env'
           : '/confirm'
         : '';
     lines.push(
