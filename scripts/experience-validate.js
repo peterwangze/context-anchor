@@ -9,6 +9,8 @@ const {
   resolveProjectId,
   writeProjectExperiences
 } = require('./lib/context-anchor');
+const { field, section, status } = require('./lib/terminal-format');
+const { runCliMain } = require('./lib/cli-runtime');
 
 function runExperienceValidate(workspaceArg, experienceId, statusArg, projectIdArg, noteArg) {
   if (!experienceId || !statusArg) {
@@ -58,29 +60,44 @@ function runExperienceValidate(workspaceArg, experienceId, statusArg, projectIdA
   };
 }
 
+function parseArgs(argv) {
+  return {
+    workspace: argv[0],
+    experienceId: argv[1],
+    statusValue: argv[2],
+    projectId: argv[3],
+    note: argv[4],
+    json: argv.includes('--json')
+  };
+}
+
+function renderExperienceValidateReport(result) {
+  const lines = [];
+  const validationKind = result.validation_status === 'validated' ? 'success' : 'warning';
+  lines.push(section('Context-Anchor Experience Validate', { kind: validationKind }));
+  lines.push(field('Status', status(String(result.status || 'updated').toUpperCase(), 'success'), { kind: 'success' }));
+  lines.push(field('Experience', result.experience_id, { kind: 'info' }));
+  lines.push(field('Project', result.project_id, { kind: 'muted' }));
+  lines.push(field('Validation', status(String(result.validation_status || 'unknown').toUpperCase(), validationKind), { kind: validationKind }));
+  lines.push(field('Review count', Number(result.validation_count || 0), { kind: 'info' }));
+  return lines.join('\n');
+}
+
 function main() {
-  try {
-    const result = runExperienceValidate(
-      process.argv[2],
-      process.argv[3],
-      process.argv[4],
-      process.argv[5],
-      process.argv[6]
-    );
-    console.log(JSON.stringify(result, null, 2));
-  } catch (error) {
-    console.log(
-      JSON.stringify(
-        {
-          status: 'error',
-          message: error.message
-        },
-        null,
-        2
-      )
-    );
-    process.exit(1);
-  }
+  return runCliMain(process.argv.slice(2), {
+    parseArgs,
+    run: async (options) =>
+      runExperienceValidate(
+        options.workspace,
+        options.experienceId,
+        options.statusValue,
+        options.projectId,
+        options.note
+      ),
+    renderText: renderExperienceValidateReport,
+    errorTitle: 'Context-Anchor Experience Validate Failed',
+    errorNextStep: 'Check the workspace, experience id, and validation status, then rerun experience-validate.'
+  });
 }
 
 if (require.main === module) {
@@ -88,5 +105,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  parseArgs,
+  renderExperienceValidateReport,
   runExperienceValidate
 };

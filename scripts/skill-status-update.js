@@ -14,6 +14,8 @@ const {
   writeSessionSkills,
   writeUserSkills
 } = require('./lib/context-anchor');
+const { field, section, status } = require('./lib/terminal-format');
+const { runCliMain } = require('./lib/cli-runtime');
 
 function updateSkillStatus(skills, skillId, status, note) {
   const idx = skills.findIndex((skill) => skill.id === skillId);
@@ -100,30 +102,55 @@ function runSkillStatusUpdate(workspaceArg, scopeArg, skillId, statusArg, identi
   };
 }
 
-function main() {
-  try {
-    const result = runSkillStatusUpdate(
-      process.argv[2],
-      process.argv[3],
-      process.argv[4],
-      process.argv[5],
-      process.argv[6],
-      process.argv[7]
-    );
-    console.log(JSON.stringify(result, null, 2));
-  } catch (error) {
-    console.log(
-      JSON.stringify(
-        {
-          status: 'error',
-          message: error.message
-        },
-        null,
-        2
-      )
-    );
-    process.exit(1);
+function parseArgs(argv) {
+  return {
+    workspace: argv[0],
+    scope: argv[1],
+    skillId: argv[2],
+    statusValue: argv[3],
+    identifier: argv[4],
+    note: argv[5],
+    json: argv.includes('--json')
+  };
+}
+
+function renderSkillStatusUpdateReport(result) {
+  const lines = [];
+  lines.push(section('Context-Anchor Skill Status Update', { kind: 'success' }));
+  lines.push(field('Status', status(String(result.status || 'updated').toUpperCase(), 'success'), { kind: 'success' }));
+  lines.push(field('Scope', result.scope, { kind: 'info' }));
+  if (result.session_key) {
+    lines.push(field('Session', result.session_key, { kind: 'muted' }));
   }
+  if (result.project_id) {
+    lines.push(field('Project', result.project_id, { kind: 'muted' }));
+  }
+  if (result.user_id) {
+    lines.push(field('User', result.user_id, { kind: 'muted' }));
+  }
+  lines.push(field('Skill', `${result.skill?.name || result.skill?.id || '-'} | status ${String(result.skill?.status || 'unknown').toUpperCase()}`, { kind: 'success' }));
+  if (result.skill?.status_note) {
+    lines.push(field('Note', result.skill.status_note, { kind: 'info' }));
+  }
+  return lines.join('\n');
+}
+
+function main() {
+  return runCliMain(process.argv.slice(2), {
+    parseArgs,
+    run: async (options) =>
+      runSkillStatusUpdate(
+        options.workspace,
+        options.scope,
+        options.skillId,
+        options.statusValue,
+        options.identifier,
+        options.note
+      ),
+    renderText: renderSkillStatusUpdateReport,
+    errorTitle: 'Context-Anchor Skill Status Update Failed',
+    errorNextStep: 'Check the scope, skill id, and target status, then rerun skill-status-update.'
+  });
 }
 
 if (require.main === module) {
@@ -131,5 +158,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  parseArgs,
+  renderSkillStatusUpdateReport,
   runSkillStatusUpdate
 };

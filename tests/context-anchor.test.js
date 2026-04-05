@@ -49,7 +49,7 @@ const { runConfigureHost } = require('../scripts/configure-host');
 const { runContextPressureHandle } = require('../scripts/context-pressure-handle');
 const { runContextPressureMonitor } = require('../scripts/context-pressure-monitor');
 const { handleHookEvent, handleManagedHookEvent } = require('../hooks/context-anchor-hook/handler');
-const { runExperienceValidate } = require('../scripts/experience-validate');
+const { renderExperienceValidateReport, runExperienceValidate } = require('../scripts/experience-validate');
 const { runInstallHostAssets } = require('../scripts/install-host-assets');
 const { runExternalMemoryWatch } = require('../scripts/external-memory-watch');
 const { runLegacyMemorySync } = require('../scripts/legacy-memory-sync');
@@ -1625,6 +1625,20 @@ test('gateway startup hook emits a resume message for the latest active session'
   } finally {
     cleanupWorkspace(workspace);
   }
+});
+
+test('experience-validate renders a concise text view', () => {
+  const rendered = renderExperienceValidateReport({
+    status: 'updated',
+    experience_id: 'exp-1',
+    project_id: 'demo',
+    validation_status: 'validated',
+    validation_count: 2
+  });
+
+  assert.match(rendered, /Context-Anchor Experience Validate/);
+  assert.match(rendered, /Experience/);
+  assert.match(rendered, /VALIDATED/);
 });
 
 test('install-host-assets deploys a self-contained skill snapshot and managed hook wrapper', () => {

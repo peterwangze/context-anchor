@@ -13,6 +13,8 @@ const {
   sanitizeKey,
   summarizeEvidence
 } = require('./lib/context-anchor');
+const { field, section, status } = require('./lib/terminal-format');
+const { runCliMain } = require('./lib/cli-runtime');
 
 function runSkillDiagnose(workspaceArg, identifier, sessionKeyArg, projectIdArg, userIdArg) {
   if (!identifier) {
@@ -84,29 +86,57 @@ function runSkillDiagnose(workspaceArg, identifier, sessionKeyArg, projectIdArg,
   };
 }
 
-function main() {
-  try {
-    const result = runSkillDiagnose(
-      process.argv[2],
-      process.argv[3],
-      process.argv[4],
-      process.argv[5],
-      process.argv[6]
-    );
-    console.log(JSON.stringify(result, null, 2));
-  } catch (error) {
-    console.log(
-      JSON.stringify(
-        {
-          status: 'error',
-          message: error.message
-        },
-        null,
-        2
+function parseArgs(argv) {
+  return {
+    workspace: argv[0],
+    identifier: argv[1],
+    sessionKey: argv[2],
+    projectId: argv[3],
+    userId: argv[4],
+    json: argv.includes('--json')
+  };
+}
+
+function renderSkillDiagnoseReport(result) {
+  const lines = [];
+  const hasMatch = Array.isArray(result.matches) && result.matches.length > 0;
+  lines.push(section('Context-Anchor Skill Diagnose', { kind: hasMatch ? 'info' : 'warning' }));
+  lines.push(field('Identifier', result.identifier, { kind: 'info' }));
+  lines.push(field('Matches', status(Number(result.matches?.length || 0), hasMatch ? 'success' : 'warning'), { kind: hasMatch ? 'success' : 'warning' }));
+  lines.push(field('Scope', `Session ${result.session_key} | Project ${result.project_id} | User ${result.user_id}`, { kind: 'muted' }));
+  if (result.effective_match) {
+    lines.push(
+      field(
+        'Effective match',
+        `${result.effective_match.name || result.effective_match.id} | scope ${result.effective_match.scope} | status ${result.effective_match.status || 'active'} | diagnosis ${result.effective_match.diagnosis || 'active'}`,
+        { kind: 'success' }
       )
     );
-    process.exit(1);
   }
+  (result.reasons || []).slice(0, 5).forEach((reason) => {
+    lines.push(
+      field(
+        reason.id,
+        `scope ${reason.scope} | status ${reason.status} | diagnosis ${reason.diagnosis}`,
+        { kind: reason.diagnosis === 'active' ? 'success' : 'warning' }
+      )
+    );
+  });
+  if (Array.isArray(result.recommendations) && result.recommendations.length > 0) {
+    lines.push(field('Recommendation', result.recommendations[0], { kind: 'info' }));
+  }
+  return lines.join('\n');
+}
+
+function main() {
+  return runCliMain(process.argv.slice(2), {
+    parseArgs,
+    run: async (options) =>
+      runSkillDiagnose(options.workspace, options.identifier, options.sessionKey, options.projectId, options.userId),
+    renderText: renderSkillDiagnoseReport,
+    errorTitle: 'Context-Anchor Skill Diagnose Failed',
+    errorNextStep: 'Check the workspace and skill identifier, then rerun skill-diagnose.'
+  });
 }
 
 if (require.main === module) {
@@ -114,5 +144,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  parseArgs,
+  renderSkillDiagnoseReport,
   runSkillDiagnose
 };

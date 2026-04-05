@@ -12,6 +12,8 @@ const {
   writeProjectSkills,
   writeUserSkills
 } = require('./lib/context-anchor');
+const { field, section, status } = require('./lib/terminal-format');
+const { runCliMain } = require('./lib/cli-runtime');
 
 function applySupersede(skills, winnerId, loserId) {
   const winnerIdx = skills.findIndex((skill) => skill.id === winnerId);
@@ -124,29 +126,45 @@ function runSkillSupersede(workspaceArg, scopeArg, winnerId, loserId, identifier
   };
 }
 
-function main() {
-  try {
-    const result = runSkillSupersede(
-      process.argv[2],
-      process.argv[3],
-      process.argv[4],
-      process.argv[5],
-      process.argv[6]
-    );
-    console.log(JSON.stringify(result, null, 2));
-  } catch (error) {
-    console.log(
-      JSON.stringify(
-        {
-          status: 'error',
-          message: error.message
-        },
-        null,
-        2
-      )
-    );
-    process.exit(1);
+function parseArgs(argv) {
+  return {
+    workspace: argv[0],
+    scope: argv[1],
+    winnerId: argv[2],
+    loserId: argv[3],
+    identifier: argv[4],
+    json: argv.includes('--json')
+  };
+}
+
+function renderSkillSupersedeReport(result) {
+  const lines = [];
+  lines.push(section('Context-Anchor Skill Supersede', { kind: 'success' }));
+  lines.push(field('Status', status(String(result.status || 'updated').toUpperCase(), 'success'), { kind: 'success' }));
+  lines.push(field('Scope', result.scope, { kind: 'info' }));
+  if (result.project_id) {
+    lines.push(field('Project', result.project_id, { kind: 'muted' }));
   }
+  if (result.user_id) {
+    lines.push(field('User', result.user_id, { kind: 'muted' }));
+  }
+  lines.push(field('Winner', `${result.winner?.name || result.winner?.id || '-'} | status ${String(result.winner?.status || 'unknown').toUpperCase()}`, { kind: 'success' }));
+  lines.push(field('Loser', `${result.loser?.name || result.loser?.id || '-'} | status ${String(result.loser?.status || 'unknown').toUpperCase()}`, { kind: 'warning' }));
+  if (result.loser?.superseded_by) {
+    lines.push(field('Relation', `${result.loser.id} superseded by ${result.loser.superseded_by}`, { kind: 'info' }));
+  }
+  return lines.join('\n');
+}
+
+function main() {
+  return runCliMain(process.argv.slice(2), {
+    parseArgs,
+    run: async (options) =>
+      runSkillSupersede(options.workspace, options.scope, options.winnerId, options.loserId, options.identifier),
+    renderText: renderSkillSupersedeReport,
+    errorTitle: 'Context-Anchor Skill Supersede Failed',
+    errorNextStep: 'Check the scope and both skill ids, then rerun skill-supersede.'
+  });
 }
 
 if (require.main === module) {
@@ -154,5 +172,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  parseArgs,
+  renderSkillSupersedeReport,
   runSkillSupersede
 };

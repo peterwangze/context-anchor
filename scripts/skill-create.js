@@ -15,6 +15,8 @@ const {
   writeProjectExperiences,
   writeText
 } = require('./lib/context-anchor');
+const { field, section, status } = require('./lib/terminal-format');
+const { runCliMain } = require('./lib/cli-runtime');
 
 function generateSkillMd(experience, skillName) {
   const validation = normalizeValidation(experience.validation);
@@ -181,23 +183,36 @@ function runSkillCreate(workspaceArg, experienceId, skillName, projectIdArg, opt
   };
 }
 
+function parseArgs(argv) {
+  return {
+    workspace: argv[0],
+    experienceId: argv[1],
+    skillName: argv[2],
+    projectId: argv[3],
+    json: argv.includes('--json')
+  };
+}
+
+function renderSkillCreateReport(result) {
+  const lines = [];
+  lines.push(section('Context-Anchor Skill Create', { kind: 'success' }));
+  lines.push(field('Status', status(String(result.status || 'created').toUpperCase(), 'success'), { kind: 'success' }));
+  lines.push(field('Skill', result.skill_name, { kind: 'success' }));
+  lines.push(field('Source experience', result.source_experience, { kind: 'info' }));
+  lines.push(field('Validation', String(result.validation_status || 'unknown').toUpperCase(), { kind: result.validation_status === 'validated' ? 'success' : 'warning' }));
+  lines.push(field('Directory', result.skill_dir, { kind: 'muted' }));
+  lines.push(field('Git initialized', result.git_initialized ? 'yes' : 'no', { kind: result.git_initialized ? 'success' : 'muted' }));
+  return lines.join('\n');
+}
+
 function main() {
-  try {
-    const result = runSkillCreate(process.argv[2], process.argv[3], process.argv[4], process.argv[5]);
-    console.log(JSON.stringify(result, null, 2));
-  } catch (error) {
-    console.log(
-      JSON.stringify(
-        {
-          status: 'error',
-          message: error.message
-        },
-        null,
-        2
-      )
-    );
-    process.exit(1);
-  }
+  return runCliMain(process.argv.slice(2), {
+    parseArgs,
+    run: async (options) => runSkillCreate(options.workspace, options.experienceId, options.skillName, options.projectId),
+    renderText: renderSkillCreateReport,
+    errorTitle: 'Context-Anchor Skill Create Failed',
+    errorNextStep: 'Check the workspace, experience id, and skill name, then rerun skill-create.'
+  });
 }
 
 if (require.main === module) {
@@ -205,5 +220,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  parseArgs,
+  renderSkillCreateReport,
   runSkillCreate
 };
