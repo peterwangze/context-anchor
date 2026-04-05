@@ -962,6 +962,9 @@ function renderDoctorRemediationSummary(remediationSummary = {}) {
       lines.push(field('Auto fix command', command(remediationSummary.next_step.auto_fix_command), { kind: 'command' }));
     } else if (remediationSummary.next_step.auto_fix_blocked_reason) {
       lines.push(field('Auto fix unavailable', remediationSummary.next_step.auto_fix_blocked_reason, { kind: 'warning' }));
+      if (remediationSummary.next_step.auto_fix_resume_hint) {
+        lines.push(field('Auto fix resume', remediationSummary.next_step.auto_fix_resume_hint, { kind: 'muted' }));
+      }
     }
     if (Array.isArray(remediationSummary.next_step.command_examples) && remediationSummary.next_step.command_examples.length > 0) {
       lines.push(field('Example command', command(remediationSummary.next_step.command_examples[0]), { kind: 'command' }));

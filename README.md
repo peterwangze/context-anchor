@@ -382,6 +382,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 同时 `Auto fix command` 已开始按问题类型选择更贴合场景的默认策略：例如 drift 归并链路会优先停在 `follow_up` 并默认跳过立即 `recheck`，而 host 配置修复仍会默认保留 `recheck`。
 更细一层，workspace 还未配置完成这类问题现在会优先给出“先 repair、不急着立刻 recheck”的默认链路；而“升级后 session 仍未 materialize”这类问题则默认保留完整 `recheck` 闭环。
 对于 `workspace_unresolved`、`workspace_registration_missing` 这类 manual / external-environment 问题，现在不会再误给 `Auto fix command`，而会明确显示 `Auto fix unavailable`，提醒用户先修外部环境再继续。
+对于 `manual/confirm_only` 这类问题，现在除了 `Auto fix unavailable` 之外，还会额外提示 `Auto fix resume`，说明补齐哪个确认输入后，自动修复才能继续，例如先显式传入 `--workspace`。
 `sessions-diagnose.js` 现在也会把 remediation 的 `Guidance` 和 `Example command` 直接显示出来；`status-report.js` 的 `recommended_action` 也会带这两类字段，方便上层直接展示。
 `status-report.js` 现在默认也会输出轻量文本视图；如果你需要完整 JSON 或 snapshot，再显式用 JSON/snapshot 模式。
 `doctor.js` 现在默认也会直接输出一份更友好的文本摘要视图；如果你仍然需要完整 JSON，再显式加 `--json`。  

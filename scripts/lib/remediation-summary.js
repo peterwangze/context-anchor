@@ -6,6 +6,8 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
   const executionMode = strategy.execution_mode === 'manual' ? 'manual' : 'automatic';
   const requiresManualConfirmation = Boolean(strategy.requires_manual_confirmation);
   const recheckCommand = action?.recheck_command || strategy?.recheck_command || null;
+  const manualSubtype = executionMode === 'manual' ? strategy.manual_subtype || 'confirm_only' : null;
+  const externalIssueType = executionMode === 'manual' ? strategy.external_issue_type || null : null;
 
   if (!label && !recheckCommand) {
     return null;
@@ -13,13 +15,23 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
 
   const autoFixBlockedReason =
     executionMode === 'manual'
-      ? (strategy.manual_subtype || 'confirm_only') === 'external_environment'
-        ? strategy.external_issue_type === 'workspace_registration_missing'
+      ? manualSubtype === 'external_environment'
+        ? externalIssueType === 'workspace_registration_missing'
           ? 'Resolve or update the broken workspace registration first; auto-fix is intentionally disabled for this external-environment issue.'
-          : strategy.external_issue_type === 'workspace_path_unresolved'
+          : externalIssueType === 'workspace_path_unresolved'
           ? 'Provide or recover the correct workspace path first; auto-fix is intentionally disabled for this external-environment issue.'
           : 'Resolve the external environment issue first; auto-fix is intentionally disabled for this path.'
-        : 'This path still needs manual confirmation or selection first, so auto-fix is intentionally disabled.'
+        : strategy.type === 'select_workspace_then_recheck'
+        ? 'Select the target workspace first; auto-fix will stay unavailable until the workspace is explicit.'
+        : 'This path still needs one manual confirmation before automation can continue, so auto-fix is intentionally disabled for now.'
+      : null;
+  const autoFixResumeHint =
+    executionMode === 'manual'
+      ? manualSubtype === 'external_environment'
+        ? null
+        : strategy.type === 'select_workspace_then_recheck'
+        ? 'Re-run the suggested command with an explicit --workspace, then auto-fix can resume on the resolved workspace.'
+        : 'Finish the required confirmation step first, then rerun the suggested command to unlock auto-fix.'
       : null;
 
   return {
@@ -28,8 +40,8 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
     label,
     summary: strategy.summary || action?.summary || null,
     execution_mode: executionMode,
-    manual_subtype: executionMode === 'manual' ? strategy.manual_subtype || 'confirm_only' : null,
-    external_issue_type: executionMode === 'manual' ? strategy.external_issue_type || null : null,
+    manual_subtype: manualSubtype,
+    external_issue_type: externalIssueType,
     requires_manual_confirmation: requiresManualConfirmation,
     recheck_command: recheckCommand,
     command: action?.command || null,
@@ -45,6 +57,7 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
             issues: action?.issues || []
           }),
     auto_fix_blocked_reason: autoFixBlockedReason,
+    auto_fix_resume_hint: autoFixResumeHint,
     resolution_hint: strategy.resolution_hint || action?.resolution_hint || null,
     command_examples: Array.isArray(strategy.command_examples)
       ? strategy.command_examples.filter(Boolean)

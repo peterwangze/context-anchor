@@ -4112,6 +4112,38 @@ test('manual external-environment remediation does not expose auto-fix command',
   assert.match(summary.next_step.auto_fix_blocked_reason, /auto-fix is intentionally disabled/i);
 });
 
+test('manual confirm-only remediation explains how to resume auto-fix after confirmation', () => {
+  const summary = buildRemediationSummary(
+    [
+      {
+        source: 'doctor',
+        action: {
+          type: 'workspace_select',
+          recheck_command: 'npm run doctor -- --workspace "D:/demo"',
+          repair_strategy: {
+            type: 'select_workspace_then_recheck',
+            label: 'select workspace -> recheck',
+            execution_mode: 'manual',
+            manual_subtype: 'confirm_only',
+            requires_manual_confirmation: true,
+            summary: 'Pick the target workspace first, then rerun doctor.'
+          }
+        }
+      }
+    ],
+    {
+      auto_fix_options: {
+        workspace: 'D:/demo',
+        userId: 'alice'
+      }
+    }
+  );
+
+  assert.equal(summary.next_step.auto_fix_command, null);
+  assert.match(summary.next_step.auto_fix_blocked_reason, /select the target workspace first/i);
+  assert.match(summary.next_step.auto_fix_resume_hint, /explicit --workspace/i);
+});
+
 test('doctor reports installed absolute paths and wrapper returns a helpful payload error', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');

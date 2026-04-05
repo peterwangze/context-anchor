@@ -872,6 +872,9 @@ function renderInstallReport(result) {
     lines.push(field('Auto fix command', command(verification.remediation_summary.next_step.auto_fix_command), { kind: 'command' }));
   } else if (verification.remediation_summary?.next_step?.auto_fix_blocked_reason) {
     lines.push(field('Auto fix unavailable', verification.remediation_summary.next_step.auto_fix_blocked_reason, { kind: 'warning' }));
+    if (verification.remediation_summary?.next_step?.auto_fix_resume_hint) {
+      lines.push(field('Auto fix resume', verification.remediation_summary.next_step.auto_fix_resume_hint, { kind: 'muted' }));
+    }
   }
 
   return lines.join('\n');

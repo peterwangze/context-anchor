@@ -160,6 +160,9 @@ function renderStatusReportText(report) {
     lines.push(field('Auto fix command', command(report.remediation_summary.next_step.auto_fix_command), { kind: 'command' }));
   } else if (report.remediation_summary?.next_step?.auto_fix_blocked_reason) {
     lines.push(field('Auto fix unavailable', report.remediation_summary.next_step.auto_fix_blocked_reason, { kind: 'warning' }));
+    if (report.remediation_summary?.next_step?.auto_fix_resume_hint) {
+      lines.push(field('Auto fix resume', report.remediation_summary.next_step.auto_fix_resume_hint, { kind: 'muted' }));
+    }
   }
   if (report.recommended_action?.resolution_hint) {
     lines.push(field('Guidance', report.recommended_action.resolution_hint, { kind: 'muted' }));
