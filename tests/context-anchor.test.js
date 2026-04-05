@@ -4144,6 +4144,39 @@ test('manual confirm-only remediation explains how to resume auto-fix after conf
   assert.match(summary.next_step.auto_fix_resume_hint, /explicit --workspace/i);
 });
 
+test('manual confirm-only remediation can explain missing session-key input', () => {
+  const summary = buildRemediationSummary(
+    [
+      {
+        source: 'sessions',
+        action: {
+          type: 'session_select',
+          recheck_command: 'npm run status:sessions -- --workspace "D:/demo" --session-key "<session-key>"',
+          repair_strategy: {
+            type: 'select_session_then_recheck',
+            label: 'select session -> recheck',
+            execution_mode: 'manual',
+            manual_subtype: 'confirm_only',
+            requires_manual_confirmation: true,
+            summary: 'Pick the target session first, then rerun status.',
+            command_examples: ['npm run status:sessions -- --workspace "D:/demo" --session-key "<session-key>"']
+          }
+        }
+      }
+    ],
+    {
+      auto_fix_options: {
+        workspace: 'D:/demo',
+        userId: 'alice'
+      }
+    }
+  );
+
+  assert.equal(summary.next_step.auto_fix_command, null);
+  assert.match(summary.next_step.auto_fix_blocked_reason, /select the target session first/i);
+  assert.match(summary.next_step.auto_fix_resume_hint, /explicit --session-key/i);
+});
+
 test('doctor reports installed absolute paths and wrapper returns a helpful payload error', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');

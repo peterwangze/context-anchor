@@ -1,5 +1,65 @@
 const { buildAutoFixCommand } = require('./auto-fix');
 
+function inferConfirmOnlyRequirement(action = {}, strategy = {}) {
+  const type = String(strategy.type || action?.type || '').toLowerCase();
+  const haystack = [
+    strategy.summary,
+    action?.summary,
+    strategy.resolution_hint,
+    ...(Array.isArray(strategy.command_examples) ? strategy.command_examples : []),
+    ...(Array.isArray(action?.command_examples) ? action.command_examples : []),
+    action?.recheck_command,
+    action?.command
+  ]
+    .filter(Boolean)
+    .join('\n')
+    .toLowerCase();
+
+  if (haystack.includes('<session-key>') || /--session-key\b/.test(haystack)) {
+    return {
+      key: 'session_key',
+      blocked_reason: 'Select the target session first; auto-fix will stay unavailable until the session key is explicit.',
+      resume_hint:
+        'Re-run the suggested command with an explicit --session-key, then auto-fix can resume on the selected session.'
+    };
+  }
+
+  if (type === 'select_workspace_then_recheck' || haystack.includes('<workspace>') || /--workspace\b/.test(haystack)) {
+    return {
+      key: 'workspace',
+      blocked_reason: 'Select the target workspace first; auto-fix will stay unavailable until the workspace is explicit.',
+      resume_hint:
+        'Re-run the suggested command with an explicit --workspace, then auto-fix can resume on the resolved workspace.'
+    };
+  }
+
+  if (haystack.includes('<project-id>') || /--project-id\b/.test(haystack)) {
+    return {
+      key: 'project_id',
+      blocked_reason: 'Select the target project first; auto-fix will stay unavailable until the project is explicit.',
+      resume_hint:
+        'Re-run the suggested command with an explicit --project-id, then auto-fix can resume on the selected project.'
+    };
+  }
+
+  if (haystack.includes('<openclaw-home>') || /--openclaw-home\b/.test(haystack) || haystack.includes('profile')) {
+    return {
+      key: 'profile',
+      blocked_reason: 'Select the target OpenClaw profile first; auto-fix will stay unavailable until the profile is explicit.',
+      resume_hint:
+        'Re-run the suggested command with an explicit --openclaw-home or target profile, then auto-fix can resume on the selected profile.'
+    };
+  }
+
+  return {
+    key: 'confirmation',
+    blocked_reason:
+      'This path still needs one manual confirmation before automation can continue, so auto-fix is intentionally disabled for now.',
+    resume_hint:
+      'Finish the required confirmation step first, then rerun the suggested command to unlock auto-fix.'
+  };
+}
+
 function normalizeRemediationEntry(source, action = {}, options = {}) {
   const strategy = action?.repair_strategy || action || {};
   const label = strategy.label || null;
@@ -8,6 +68,10 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
   const recheckCommand = action?.recheck_command || strategy?.recheck_command || null;
   const manualSubtype = executionMode === 'manual' ? strategy.manual_subtype || 'confirm_only' : null;
   const externalIssueType = executionMode === 'manual' ? strategy.external_issue_type || null : null;
+  const confirmRequirement =
+    executionMode === 'manual' && manualSubtype !== 'external_environment'
+      ? inferConfirmOnlyRequirement(action, strategy)
+      : null;
 
   if (!label && !recheckCommand) {
     return null;
@@ -21,17 +85,13 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
           : externalIssueType === 'workspace_path_unresolved'
           ? 'Provide or recover the correct workspace path first; auto-fix is intentionally disabled for this external-environment issue.'
           : 'Resolve the external environment issue first; auto-fix is intentionally disabled for this path.'
-        : strategy.type === 'select_workspace_then_recheck'
-        ? 'Select the target workspace first; auto-fix will stay unavailable until the workspace is explicit.'
-        : 'This path still needs one manual confirmation before automation can continue, so auto-fix is intentionally disabled for now.'
+        : confirmRequirement.blocked_reason
       : null;
   const autoFixResumeHint =
     executionMode === 'manual'
       ? manualSubtype === 'external_environment'
         ? null
-        : strategy.type === 'select_workspace_then_recheck'
-        ? 'Re-run the suggested command with an explicit --workspace, then auto-fix can resume on the resolved workspace.'
-        : 'Finish the required confirmation step first, then rerun the suggested command to unlock auto-fix.'
+        : confirmRequirement.resume_hint
       : null;
 
   return {
@@ -153,5 +213,6 @@ module.exports = {
   buildRemediationSummary,
   buildRemediationCommandSequence,
   dedupeEntries,
+  inferConfirmOnlyRequirement,
   normalizeRemediationEntry
 };
