@@ -4180,6 +4180,45 @@ test('manual confirm-only remediation can explain missing session-key input', ()
   assert.equal(summary.next_step.auto_fix_resume_input_details[0].label, 'session-key');
   assert.match(summary.next_step.auto_fix_resume_input_details[0].description, /session/i);
   assert.ok(summary.next_step.auto_fix_resume_input_details[0].example);
+  assert.deepEqual(summary.next_step.auto_fix_resume_input_details[0].candidates, []);
+});
+
+test('resume input details can expose candidate suggestions for missing parameters', () => {
+  const summary = buildRemediationSummary(
+    [
+      {
+        source: 'sessions',
+        action: {
+          type: 'session_select',
+          recheck_command: 'npm run status:sessions -- --workspace "D:/demo" --session-key "<session-key>"',
+          resume_context: {
+            workspace: 'D:/demo',
+            candidateSessionKeys: ['agent:main:checkout-fix', 'agent:main:review']
+          },
+          repair_strategy: {
+            type: 'select_session_then_recheck',
+            label: 'select session -> recheck',
+            execution_mode: 'manual',
+            manual_subtype: 'confirm_only',
+            requires_manual_confirmation: true,
+            summary: 'Pick the target session first, then rerun status.',
+            command_examples: ['npm run status:sessions -- --workspace "D:/demo" --session-key "<session-key>"']
+          }
+        }
+      }
+    ],
+    {
+      auto_fix_options: {
+        workspace: 'D:/demo',
+        userId: 'alice'
+      }
+    }
+  );
+
+  assert.deepEqual(summary.next_step.auto_fix_resume_input_details[0].candidates, [
+    'agent:main:checkout-fix',
+    'agent:main:review'
+  ]);
 });
 
 test('resume command prefers source-matching template when multiple confirm-only commands exist', () => {

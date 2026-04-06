@@ -172,6 +172,9 @@ function renderStatusReportText(report) {
     if (Array.isArray(report.remediation_summary?.next_step?.auto_fix_resume_input_details) && report.remediation_summary.next_step.auto_fix_resume_input_details.length > 0) {
       report.remediation_summary.next_step.auto_fix_resume_input_details.forEach((entry) => {
         lines.push(field(`Input ${entry.label}`, `${entry.description}${entry.example ? ` | example=${entry.example}` : ''}`, { kind: 'muted' }));
+        if (Array.isArray(entry.candidates) && entry.candidates.length > 0) {
+          lines.push(field(`Input ${entry.label} options`, entry.candidates.join(' | '), { kind: 'muted' }));
+        }
       });
     }
   }

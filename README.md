@@ -390,6 +390,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 当同一入口存在多个候选模板时，系统现在还会优先选择“剩余占位符更少、改动更小”的那个命令，进一步降低恢复门槛。
 如果 `Resume command` 里仍然保留了必须由用户决定的占位符，系统现在还会额外列出 `Resume inputs`，明确告诉你还差哪些输入。
 同时还会补充每个缺失输入的简短说明和示例值，帮助你更快判断应该填什么。
+如果当前上下文里已经能推断出少量高频候选值，系统现在还会直接显示候选建议，进一步降低补参成本。
 `sessions-diagnose.js` 现在也会把 remediation 的 `Guidance` 和 `Example command` 直接显示出来；`status-report.js` 的 `recommended_action` 也会带这两类字段，方便上层直接展示。
 `status-report.js` 现在默认也会输出轻量文本视图；如果你需要完整 JSON 或 snapshot，再显式用 JSON/snapshot 模式。
 `doctor.js` 现在默认也会直接输出一份更友好的文本摘要视图；如果你仍然需要完整 JSON，再显式加 `--json`。  

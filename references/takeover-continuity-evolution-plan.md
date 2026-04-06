@@ -231,6 +231,10 @@
   - `Resume inputs` 现在还会附带更友好的输入说明与示例值
   - 用户可以更快理解每个缺失参数应该填什么，而不只是看到参数名
   - 已补充自动化测试，覆盖 session-key 的输入说明与示例
+- `2026-04-06`
+  - 高概率输入现在开始支持候选建议，例如 session-key 可直接展示 1~3 个候选值
+  - 用户在补参时不只知道“缺什么”，也开始知道“可能填什么”
+  - 已补充自动化测试，覆盖 session-key 的候选建议
 
 当前仍未完成的重点：
 
@@ -614,7 +618,7 @@
   - session 观测与 upgrade 默认口径已开始优先贴近用户真实感知
   - strict-mode 自动修复路径已开始在 doctor / session diagnose / status-report / install / upgrade / configure 输出中显式化
 - 仍待完成：
-  - strict-mode auto-fix 还缺少更多 manual/confirm 场景来源映射、更多参数预填充、交互补参、输入校验、参数候选建议与可学习偏好演化
+  - strict-mode auto-fix 还缺少更多 manual/confirm 场景来源映射、更多参数预填充、交互补参、输入校验、更多参数候选建议与可学习偏好演化
 
 ## 测试设计
 

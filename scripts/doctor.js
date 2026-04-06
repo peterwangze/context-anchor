@@ -974,6 +974,9 @@ function renderDoctorRemediationSummary(remediationSummary = {}) {
       if (Array.isArray(remediationSummary.next_step.auto_fix_resume_input_details) && remediationSummary.next_step.auto_fix_resume_input_details.length > 0) {
         remediationSummary.next_step.auto_fix_resume_input_details.forEach((entry) => {
           lines.push(field(`Input ${entry.label}`, `${entry.description}${entry.example ? ` | example=${entry.example}` : ''}`, { kind: 'muted' }));
+          if (Array.isArray(entry.candidates) && entry.candidates.length > 0) {
+            lines.push(field(`Input ${entry.label} options`, entry.candidates.join(' | '), { kind: 'muted' }));
+          }
         });
       }
     }
@@ -1070,6 +1073,10 @@ function runDoctor(options = {}) {
   const hostConfigFile = getHostConfigFile(openClawHome);
   const config = readJson(configFile, null);
   const hostConfig = readHostConfig(openClawHome);
+  const registeredWorkspaceCandidates = [
+    hostConfig.defaults?.workspace || null,
+    ...(Array.isArray(hostConfig.workspaces) ? hostConfig.workspaces.map((entry) => entry.workspace) : [])
+  ].filter(Boolean);
   const extraDirs = Array.isArray(config?.skills?.load?.extraDirs) ? config.skills.load.extraDirs : [];
   const hooks = config?.hooks || {};
   const workspace = options.workspace
@@ -1255,7 +1262,8 @@ function runDoctor(options = {}) {
               workspace,
               userId: hostConfig.defaults?.user_id || null,
               openclawHome,
-              skillsRoot
+              skillsRoot,
+              candidateWorkspaces: registeredWorkspaceCandidates
             }
           }
         },
@@ -1267,7 +1275,8 @@ function runDoctor(options = {}) {
               workspace,
               userId: hostConfig.defaults?.user_id || null,
               openclawHome,
-              skillsRoot
+              skillsRoot,
+              candidateWorkspaces: registeredWorkspaceCandidates
             }
           }
         },
@@ -1279,7 +1288,10 @@ function runDoctor(options = {}) {
               workspace,
               userId: hostConfig.defaults?.user_id || null,
               openclawHome,
-              skillsRoot
+              skillsRoot,
+              candidateWorkspaces: registeredWorkspaceCandidates,
+              candidateOpenClawHomes: [openClawHome],
+              candidateSkillsRoots: [skillsRoot]
             }
           }
         }

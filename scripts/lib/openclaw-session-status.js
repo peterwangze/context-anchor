@@ -1012,7 +1012,10 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
                 projectId: commandScope.projectId,
                 userId: commandScope.userId,
                 openclawHome: resolvedOpenClawHome,
-                skillsRoot
+                skillsRoot,
+                candidateSessionKeys: sortedSessions.map((entry) => entry.session_key).filter(Boolean),
+                candidateWorkspaces: [commandScope.workspace].filter(Boolean),
+                candidateProjectIds: sortedSessions.map((entry) => entry.project_id).filter(Boolean)
               }
             }
           }
@@ -1084,7 +1087,9 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
               sessionKey: scope.sessionKey,
               userId: scope.userId,
               openclawHome: resolvedOpenClawHome,
-              skillsRoot
+              skillsRoot,
+              candidateSessionKeys: sessions.map((entry) => entry.session_key).filter(Boolean),
+              candidateWorkspaces: groups.map((entry) => entry.workspace).filter(Boolean)
             }
           }
         }
@@ -1161,6 +1166,9 @@ function renderCommandSummary(report) {
     if (Array.isArray(report.remediation_summary?.next_step?.auto_fix_resume_input_details) && report.remediation_summary.next_step.auto_fix_resume_input_details.length > 0) {
       report.remediation_summary.next_step.auto_fix_resume_input_details.forEach((entry) => {
         lines.push(field(`Input ${entry.label}`, `${entry.description}${entry.example ? ` | example=${entry.example}` : ''}`, { kind: 'muted' }));
+        if (Array.isArray(entry.candidates) && entry.candidates.length > 0) {
+          lines.push(field(`Input ${entry.label} options`, entry.candidates.join(' | '), { kind: 'muted' }));
+        }
       });
     }
   }
@@ -1386,6 +1394,9 @@ function renderOpenClawSessionStatusReport(report) {
         if (Array.isArray(group.remediation_summary?.next_step?.auto_fix_resume_input_details) && group.remediation_summary.next_step.auto_fix_resume_input_details.length > 0) {
           group.remediation_summary.next_step.auto_fix_resume_input_details.forEach((entry) => {
             lines.push(field(`Input ${entry.label}`, `${entry.description}${entry.example ? ` | example=${entry.example}` : ''}`, { indent: 2, kind: 'muted' }));
+            if (Array.isArray(entry.candidates) && entry.candidates.length > 0) {
+              lines.push(field(`Input ${entry.label} options`, entry.candidates.join(' | '), { indent: 2, kind: 'muted' }));
+            }
           });
         }
       }
@@ -1474,6 +1485,9 @@ function renderOpenClawSessionDiagnosisReport(report) {
         if (Array.isArray(group.remediation_summary?.next_step?.auto_fix_resume_input_details) && group.remediation_summary.next_step.auto_fix_resume_input_details.length > 0) {
           group.remediation_summary.next_step.auto_fix_resume_input_details.forEach((entry) => {
             lines.push(field(`Input ${entry.label}`, `${entry.description}${entry.example ? ` | example=${entry.example}` : ''}`, { indent: 2, kind: 'muted' }));
+            if (Array.isArray(entry.candidates) && entry.candidates.length > 0) {
+              lines.push(field(`Input ${entry.label} options`, entry.candidates.join(' | '), { indent: 2, kind: 'muted' }));
+            }
           });
         }
       }
@@ -1546,6 +1560,9 @@ function renderOpenClawSessionDiagnosisReport(report) {
       if (Array.isArray(group.remediation_summary?.next_step?.auto_fix_resume_input_details) && group.remediation_summary.next_step.auto_fix_resume_input_details.length > 0) {
         group.remediation_summary.next_step.auto_fix_resume_input_details.forEach((entry) => {
           lines.push(field(`Input ${entry.label}`, `${entry.description}${entry.example ? ` | example=${entry.example}` : ''}`, { indent: 2, kind: 'muted' }));
+          if (Array.isArray(entry.candidates) && entry.candidates.length > 0) {
+            lines.push(field(`Input ${entry.label} options`, entry.candidates.join(' | '), { indent: 2, kind: 'muted' }));
+          }
         });
       }
     }

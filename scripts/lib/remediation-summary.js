@@ -115,6 +115,48 @@ function describeMissingTemplateInput(input) {
   }
 }
 
+function uniqueStringList(values = []) {
+  return [...new Set((Array.isArray(values) ? values : []).filter(Boolean).map((entry) => String(entry)))];
+}
+
+function buildResumeInputCandidates(input, context = {}) {
+  const key = String(input || '').toLowerCase();
+  switch (key) {
+    case 'workspace':
+      return uniqueStringList([
+        context.workspace,
+        ...(Array.isArray(context.candidateWorkspaces) ? context.candidateWorkspaces : [])
+      ]).slice(0, 3);
+    case 'session-key':
+      return uniqueStringList([
+        context.sessionKey,
+        ...(Array.isArray(context.candidateSessionKeys) ? context.candidateSessionKeys : [])
+      ]).slice(0, 3);
+    case 'project-id':
+      return uniqueStringList([
+        context.projectId,
+        ...(Array.isArray(context.candidateProjectIds) ? context.candidateProjectIds : [])
+      ]).slice(0, 3);
+    case 'user-id':
+      return uniqueStringList([
+        context.userId,
+        ...(Array.isArray(context.candidateUserIds) ? context.candidateUserIds : [])
+      ]).slice(0, 3);
+    case 'openclaw-home':
+      return uniqueStringList([
+        context.openclawHome,
+        ...(Array.isArray(context.candidateOpenClawHomes) ? context.candidateOpenClawHomes : [])
+      ]).slice(0, 3);
+    case 'skills-root':
+      return uniqueStringList([
+        context.skillsRoot,
+        ...(Array.isArray(context.candidateSkillsRoots) ? context.candidateSkillsRoots : [])
+      ]).slice(0, 3);
+    default:
+      return [];
+  }
+}
+
 function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
   const type = String(strategy.type || action?.type || '').toLowerCase();
   const sourceKey = String(source || 'unknown').toLowerCase();
@@ -313,7 +355,10 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
         : [],
     auto_fix_resume_input_details:
       executionMode === 'manual' && manualSubtype !== 'external_environment'
-        ? listMissingTemplateInputs(confirmRequirement.resume_command || '').map((entry) => describeMissingTemplateInput(entry))
+        ? listMissingTemplateInputs(confirmRequirement.resume_command || '').map((entry) => ({
+            ...describeMissingTemplateInput(entry),
+            candidates: buildResumeInputCandidates(entry, action?.resume_context || {})
+          }))
         : [],
     resolution_hint: strategy.resolution_hint || action?.resolution_hint || null,
     command_examples: Array.isArray(strategy.command_examples)
@@ -408,6 +453,7 @@ function buildRemediationSummary(pairs = [], options = {}) {
 
 module.exports = {
   buildRemediationSummary,
+  buildResumeInputCandidates,
   buildRemediationCommandSequence,
   describeMissingTemplateInput,
   dedupeEntries,
