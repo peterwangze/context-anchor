@@ -1,7 +1,8 @@
 const { buildAutoFixCommand } = require('./auto-fix');
 
-function inferConfirmOnlyRequirement(action = {}, strategy = {}) {
+function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
   const type = String(strategy.type || action?.type || '').toLowerCase();
+  const sourceKey = String(source || 'unknown').toLowerCase();
   const haystack = [
     strategy.summary,
     action?.summary,
@@ -22,11 +23,30 @@ function inferConfirmOnlyRequirement(action = {}, strategy = {}) {
   ]
     .filter(Boolean)
     .map((entry) => String(entry));
+  const rankForSource = (entry) => {
+    if (sourceKey.includes('doctor')) {
+      return entry.includes('doctor') ? 0 : entry.includes('configure:host') ? 1 : 2;
+    }
+    if (sourceKey.includes('status_report') || sourceKey.includes('status-report')) {
+      return entry.includes('status-report') ? 0 : entry.includes('status:sessions') ? 1 : 2;
+    }
+    if (sourceKey.includes('session')) {
+      return entry.includes('status:sessions') ? 0 : entry.includes('configure:sessions') ? 1 : 2;
+    }
+    if (sourceKey.includes('upgrade')) {
+      return entry.includes('upgrade:sessions') ? 0 : entry.includes('configure:sessions') ? 1 : entry.includes('status:sessions') ? 2 : 3;
+    }
+    return 0;
+  };
   const firstMatchingCommand = (predicate) => {
     if (typeof predicate !== 'function') {
       return templateCommands[0] || null;
     }
-    return templateCommands.find((entry) => predicate(entry)) || templateCommands[0] || null;
+    const matches = templateCommands.filter((entry) => predicate(entry));
+    if (matches.length === 0) {
+      return templateCommands[0] || null;
+    }
+    return matches.sort((left, right) => rankForSource(left) - rankForSource(right))[0] || null;
   };
 
   if (haystack.includes('<session-key>') || /--session-key\b/.test(haystack)) {
@@ -92,7 +112,7 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
   const externalIssueType = executionMode === 'manual' ? strategy.external_issue_type || null : null;
   const confirmRequirement =
     executionMode === 'manual' && manualSubtype !== 'external_environment'
-      ? inferConfirmOnlyRequirement(action, strategy)
+      ? inferConfirmOnlyRequirement(source, action, strategy)
       : null;
 
   if (!label && !recheckCommand) {

@@ -4178,6 +4178,41 @@ test('manual confirm-only remediation can explain missing session-key input', ()
   assert.match(summary.next_step.auto_fix_resume_command, /--session-key "<session-key>"/i);
 });
 
+test('resume command prefers source-matching template when multiple confirm-only commands exist', () => {
+  const summary = buildRemediationSummary(
+    [
+      {
+        source: 'upgrade_verification',
+        action: {
+          type: 'session_select',
+          recheck_command: 'npm run status:sessions -- --workspace "D:/demo" --session-key "<session-key>"',
+          repair_strategy: {
+            type: 'select_session_then_recheck',
+            label: 'select session -> recheck',
+            execution_mode: 'manual',
+            manual_subtype: 'confirm_only',
+            requires_manual_confirmation: true,
+            summary: 'Pick the target session first, then rerun upgrade.',
+            command_examples: [
+              'npm run status:sessions -- --workspace "D:/demo" --session-key "<session-key>"',
+              'npm run configure:sessions -- --workspace "D:/demo" --session-key "<session-key>" --yes',
+              'npm run upgrade:sessions -- --workspace "D:/demo" --session-key "<session-key>"'
+            ]
+          }
+        }
+      }
+    ],
+    {
+      auto_fix_options: {
+        workspace: 'D:/demo',
+        userId: 'alice'
+      }
+    }
+  );
+
+  assert.match(summary.next_step.auto_fix_resume_command, /upgrade:sessions/);
+});
+
 test('doctor reports installed absolute paths and wrapper returns a helpful payload error', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');

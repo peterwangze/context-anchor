@@ -211,6 +211,10 @@
   - `confirm_only` 场景现在还会直接给出 `Resume command` 模板
   - 用户可以直接在模板命令里补齐缺失输入后继续流程，而不需要自己重新拼命令
   - 已补充自动化测试，覆盖 session-key 的 resume command 模板
+- `2026-04-06`
+  - `Resume command` 已开始按入口上下文优先选择更贴近当前命令语境的模板
+  - 当前 upgrade 相关场景会优先偏向 `upgrade:sessions`，session 相关场景会优先偏向 `status:sessions` / `configure:sessions`
+  - 已补充自动化测试，覆盖多模板时的上下文优先选择
 
 当前仍未完成的重点：
 
@@ -585,7 +589,7 @@
   - session 观测与 upgrade 默认口径已开始优先贴近用户真实感知
   - strict-mode 自动修复路径已开始在 doctor / session diagnose / status-report / install / upgrade / configure 输出中显式化
 - 仍待完成：
-  - strict-mode auto-fix 还缺少更多 manual/confirm 场景来源映射、模板优化与可学习偏好演化
+  - strict-mode auto-fix 还缺少更多 manual/confirm 场景来源映射、模板优化、参数预填充与可学习偏好演化
 
 ## 测试设计
 
