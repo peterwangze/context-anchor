@@ -562,6 +562,9 @@
   - `command:new / command:reset / command:stop` 已形成统一任务态语义
   - bootstrap / startup resume 已进一步优先展示任务态摘要
   - `sessions-status / sessions-diagnose` 已按 workspace 显示 `task continuity`
+  - `sessions-status / sessions-diagnose / status-report` 已开始显式区分 `task continuity health`
+  - 当前已显式区分 `READY / PARTIAL / MISSING`
+  - 已补充自动化测试，覆盖 task continuity health 可见性
   - 已补充自动化测试，覆盖 runtime task-state update 与 continuity restore
 - 仍待完成：
   - 任务态字段还需要继续向更严格的 repair / diagnose 闭环靠拢

@@ -43,7 +43,7 @@ const {
 const { describeCollectionFile, readLatestGovernanceRun } = require('./lib/context-anchor-db');
 const { resolveOwnership } = require('./lib/host-config');
 const { buildRemediationSummary } = require('./lib/remediation-summary');
-const { buildTaskStateSummary } = require('./lib/task-state');
+const { assessTaskStateHealth, buildTaskStateSummary } = require('./lib/task-state');
 const {
   command,
   field,
@@ -131,6 +131,25 @@ function renderStatusReportText(report) {
   );
   if (report.session.task_state_summary?.visible) {
     lines.push(field('Task state', report.session.task_state_summary.summary, { kind: 'info' }));
+  }
+  if (report.session.task_state_health?.status) {
+    const taskHealthKind = report.session.task_state_health.status === 'ready' ? 'success' : 'warning';
+    lines.push(
+      field(
+        'Task continuity',
+        `${status(String(report.session.task_state_health.status).toUpperCase(), taskHealthKind)} | ${report.session.task_state_health.summary}`,
+        { kind: taskHealthKind }
+      )
+    );
+  }
+  if (report.session.task_state_health?.status) {
+    const healthKind =
+      report.session.task_state_health.status === 'ready'
+        ? 'success'
+        : report.session.task_state_health.status === 'partial'
+        ? 'warning'
+        : 'warning';
+    lines.push(field('Task continuity', `${status(String(report.session.task_state_health.status).toUpperCase(), healthKind)} | ${report.session.task_state_health.summary}`, { kind: healthKind }));
   }
   if (report.session.last_benefit_summary?.visible) {
     lines.push(field('Last benefit', report.session.last_benefit_summary.summary, { kind: 'success' }));
@@ -480,6 +499,8 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
       last_checkpoint: runtimeState?.last_checkpoint || sessionState.last_checkpoint,
       last_summary: runtimeState?.last_summary || sessionState.last_summary,
       task_state_summary: buildTaskStateSummary(runtimeState || {}),
+      task_state_health: assessTaskStateHealth(buildTaskStateSummary(runtimeState || {})),
+      task_state_health: assessTaskStateHealth(buildTaskStateSummary(runtimeState || {})),
       last_benefit_summary: sessionSummary?.benefit_summary
         ? {
             visible: Boolean(sessionSummary.benefit_summary.visible),

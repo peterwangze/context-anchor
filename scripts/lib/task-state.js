@@ -95,6 +95,56 @@ function buildTaskStateSummary(state = {}) {
   };
 }
 
+function assessTaskStateHealth(summary = {}) {
+  const visible = summary?.visible === true;
+  const currentGoal = normalizeTaskStateText(summary?.current_goal);
+  const latestVerifiedResult = normalizeTaskStateText(summary?.latest_verified_result);
+  const nextStep = normalizeTaskStateText(summary?.next_step);
+  const blockedBy = normalizeTaskStateText(summary?.blocked_by);
+  const lastUserVisibleProgress = normalizeTaskStateText(summary?.last_user_visible_progress);
+
+  if (!visible) {
+    return {
+      status: 'missing',
+      issues: ['task_state_missing'],
+      summary: 'No visible task-state continuity is available yet.'
+    };
+  }
+
+  if (!currentGoal && !nextStep && !blockedBy) {
+    return {
+      status: 'partial',
+      issues: ['task_state_missing_goal_and_next_step'],
+      summary: 'Task continuity is visible, but current goal and next step are still missing.'
+    };
+  }
+
+  if (currentGoal && !nextStep && !blockedBy) {
+    return {
+      status: 'partial',
+      issues: ['task_state_missing_next_step'],
+      summary: 'Current goal is visible, but next step is still missing.'
+    };
+  }
+
+  if (!currentGoal && nextStep) {
+    return {
+      status: 'partial',
+      issues: ['task_state_missing_goal'],
+      summary: 'Next step is visible, but current goal is still missing.'
+    };
+  }
+
+  return {
+    status: 'ready',
+    issues: [],
+    summary:
+      latestVerifiedResult || blockedBy || lastUserVisibleProgress
+        ? 'Task continuity is ready for restore and repair flows.'
+        : 'Task continuity is visible and ready.'
+  };
+}
+
 function extractNextStepFromSessionState(sessionState = {}) {
   const commitments = Array.isArray(sessionState.commitments) ? sessionState.commitments : [];
   const pending = commitments.find((entry) => entry && entry.status === 'pending' && normalizeTaskStateText(entry.what));
@@ -158,6 +208,7 @@ function buildTaskStateTransition(reason, sessionState = {}) {
 }
 
 module.exports = {
+  assessTaskStateHealth,
   buildTaskStateFields,
   buildTaskStateSummary,
   buildTaskStateTransition,

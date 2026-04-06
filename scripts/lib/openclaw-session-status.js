@@ -13,7 +13,7 @@ const {
 } = require('./context-anchor');
 const { summarizeCatalogDatabase } = require('./context-anchor-db');
 const { buildRemediationSummary } = require('./remediation-summary');
-const { buildTaskStateFields, buildTaskStateSummary } = require('./task-state');
+const { assessTaskStateHealth, buildTaskStateFields, buildTaskStateSummary } = require('./task-state');
 const {
   command,
   field,
@@ -133,6 +133,12 @@ function collectSessionIssues(classification = {}) {
     issues.push('monitor_legacy_window');
   }
 
+  if (classification.task_state_health?.status === 'missing') {
+    issues.push('task_state_missing');
+  } else if (classification.task_state_health?.status === 'partial') {
+    issues.push('task_state_incomplete');
+  }
+
   return issues;
 }
 
@@ -160,6 +166,10 @@ function describeIssue(issue) {
       return 'external memory source has not been centralized yet';
     case 'legacy_memory_changed_since_sync':
       return 'external memory source changed after the last sync';
+    case 'task_state_missing':
+      return 'task continuity is not visible yet';
+    case 'task_state_incomplete':
+      return 'task continuity is still incomplete';
     default:
       return issue;
   }
@@ -206,6 +216,7 @@ function buildSessionVisibilityDetails(session) {
 
   return {
     task_state_summary: taskStateSummary,
+    task_state_health: assessTaskStateHealth(taskStateSummary),
     last_benefit_summary: normalizeBenefitSummary(sessionSummary?.benefit_summary)
   };
 }
@@ -257,6 +268,15 @@ function renderVisibleSummaryLine(label, summaryText, sessionKey) {
     indent: 2,
     kind: label === 'Last benefit' ? 'success' : 'info'
   });
+}
+
+function renderTaskContinuityHealth(summary) {
+  if (!summary?.status) {
+    return null;
+  }
+
+  const kind = summary.status === 'ready' ? 'success' : 'warning';
+  return `${status(String(summary.status).toUpperCase(), kind)} | ${summary.summary}`;
 }
 
 function summarizeStatusKind(value) {
@@ -828,10 +848,12 @@ function classifySessionStatus(session, openClawHome, hostConfig, doctor, option
     schedulerProbe: options.schedulerProbe,
     execFileSync: options.execFileSync
   });
+  const visibility = buildSessionVisibilityDetails(session);
   const issues = collectSessionIssues({
     skill,
     hook,
     monitor: scheduler.status,
+    task_state_health: visibility.task_state_health,
     workspaceConfigured: workspaceStatus.configured,
     sessionStateExists,
     hostSessionExists: Boolean(hostSession)
@@ -851,6 +873,7 @@ function classifySessionStatus(session, openClawHome, hostConfig, doctor, option
     monitor_runtime: scheduler.runtime,
     overall,
     issues,
+    task_state_health: visibility.task_state_health,
     workspace_status: workspaceStatus,
     session_state_file: sessionStateExists ? sessionStateFile : null
   };
@@ -1028,6 +1051,7 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
         }
       ),
       task_state_summary: primaryTaskStateSession?.task_state_summary || buildTaskStateSummary({}),
+      task_state_health: primaryTaskStateSession?.task_state_health || assessTaskStateHealth(buildTaskStateSummary({})),
       task_state_session_key: primaryTaskStateSession?.session_key || null,
       last_benefit_summary: primaryBenefitSession?.last_benefit_summary || null,
       last_benefit_session_key: primaryBenefitSession?.session_key || null,
@@ -1350,6 +1374,10 @@ function renderOpenClawSessionStatusReport(report) {
     if (taskStateLine) {
       lines.push(taskStateLine);
     }
+    const taskHealthLine = renderTaskContinuityHealth(group.task_state_health);
+    if (taskHealthLine) {
+      lines.push(field('Task continuity health', taskHealthLine, { indent: 2, kind: group.task_state_health?.status === 'ready' ? 'success' : 'warning' }));
+    }
     const benefitLine = renderVisibleSummaryLine(
       'Last benefit',
       formatBenefitDisplay(group.last_benefit_summary),
@@ -1443,6 +1471,10 @@ function renderOpenClawSessionDiagnosisReport(report) {
       if (taskStateLine) {
         lines.push(taskStateLine);
       }
+      const taskHealthLine = renderTaskContinuityHealth(group.task_state_health);
+      if (taskHealthLine) {
+        lines.push(field('Task continuity health', taskHealthLine, { indent: 2, kind: group.task_state_health?.status === 'ready' ? 'success' : 'warning' }));
+      }
       const benefitLine = renderVisibleSummaryLine(
         'Last benefit',
         formatBenefitDisplay(group.last_benefit_summary),
@@ -1516,6 +1548,10 @@ function renderOpenClawSessionDiagnosisReport(report) {
     );
     if (taskStateLine) {
       lines.push(taskStateLine);
+    }
+    const taskHealthLine = renderTaskContinuityHealth(group.task_state_health);
+    if (taskHealthLine) {
+      lines.push(field('Task continuity health', taskHealthLine, { indent: 2, kind: group.task_state_health?.status === 'ready' ? 'success' : 'warning' }));
     }
     const benefitLine = renderVisibleSummaryLine(
       'Last benefit',

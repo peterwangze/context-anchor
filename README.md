@@ -296,6 +296,7 @@ node scripts/sessions-diagnose.js
 - `BEST_EFFORT`
 - `DRIFT`
 - 最新可恢复的 `task continuity`，直接告诉你当前 goal / result / next step / blocked by
+- `task continuity health`，明确区分当前任务态是 `READY`、`PARTIAL` 还是 `MISSING`
 - 最近一次 `last benefit`，直接告诉你这轮 session 最近沉淀了什么可见收益
 
 默认会尽量只显示用户真正可感知的 session。  

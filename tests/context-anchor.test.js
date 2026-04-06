@@ -3604,6 +3604,58 @@ test('session status highlights task continuity and last visible benefit per wor
   }
 });
 
+test('session diagnosis surfaces task continuity health when task state is missing', () => {
+  const report = {
+    openclaw_home: 'C:/Users/demo/.openclaw',
+    summary: {
+      total_sessions: 1,
+      attention_sessions: 1,
+      drift_workspaces: 0,
+      task_visible_workspaces: 0,
+      benefit_visible_workspaces: 0
+    },
+    global: {
+      installation: { ready: true },
+      configuration: { ready: true },
+      ownership: {}
+    },
+    commands: {
+      diagnostic_command: 'npm run diagnose:sessions',
+      repair_command: 'npm run configure:sessions',
+      recheck_command: 'npm run status:sessions',
+      repair_strategy: { label: 'configure sessions -> recheck', execution_mode: 'automatic' }
+    },
+    remediation_summary: { next_step: null },
+    groups: [
+      {
+        workspace: 'D:/demo',
+        needs_attention: true,
+        mirror: { available: true, collections: 1, documents: 1, indexed_sessions: 1 },
+        memory_sources: { health: { status: 'single_source' }, external_source_count: 0, unsynced_source_count: 0, last_legacy_sync_at: null },
+        task_state_summary: { visible: false, summary: 'No task-state continuity summary available.' },
+        task_state_health: { status: 'missing', summary: 'No visible task-state continuity is available yet.' },
+        task_state_session_key: null,
+        last_benefit_summary: null,
+        last_benefit_session_key: null,
+        issues: ['task_state_missing'],
+        diagnostic_command: 'npm run diagnose:sessions -- --workspace "D:/demo"',
+        repair_command: 'npm run configure:sessions -- --workspace "D:/demo" --yes',
+        follow_up_command: null,
+        recheck_command: 'npm run status:sessions -- --workspace "D:/demo"',
+        repair_strategy: { label: 'configure sessions -> recheck', execution_mode: 'automatic' },
+        remediation_summary: { next_step: null },
+        repair_sequence: [],
+        sessions: []
+      }
+    ]
+  };
+
+  const rendered = renderOpenClawSessionDiagnosisReport(report);
+  assert.match(rendered, /Task continuity health/);
+  assert.match(rendered, /MISSING/);
+  assert.match(rendered, /task continuity is not visible yet/);
+});
+
 test('task-state summary stringifies structured current goal values for user-facing reports', () => {
   const { buildTaskStateSummary } = require('../scripts/lib/task-state');
 
