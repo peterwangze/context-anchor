@@ -235,9 +235,10 @@
 
 下一步建议：
 
-1. 先做 `Stage 2：接管能力强化`
-2. 再做 `Stage 3：收益显性化`
-3. 然后推进 `Stage 4：任务连续性模型`
+1. 继续并行推进 `Stage 2 / Stage 4 / Stage 5`
+2. 其中优先收口 `Stage 5：严格模式与自动修复闭环`，因为它最直接影响用户的低感知、低误导与自助修复体验
+3. 同步把 `Stage 4：任务连续性模型` 继续向 strict repair / diagnose 闭环靠拢，避免外层修复体验领先任务态内核过多
+4. `Stage 2：接管能力强化` 保持持续补洞，重点收口 strict-mode 下的 takeover / drift repair 闭环
 
 后续每一轮开发完成后，都应更新本节，至少补：
 
@@ -249,7 +250,7 @@
 
 ## 当前判断
 
-截至 `2026-04-04`，当前已具备的铺垫如下：
+截至 `2026-04-06`，当前已具备的铺垫如下：
 
 - 已有 host-level managed hook 接管：
   - `agent:bootstrap`
@@ -268,11 +269,19 @@
   - `best_effort`
   - `enforced`
 - 已有升级路径治理接入、进度提示与 repair 路由修正
+- 已有 strict-mode repair UX 主链路：
+  - `Auto fix`
+  - `Auto fix command`
+  - `Auto fix unavailable`
+  - `Auto fix resume`
+  - `Resume command`
+  - `Resume inputs`
 
 当前仍未完成的关键问题：
 
 - 任务连续性仍偏“材料恢复”，还不够“状态恢复”
 - 严格接管模式还没有形成完整的 drift 告警、强约束和自动修复闭环
+- 计划文档中的阶段优先级描述，已经需要显式反映当前 `Stage 2 / 4 / 5` 并行推进的现实状态
 
 ## 总目标
 
