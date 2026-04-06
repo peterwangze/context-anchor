@@ -60,6 +60,61 @@ function listMissingTemplateInputs(command = '') {
   return [...new Set(tokens)];
 }
 
+function describeMissingTemplateInput(input) {
+  const key = String(input || '').toLowerCase();
+  switch (key) {
+    case 'workspace':
+      return {
+        key,
+        label: 'workspace',
+        description: '当前需要修复或回检的工作区路径。',
+        example: 'D:/workspace/project'
+      };
+    case 'session-key':
+      return {
+        key,
+        label: 'session-key',
+        description: '当前需要继续处理或诊断的 session 标识。',
+        example: 'agent:main:checkout-fix'
+      };
+    case 'project-id':
+      return {
+        key,
+        label: 'project-id',
+        description: '当前工作区下对应的项目标识。',
+        example: 'checkout-retry'
+      };
+    case 'user-id':
+      return {
+        key,
+        label: 'user-id',
+        description: '当前归属用户标识。',
+        example: 'default-user'
+      };
+    case 'openclaw-home':
+      return {
+        key,
+        label: 'openclaw-home',
+        description: '目标 OpenClaw profile 的数据目录。',
+        example: 'D:/openclaw-home'
+      };
+    case 'skills-root':
+      return {
+        key,
+        label: 'skills-root',
+        description: 'OpenClaw 扫描技能快照的目录。',
+        example: 'D:/openclaw-home/skills'
+      };
+    default:
+      return {
+        key,
+        label: key,
+        description: '继续执行恢复命令前仍需补齐的输入。',
+        example: null
+      };
+  }
+}
+
 function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
   const type = String(strategy.type || action?.type || '').toLowerCase();
   const sourceKey = String(source || 'unknown').toLowerCase();
@@ -256,6 +311,10 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
       executionMode === 'manual' && manualSubtype !== 'external_environment'
         ? listMissingTemplateInputs(confirmRequirement.resume_command || '')
         : [],
+    auto_fix_resume_input_details:
+      executionMode === 'manual' && manualSubtype !== 'external_environment'
+        ? listMissingTemplateInputs(confirmRequirement.resume_command || '').map((entry) => describeMissingTemplateInput(entry))
+        : [],
     resolution_hint: strategy.resolution_hint || action?.resolution_hint || null,
     command_examples: Array.isArray(strategy.command_examples)
       ? strategy.command_examples.filter(Boolean)
@@ -350,6 +409,7 @@ function buildRemediationSummary(pairs = [], options = {}) {
 module.exports = {
   buildRemediationSummary,
   buildRemediationCommandSequence,
+  describeMissingTemplateInput,
   dedupeEntries,
   inferConfirmOnlyRequirement,
   listMissingTemplateInputs,

@@ -4177,6 +4177,9 @@ test('manual confirm-only remediation can explain missing session-key input', ()
   assert.match(summary.next_step.auto_fix_resume_hint, /explicit --session-key/i);
   assert.match(summary.next_step.auto_fix_resume_command, /--session-key "<session-key>"/i);
   assert.deepEqual(summary.next_step.auto_fix_resume_missing_inputs, ['session-key']);
+  assert.equal(summary.next_step.auto_fix_resume_input_details[0].label, 'session-key');
+  assert.match(summary.next_step.auto_fix_resume_input_details[0].description, /session/i);
+  assert.ok(summary.next_step.auto_fix_resume_input_details[0].example);
 });
 
 test('resume command prefers source-matching template when multiple confirm-only commands exist', () => {

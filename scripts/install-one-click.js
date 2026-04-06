@@ -881,6 +881,11 @@ function renderInstallReport(result) {
     if (Array.isArray(verification.remediation_summary?.next_step?.auto_fix_resume_missing_inputs) && verification.remediation_summary.next_step.auto_fix_resume_missing_inputs.length > 0) {
       lines.push(field('Resume inputs', verification.remediation_summary.next_step.auto_fix_resume_missing_inputs.join(', '), { kind: 'warning' }));
     }
+    if (Array.isArray(verification.remediation_summary?.next_step?.auto_fix_resume_input_details) && verification.remediation_summary.next_step.auto_fix_resume_input_details.length > 0) {
+      verification.remediation_summary.next_step.auto_fix_resume_input_details.forEach((entry) => {
+        lines.push(field(`Input ${entry.label}`, `${entry.description}${entry.example ? ` | example=${entry.example}` : ''}`, { kind: 'muted' }));
+      });
+    }
   }
 
   return lines.join('\n');

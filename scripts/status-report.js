@@ -169,6 +169,11 @@ function renderStatusReportText(report) {
     if (Array.isArray(report.remediation_summary?.next_step?.auto_fix_resume_missing_inputs) && report.remediation_summary.next_step.auto_fix_resume_missing_inputs.length > 0) {
       lines.push(field('Resume inputs', report.remediation_summary.next_step.auto_fix_resume_missing_inputs.join(', '), { kind: 'warning' }));
     }
+    if (Array.isArray(report.remediation_summary?.next_step?.auto_fix_resume_input_details) && report.remediation_summary.next_step.auto_fix_resume_input_details.length > 0) {
+      report.remediation_summary.next_step.auto_fix_resume_input_details.forEach((entry) => {
+        lines.push(field(`Input ${entry.label}`, `${entry.description}${entry.example ? ` | example=${entry.example}` : ''}`, { kind: 'muted' }));
+      });
+    }
   }
   if (report.recommended_action?.resolution_hint) {
     lines.push(field('Guidance', report.recommended_action.resolution_hint, { kind: 'muted' }));
