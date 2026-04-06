@@ -97,7 +97,7 @@ const { runSessionClose } = require('../scripts/session-close');
 const { runSessionCompact } = require('../scripts/session-compact');
 const { runSessionStart } = require('../scripts/session-start');
 const { runConfigureSessions } = require('../scripts/configure-sessions');
-const { renderUpgradeReport, runUpgradeSessions } = require('../scripts/upgrade-sessions');
+const { renderUpgradeReport, runUpgradeSessions, summarizeUpgradeRunStatus } = require('../scripts/upgrade-sessions');
 const { runSkillStatusUpdate } = require('../scripts/skill-status-update');
 const { runSkillCreate } = require('../scripts/skill-create');
 const { runSkillDraftCreate } = require('../scripts/skill-draft-create');
@@ -2730,7 +2730,7 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
         'openclaw-bootstrap.md'
       );
 
-      assert.equal(result.status, 'ok');
+      assert.equal(result.status, 'warning');
       assert.equal(result.selected_sessions, 2);
       assert.equal(result.excluded_subagent_sessions, 2);
       assert.equal(statusReport.summary.total_sessions, result.selected_sessions);
@@ -2828,7 +2828,7 @@ test('upgrade-sessions turns unresolved targets into confirm-only workspace sele
         (entry) => entry.label === 'workspace'
       );
 
-      assert.equal(result.status, 'ok');
+      assert.equal(result.status, 'warning');
       assert.equal(result.unresolved_sessions, 1);
       assert.equal(result.results[0].reason, 'workspace_unresolved');
       assert.equal(result.verification.status, 'needs_attention');
@@ -2848,6 +2848,37 @@ test('upgrade-sessions turns unresolved targets into confirm-only workspace sele
   } finally {
     cleanupWorkspace(workspace);
   }
+});
+
+test('upgrade summary status turns warning when verification or audits still need attention', () => {
+  assert.equal(
+    summarizeUpgradeRunStatus(
+      { status: 'verified' },
+      { takeover: 'ok', host: 'notice', profile: 'ok' }
+    ),
+    'ok'
+  );
+  assert.equal(
+    summarizeUpgradeRunStatus(
+      { status: 'needs_attention' },
+      { takeover: 'ok', host: 'ok', profile: 'ok' }
+    ),
+    'warning'
+  );
+  assert.equal(
+    summarizeUpgradeRunStatus(
+      { status: 'verified' },
+      { takeover: 'warning', host: 'notice', profile: 'ok' }
+    ),
+    'warning'
+  );
+  assert.equal(
+    summarizeUpgradeRunStatus(
+      { status: 'verified' },
+      { takeover: 'ok', host: 'ok', profile: 'warning' }
+    ),
+    'warning'
+  );
 });
 
 test('upgrade-sessions can run storage governance after rebuilding mirror data', async () => {
@@ -2936,7 +2967,7 @@ test('upgrade-sessions reports structured progress events during long-running up
         progress: (event) => progressEvents.push(event)
       });
 
-      assert.equal(result.status, 'ok');
+      assert.equal(result.status, 'warning');
       assert.ok(progressEvents.some((event) => event.type === 'scan:start'));
       assert.ok(progressEvents.some((event) => event.type === 'scan:done'));
       assert.ok(progressEvents.some((event) => event.type === 'session:start'));

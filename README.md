@@ -368,6 +368,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 
 `upgrade-sessions.js` 现在也会返回 `verification` 和 `verification_report`，`install-one-click.js` 会在顶层聚合成自己的 `verification`。  
 这样升级或一键安装结束后，你可以直接看“这轮是否已经验证通过”，而不是只看到 audit 告警再自己手工补检查。
+现在 `upgrade-sessions.js` 的顶层 `status` 也会跟着 `verification` / audit 的真实结果走：如果升级后仍有 unresolved target、verification 没通过，或者 takeover/profile audit 还在 warning，结果会直接返回 `warning`，避免长流程明明还要处理但顶层状态仍显示 `ok`。
 现在 `upgrade-sessions.js` 的 `verification` 也会带 `repair_strategy`，`install-one-click.js` 会把 config/session 两段的 strategy 聚合到 `verification.repair_strategies`，长流程里也能直接看到下一步应该怎么收口。
 `install-one-click.js` 聚合后的 `verification.repair_strategies` 现在也会按 `automatic` / `manual` 分类，方便在长流程结束后直接判断自助修复边界。
 同时聚合结果里也会继续拆出 `manual_confirm_only` 和 `manual_external_environment`，便于后续自动化或 UI 侧直接按风险类型分类展示。

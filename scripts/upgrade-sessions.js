@@ -476,6 +476,16 @@ function buildUpgradeVerification({
   };
 }
 
+function summarizeUpgradeRunStatus(verification = {}, audits = {}) {
+  const hasVerificationWarning = verification.status === 'needs_attention';
+  const hasAuditWarning =
+    audits.takeover === 'warning' ||
+    audits.host === 'warning' ||
+    audits.profile === 'warning';
+
+  return hasVerificationWarning || hasAuditWarning ? 'warning' : 'ok';
+}
+
 function askYesNo(prompt, defaultYes = true) {
   const suffix = defaultYes ? ' [Y/n] ' : ' [y/N] ';
   const rl = readline.createInterface({
@@ -822,7 +832,11 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
     sessionReport: verificationReport
   });
   const summary = {
-    status: 'ok',
+    status: summarizeUpgradeRunStatus(verification, {
+      takeover: takeoverAudit.status,
+      host: doctorAudit.host_takeover_audit.status,
+      profile: doctorAudit.profile_takeover_audit.status
+    }),
     openclaw_home: openClawHome,
     selected_sessions: candidates.length,
     excluded_subagent_sessions: collected.excluded_subagent_sessions.length,
@@ -1018,5 +1032,6 @@ module.exports = {
   main,
   parseArgs,
   renderUpgradeReport,
+  summarizeUpgradeRunStatus,
   runUpgradeSessions
 };

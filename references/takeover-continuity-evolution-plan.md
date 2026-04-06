@@ -250,6 +250,10 @@
   - 当前会直接给出 `Resume command`、候选 workspace 与 `Resume checks`
   - unresolved upgrade target 不再一律退化成笼统的 external-environment 问题
   - 已补充自动化测试，覆盖 unresolved upgrade target 的 confirm-only 路由与文本输出
+- `2026-04-06`
+  - `upgrade-sessions` 的顶层 `status` 已开始跟随 verification / audit 真实结果，不再在仍需处理时误报 `ok`
+  - 当前如果 unresolved target、verification 未通过，或 takeover/profile audit 仍是 warning，升级结果会直接返回 `warning`
+  - 已补充自动化测试，覆盖 upgrade 顶层状态与 verification / audit 的一致性
 
 当前仍未完成的重点：
 
@@ -647,6 +651,7 @@
   - task-state remediation 的文本 guidance 已开始和 strict repair 路径对齐，不再只给笼统 repair 提示
   - confirm-only 场景已开始对 resume command 做基础输入校验，不再只显示缺失输入名
   - upgrade unresolved target 现在也开始复用 confirm-only resume 闭环，而不是只停在外部环境提示
+  - upgrade 顶层状态现在也开始避免误导，不再在 verification / audit 仍异常时返回 `ok`
 - 仍待完成：
   - strict-mode auto-fix 还缺少更多 manual/confirm 场景来源映射、更多参数预填充、交互补参、更丰富的参数候选建议与可学习偏好演化
 
