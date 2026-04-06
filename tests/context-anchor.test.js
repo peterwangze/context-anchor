@@ -4593,6 +4593,37 @@ test('doctor reports installed absolute paths and wrapper returns a helpful payl
   }
 });
 
+test('doctor builds remediation summary without crashing when openclaw-home is included in resume context', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: workspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      fs.mkdirSync(path.join(workspace, 'memory'), { recursive: true });
+      fs.writeFileSync(path.join(workspace, 'memory', 'model-note.md'), '# Drift\n\nNeeds centralization.', 'utf8');
+
+      const doctor = runDoctor({ openclawHome: openClawHome, workspace });
+
+      assert.equal(doctor.status, 'warning');
+      assert.ok(doctor.remediation_summary);
+      assert.ok(doctor.remediation_summary.next_step);
+      assert.match(doctor.remediation_summary.next_step.recheck_command, /--openclaw-home/);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('doctor renders a concise remediation summary view by default', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');
@@ -4619,7 +4650,7 @@ test('doctor renders a concise remediation summary view by default', async () =>
       fs.mkdirSync(path.join(workspace, 'memory'), { recursive: true });
       fs.writeFileSync(path.join(workspace, 'memory', 'model-note.md'), '# Drift\n\nNeeds centralization.', 'utf8');
 
-      const doctor = runDoctor({ openclawHome, workspace });
+      const doctor = runDoctor({ openclawHome: openClawHome, workspace });
       const rendered = renderDoctorReport(doctor);
 
       assert.match(rendered, /Context-Anchor Doctor/);

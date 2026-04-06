@@ -1261,7 +1261,7 @@ function runDoctor(options = {}) {
             resume_context: {
               workspace,
               userId: hostConfig.defaults?.user_id || null,
-              openclawHome,
+              openClawHome,
               skillsRoot,
               candidateWorkspaces: registeredWorkspaceCandidates
             }
@@ -1274,7 +1274,7 @@ function runDoctor(options = {}) {
             resume_context: {
               workspace,
               userId: hostConfig.defaults?.user_id || null,
-              openclawHome,
+              openClawHome,
               skillsRoot,
               candidateWorkspaces: registeredWorkspaceCandidates
             }
@@ -1287,7 +1287,7 @@ function runDoctor(options = {}) {
             resume_context: {
               workspace,
               userId: hostConfig.defaults?.user_id || null,
-              openclawHome,
+              openClawHome,
               skillsRoot,
               candidateWorkspaces: registeredWorkspaceCandidates,
               candidateOpenClawHomes: [openClawHome],
