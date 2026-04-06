@@ -505,7 +505,14 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
           source: 'status_report',
           action: {
             ...recommendedAction,
-            recheck_command: buildStatusReportRecheckCommand(paths.workspace, sessionKey, projectId, userId)
+            recheck_command: buildStatusReportRecheckCommand(paths.workspace, sessionKey, projectId, userId),
+            resume_context: {
+              workspace: paths.workspace,
+              sessionKey,
+              projectId,
+              userId,
+              openclawHome: paths.openClawHome
+            }
           }
         }
       ],

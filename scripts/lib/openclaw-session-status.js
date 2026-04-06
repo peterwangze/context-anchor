@@ -1001,11 +1001,19 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
           {
             source: 'session_status',
             action: {
-            ...commands,
-            issues,
-            command: commands.repair_command,
-            follow_up_command: commands.follow_up_command,
-            recheck_command: commands.recheck_command
+              ...commands,
+              issues,
+              command: commands.repair_command,
+              follow_up_command: commands.follow_up_command,
+              recheck_command: commands.recheck_command,
+              resume_context: {
+                workspace: commandScope.workspace,
+                sessionKey: commandScope.sessionKey,
+                projectId: commandScope.projectId,
+                userId: commandScope.userId,
+                openclawHome: resolvedOpenClawHome,
+                skillsRoot
+              }
             }
           }
         ],
@@ -1070,7 +1078,14 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
             issues: doctor.configuration.ready ? [] : ['hook_not_configured'],
             command: globalCommands.repair_command,
             follow_up_command: globalCommands.follow_up_command,
-            recheck_command: globalCommands.recheck_command
+            recheck_command: globalCommands.recheck_command,
+            resume_context: {
+              workspace: scope.workspace,
+              sessionKey: scope.sessionKey,
+              userId: scope.userId,
+              openclawHome: resolvedOpenClawHome,
+              skillsRoot
+            }
           }
         }
       ],

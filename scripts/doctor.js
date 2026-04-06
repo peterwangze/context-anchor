@@ -1239,9 +1239,42 @@ function runDoctor(options = {}) {
     ],
     remediation_summary: buildRemediationSummary(
       [
-        { source: 'memory_sources', action: memorySourceAction },
-        { source: 'host_takeover_audit', action: hostTakeoverAudit.recommended_action },
-        { source: 'profile_takeover_audit', action: profileTakeoverAudit.recommended_action }
+        {
+          source: 'memory_sources',
+          action: {
+            ...memorySourceAction,
+            resume_context: {
+              workspace,
+              userId: hostConfig.defaults?.user_id || null,
+              openclawHome,
+              skillsRoot
+            }
+          }
+        },
+        {
+          source: 'host_takeover_audit',
+          action: {
+            ...hostTakeoverAudit.recommended_action,
+            resume_context: {
+              workspace,
+              userId: hostConfig.defaults?.user_id || null,
+              openclawHome,
+              skillsRoot
+            }
+          }
+        },
+        {
+          source: 'profile_takeover_audit',
+          action: {
+            ...profileTakeoverAudit.recommended_action,
+            resume_context: {
+              workspace,
+              userId: hostConfig.defaults?.user_id || null,
+              openclawHome,
+              skillsRoot
+            }
+          }
+        }
       ],
       {
         auto_fix_options: {

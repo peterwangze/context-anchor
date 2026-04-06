@@ -4213,6 +4213,49 @@ test('resume command prefers source-matching template when multiple confirm-only
   assert.match(summary.next_step.auto_fix_resume_command, /upgrade:sessions/);
 });
 
+test('resume command pre-fills known context parameters into templates', () => {
+  const summary = buildRemediationSummary(
+    [
+      {
+        source: 'upgrade_verification',
+        action: {
+          type: 'session_select',
+          recheck_command: 'npm run upgrade:sessions -- --workspace "<workspace>" --session-key "<session-key>"',
+          resume_context: {
+            workspace: 'D:/demo',
+            sessionKey: 's1',
+            userId: 'alice',
+            openclawHome: 'D:/openclaw-home',
+            skillsRoot: 'D:/openclaw-home/skills'
+          },
+          repair_strategy: {
+            type: 'select_session_then_recheck',
+            label: 'select session -> recheck',
+            execution_mode: 'manual',
+            manual_subtype: 'confirm_only',
+            requires_manual_confirmation: true,
+            summary: 'Pick the target session first, then rerun upgrade.',
+            command_examples: [
+              'npm run upgrade:sessions -- --openclaw-home "<openclaw-home>" --skills-root "<skills-root>" --workspace "<workspace>" --session-key "<session-key>"'
+            ]
+          }
+        }
+      }
+    ],
+    {
+      auto_fix_options: {
+        workspace: 'D:/demo',
+        userId: 'alice'
+      }
+    }
+  );
+
+  assert.match(summary.next_step.auto_fix_resume_command, /--openclaw-home "D:\/openclaw-home"/i);
+  assert.match(summary.next_step.auto_fix_resume_command, /--skills-root "D:\/openclaw-home\/skills"/i);
+  assert.match(summary.next_step.auto_fix_resume_command, /--workspace "D:\/demo"/i);
+  assert.match(summary.next_step.auto_fix_resume_command, /--session-key "s1"/i);
+});
+
 test('doctor reports installed absolute paths and wrapper returns a helpful payload error', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');

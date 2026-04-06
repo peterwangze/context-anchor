@@ -1,5 +1,50 @@
 const { buildAutoFixCommand } = require('./auto-fix');
 
+function quoteTemplateValue(value) {
+  return `"${String(value).replace(/"/g, '\\"')}"`;
+}
+
+function fillTemplateCommand(command, context = {}) {
+  if (!command) {
+    return null;
+  }
+
+  let rendered = String(command);
+  const replacements = [
+    ['<workspace>', context.workspace],
+    ['<session-key>', context.sessionKey],
+    ['<project-id>', context.projectId],
+    ['<user-id>', context.userId],
+    ['<openclaw-home>', context.openclawHome],
+    ['<skills-root>', context.skillsRoot]
+  ];
+
+  replacements.forEach(([token, value]) => {
+    if (value) {
+      rendered = rendered.split(token).join(String(value));
+    }
+  });
+
+  const optionReplacements = [
+    ['--workspace', context.workspace],
+    ['--session-key', context.sessionKey],
+    ['--project-id', context.projectId],
+    ['--user-id', context.userId],
+    ['--openclaw-home', context.openclawHome],
+    ['--skills-root', context.skillsRoot]
+  ];
+
+  optionReplacements.forEach(([flag, value]) => {
+    if (!value) {
+      return;
+    }
+    const pattern = new RegExp(`${flag}\\s+["']?<[^>]+>["']?`, 'gi');
+    rendered = rendered.replace(pattern, `${flag} ${quoteTemplateValue(value)}`);
+  });
+
+  return rendered;
+}
+
 function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
   const type = String(strategy.type || action?.type || '').toLowerCase();
   const sourceKey = String(source || 'unknown').toLowerCase();
@@ -55,7 +100,10 @@ function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
       blocked_reason: 'Select the target session first; auto-fix will stay unavailable until the session key is explicit.',
       resume_hint:
         'Re-run the suggested command with an explicit --session-key, then auto-fix can resume on the selected session.',
-      resume_command: firstMatchingCommand((entry) => entry.includes('<session-key>') || /--session-key\b/.test(entry))
+      resume_command: fillTemplateCommand(
+        firstMatchingCommand((entry) => entry.includes('<session-key>') || /--session-key\b/.test(entry)),
+        action?.resume_context || {}
+      )
     };
   }
 
@@ -65,7 +113,10 @@ function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
       blocked_reason: 'Select the target workspace first; auto-fix will stay unavailable until the workspace is explicit.',
       resume_hint:
         'Re-run the suggested command with an explicit --workspace, then auto-fix can resume on the resolved workspace.',
-      resume_command: firstMatchingCommand((entry) => entry.includes('<workspace>') || /--workspace\b/.test(entry))
+      resume_command: fillTemplateCommand(
+        firstMatchingCommand((entry) => entry.includes('<workspace>') || /--workspace\b/.test(entry)),
+        action?.resume_context || {}
+      )
     };
   }
 
@@ -75,7 +126,10 @@ function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
       blocked_reason: 'Select the target project first; auto-fix will stay unavailable until the project is explicit.',
       resume_hint:
         'Re-run the suggested command with an explicit --project-id, then auto-fix can resume on the selected project.',
-      resume_command: firstMatchingCommand((entry) => entry.includes('<project-id>') || /--project-id\b/.test(entry))
+      resume_command: fillTemplateCommand(
+        firstMatchingCommand((entry) => entry.includes('<project-id>') || /--project-id\b/.test(entry)),
+        action?.resume_context || {}
+      )
     };
   }
 
@@ -85,10 +139,12 @@ function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
       blocked_reason: 'Select the target OpenClaw profile first; auto-fix will stay unavailable until the profile is explicit.',
       resume_hint:
         'Re-run the suggested command with an explicit --openclaw-home or target profile, then auto-fix can resume on the selected profile.',
-      resume_command:
+      resume_command: fillTemplateCommand(
         firstMatchingCommand(
           (entry) => entry.includes('<openclaw-home>') || /--openclaw-home\b/.test(entry) || /profile/.test(entry)
-        )
+        ),
+        action?.resume_context || {}
+      )
     };
   }
 
@@ -98,7 +154,7 @@ function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
       'This path still needs one manual confirmation before automation can continue, so auto-fix is intentionally disabled for now.',
     resume_hint:
       'Finish the required confirmation step first, then rerun the suggested command to unlock auto-fix.',
-    resume_command: firstMatchingCommand(() => true)
+    resume_command: fillTemplateCommand(firstMatchingCommand(() => true), action?.resume_context || {})
   };
 }
 

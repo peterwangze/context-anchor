@@ -377,6 +377,13 @@ function buildUpgradeVerification({
               workspace: options.workspace || null,
               sessionKey: options.sessionKey || null
             }),
+            resume_context: {
+              workspace: autoFixWorkspace,
+              sessionKey: options.sessionKey || upgradedResults[0]?.session_key || null,
+              userId: autoFixOwnership.userId || null,
+              openclawHome: openClawHome,
+              skillsRoot
+            },
             repair_strategy: buildUpgradeRepairStrategy({
               remaining_attention_sessions: remainingAttention.length,
               unresolved_targets: unresolvedTargets.length,
