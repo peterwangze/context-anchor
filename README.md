@@ -397,6 +397,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 同时还会补充每个缺失输入的简短说明和示例值，帮助你更快判断应该填什么。
 如果当前上下文里已经能推断出少量高频候选值，系统现在还会直接显示候选建议，进一步降低补参成本。
 `sessions-diagnose.js` 现在也会把 remediation 的 `Guidance` 和 `Example command` 直接显示出来；`status-report.js` 的 `recommended_action` 也会带这两类字段，方便上层直接展示。
+对于任务连续性缺口，`status-report.js` / `sessions-status.js` / `sessions-diagnose.js` 现在也会按缺失类型细分提示：缺 `goal`、缺 `next step`、或两者都缺，会给出不同的说明；其中缺 `next step` 的场景还会明确提醒在 session repair 之后补跑一次 `heartbeat`，避免用户只看到“需要修”却不知道为什么还要 follow-up。
 `status-report.js` 现在默认也会输出轻量文本视图；如果你需要完整 JSON 或 snapshot，再显式用 JSON/snapshot 模式。
 `doctor.js` 现在默认也会直接输出一份更友好的文本摘要视图；如果你仍然需要完整 JSON，再显式加 `--json`。  
 如果当前存在手工外部问题，文本摘要里还会直接显示 `External issues:`，例如 `workspace_registration_missing` 或 `workspace_path_unresolved`，减少用户自己猜是哪类外部问题。

@@ -14,6 +14,7 @@ const {
 const { summarizeCatalogDatabase } = require('./context-anchor-db');
 const { buildRemediationSummary } = require('./remediation-summary');
 const { assessTaskStateHealth, buildTaskStateFields, buildTaskStateSummary } = require('./task-state');
+const { buildTaskStateRepairProfile } = require('./task-state-remediation');
 const {
   command,
   field,
@@ -361,42 +362,58 @@ function formatMonitorDisplay(statusValue, runtimeValue) {
 
 function buildSessionRepairStrategy(type) {
   switch (type) {
-    case 'repair_task_state_then_recheck':
+    case 'repair_task_goal_then_recheck': {
+      const profile = buildTaskStateRepairProfile(['task_state_missing_goal'], {
+        recheckTarget: 'session status'
+      });
       return {
         type,
-        label: 'repair task state -> recheck',
+        label: profile.strategy_label,
         execution_mode: 'automatic',
         requires_manual_confirmation: false,
-        summary: 'Refresh task continuity first, then rerun session status.',
-        resolution_hint: 'This workspace is missing enough task-state continuity that later restore and repair flows may feel incomplete. Refresh the session linkage and runtime state, then rerun status.'
+        summary: profile.strategy_summary,
+        resolution_hint: profile.resolution_hint
       };
-    case 'repair_task_goal_then_recheck':
+    }
+    case 'repair_task_next_step_then_recheck': {
+      const profile = buildTaskStateRepairProfile(['task_state_missing_next_step'], {
+        recheckTarget: 'session status'
+      });
       return {
         type,
-        label: 'repair task goal -> recheck',
+        label: profile.strategy_label,
         execution_mode: 'automatic',
         requires_manual_confirmation: false,
-        summary: 'Refresh task continuity and restore the current goal, then rerun session status.',
-        resolution_hint: 'The next step is visible, but the current goal is still missing. Refresh the session linkage so later restores stop feeling contextless.'
+        summary: profile.strategy_summary,
+        resolution_hint: profile.resolution_hint
       };
-    case 'repair_task_next_step_then_recheck':
+    }
+    case 'repair_task_goal_and_next_step_then_recheck': {
+      const profile = buildTaskStateRepairProfile(['task_state_missing_goal_and_next_step'], {
+        recheckTarget: 'session status'
+      });
       return {
         type,
-        label: 'repair task next step -> recheck',
+        label: profile.strategy_label,
         execution_mode: 'automatic',
         requires_manual_confirmation: false,
-        summary: 'Refresh task continuity and restore the next step, then rerun session status.',
-        resolution_hint: 'The current goal is visible, but the next step is still missing. Refresh the session linkage so later restores stop feeling stalled.'
+        summary: profile.strategy_summary,
+        resolution_hint: profile.resolution_hint
       };
-    case 'repair_task_goal_and_next_step_then_recheck':
+    }
+    case 'repair_task_state_then_recheck': {
+      const profile = buildTaskStateRepairProfile(['task_state_incomplete'], {
+        recheckTarget: 'session status'
+      });
       return {
         type,
-        label: 'repair task goal+next step -> recheck',
+        label: profile.strategy_label,
         execution_mode: 'automatic',
         requires_manual_confirmation: false,
-        summary: 'Refresh task continuity and restore both current goal and next step, then rerun session status.',
-        resolution_hint: 'Task continuity is visible only as fragments, so refresh the session linkage before trusting the restored work state.'
+        summary: profile.strategy_summary,
+        resolution_hint: profile.resolution_hint
       };
+    }
     case 'configure_sessions_then_migrate_then_recheck':
       return {
         type,
@@ -569,6 +586,11 @@ function buildActionCommands(scope, options = {}) {
     !needsSessionRepair &&
     !needsHostRepair &&
     (needsMemorySync || options.memorySourceStatus === 'best_effort');
+  const taskStateRepairProfile = needsTaskStateRepair
+    ? buildTaskStateRepairProfile(issues, {
+        recheckTarget: 'session status'
+      })
+    : null;
 
   if (needsSessionRepair) {
     repair_command = buildNpmCommand('configure:sessions', {
@@ -632,7 +654,7 @@ function buildActionCommands(scope, options = {}) {
       scope.workspace &&
       scope.sessionKey &&
       scope.projectId &&
-      (issues.includes('task_state_missing_next_step') || issues.includes('task_state_missing_goal_and_next_step'))
+      taskStateRepairProfile?.needs_follow_up_heartbeat
     ) {
       follow_up_command = buildHeartbeatCommand(scope.workspace, scope.sessionKey, scope.projectId, 50);
     }
@@ -673,6 +695,11 @@ function buildActionCommands(scope, options = {}) {
         : 'repair_task_state_then_recheck'
       : 'refresh_then_recheck'
   );
+  if (taskStateRepairProfile) {
+    repair_strategy.label = taskStateRepairProfile.strategy_label;
+    repair_strategy.summary = taskStateRepairProfile.strategy_summary;
+    repair_strategy.resolution_hint = taskStateRepairProfile.resolution_hint;
+  }
   repair_strategy.command_examples = [repair_command, follow_up_command, recheck_command].filter(Boolean);
 
   return {
@@ -681,7 +708,9 @@ function buildActionCommands(scope, options = {}) {
     follow_up_command,
     recheck_command,
     repair_sequence,
-    repair_strategy
+    repair_strategy,
+    resolution_hint: taskStateRepairProfile?.resolution_hint || repair_strategy.resolution_hint || null,
+    command_examples: [repair_command, follow_up_command, recheck_command].filter(Boolean)
   };
 }
 

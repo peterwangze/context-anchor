@@ -44,6 +44,7 @@ const { describeCollectionFile, readLatestGovernanceRun } = require('./lib/conte
 const { resolveOwnership } = require('./lib/host-config');
 const { buildRemediationSummary } = require('./lib/remediation-summary');
 const { assessTaskStateHealth, buildTaskStateSummary } = require('./lib/task-state');
+const { buildTaskStateRepairProfile } = require('./lib/task-state-remediation');
 const {
   command,
   field,
@@ -366,6 +367,12 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
   const memorySourceHealth = classifyMemorySourceHealth(externalSources, {
     memoryTakeoverMode: ownership.config?.onboarding?.memory_takeover_mode
   });
+  const taskStateSummary = buildTaskStateSummary(runtimeState || {});
+  const taskStateHealth = assessTaskStateHealth(taskStateSummary);
+  const taskStateRepairProfile = buildTaskStateRepairProfile(taskStateHealth.issues, {
+    status: taskStateHealth.status,
+    recheckTarget: 'status-report'
+  });
   const recommendedAction =
     memorySourceHealth.status === 'drift_detected'
         ? {
@@ -453,30 +460,14 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
         ? {
             type: 'repair_task_state',
             priority: 'medium',
-            summary:
-              taskStateHealth.issues?.includes('task_state_missing_goal_and_next_step')
-                ? 'Task continuity is missing both current goal and next step. Refresh the session linkage and runtime state, then rerun status-report.'
-                : taskStateHealth.issues?.includes('task_state_missing_next_step')
-                ? 'Task continuity is missing the next step. Refresh the session linkage and runtime state, then rerun status-report.'
-                : taskStateHealth.issues?.includes('task_state_missing_goal')
-                ? 'Task continuity is missing the current goal. Refresh the session linkage and runtime state, then rerun status-report.'
-                : 'Task continuity is still incomplete. Refresh the session linkage and runtime state, then rerun status-report.',
+            summary: taskStateRepairProfile.summary,
             command: buildNpmScriptCommand('configure:sessions', {
               workspace: paths.workspace,
               openclawHome: paths.openClawHome,
               skillsRoot: path.join(paths.openClawHome, 'skills'),
               yes: true
             }),
-            resolution_hint:
-              taskStateHealth.issues?.includes('task_state_missing_goal_and_next_step')
-                ? 'Neither current goal nor next step is visible yet, so restore and follow-up repair flows may feel blank until the session linkage is refreshed.'
-                : taskStateHealth.issues?.includes('task_state_missing_next_step')
-                ? 'Current goal is visible, but the next step is still missing, so the restored workflow may feel stalled until the session linkage is refreshed.'
-                : taskStateHealth.issues?.includes('task_state_missing_goal')
-                ? 'Next step is visible, but the current goal is still missing, so the restored workflow may feel contextless until the session linkage is refreshed.'
-                : taskStateHealth.status === 'missing'
-                ? 'Current goal / next step is not visible yet, so continuity restore may feel blank until the session linkage is refreshed.'
-                : 'Current goal / next step / blocked state is still incomplete, so continuity restore may feel inconsistent until the session linkage is refreshed.',
+            resolution_hint: taskStateRepairProfile.resolution_hint,
             command_examples: [
               buildNpmScriptCommand('configure:sessions', {
                 workspace: paths.workspace,
@@ -484,42 +475,22 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
                 skillsRoot: path.join(paths.openClawHome, 'skills'),
                 yes: true
               }),
-              taskStateHealth.issues?.includes('task_state_missing_next_step') ||
-              taskStateHealth.issues?.includes('task_state_missing_goal_and_next_step')
+              taskStateRepairProfile.needs_follow_up_heartbeat
                 ? buildHeartbeatCommand(paths.workspace, sessionKey, projectId, 50)
                 : null,
               buildStatusReportRecheckCommand(paths.workspace, sessionKey, projectId, userId)
             ].filter(Boolean),
-            follow_up_command:
-              taskStateHealth.issues?.includes('task_state_missing_next_step') ||
-              taskStateHealth.issues?.includes('task_state_missing_goal_and_next_step')
-                ? buildHeartbeatCommand(paths.workspace, sessionKey, projectId, 50)
-                : null,
-            issues: taskStateHealth.issues || [],
+            follow_up_command: taskStateRepairProfile.needs_follow_up_heartbeat
+              ? buildHeartbeatCommand(paths.workspace, sessionKey, projectId, 50)
+              : null,
+            issues: taskStateRepairProfile.issues || [],
             repair_strategy: {
-              type: taskStateHealth.issues?.includes('task_state_missing_goal_and_next_step')
-                ? 'repair_task_goal_and_next_step_then_recheck'
-                : taskStateHealth.issues?.includes('task_state_missing_next_step')
-                ? 'repair_task_next_step_then_recheck'
-                : taskStateHealth.issues?.includes('task_state_missing_goal')
-                ? 'repair_task_goal_then_recheck'
-                : 'repair_task_state_then_recheck',
-              label: taskStateHealth.issues?.includes('task_state_missing_goal_and_next_step')
-                ? 'repair task goal+next step -> recheck'
-                : taskStateHealth.issues?.includes('task_state_missing_next_step')
-                ? 'repair task next step -> recheck'
-                : taskStateHealth.issues?.includes('task_state_missing_goal')
-                ? 'repair task goal -> recheck'
-                : 'repair task state -> recheck',
+              type: taskStateRepairProfile.strategy_type,
+              label: taskStateRepairProfile.strategy_label,
               execution_mode: 'automatic',
               requires_manual_confirmation: false,
-              summary: taskStateHealth.issues?.includes('task_state_missing_goal_and_next_step')
-                ? 'Refresh task continuity and restore both current goal and next step, then rerun status-report.'
-                : taskStateHealth.issues?.includes('task_state_missing_next_step')
-                ? 'Refresh task continuity and restore the next step, then rerun status-report.'
-                : taskStateHealth.issues?.includes('task_state_missing_goal')
-                ? 'Refresh task continuity and restore the current goal, then rerun status-report.'
-                : 'Refresh task continuity first, then rerun status-report.'
+              summary: taskStateRepairProfile.strategy_summary,
+              resolution_hint: taskStateRepairProfile.resolution_hint
             }
           }
         : {
@@ -538,9 +509,6 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
               summary: 'No repair action is required right now; rerun status-report when the environment changes.'
             }
           };
-
-  const taskStateSummary = buildTaskStateSummary(runtimeState || {});
-  const taskStateHealth = assessTaskStateHealth(taskStateSummary);
 
   const report = {
     status: memorySourceHealth.drift_detected ? 'warning' : 'ok',

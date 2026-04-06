@@ -235,6 +235,11 @@
   - 高概率输入现在开始支持候选建议，例如 session-key 可直接展示 1~3 个候选值
   - 用户在补参时不只知道“缺什么”，也开始知道“可能填什么”
   - 已补充自动化测试，覆盖 session-key 的候选建议
+- `2026-04-06`
+  - `status-report / sessions-status / sessions-diagnose` 对 task-state remediation 已开始按缺口类型细分文案
+  - 当前已显式区分缺 `goal`、缺 `next step`、缺 `goal+next step`
+  - 缺 `next step` / `goal+next step` 的场景现在会更明确提醒 repair 之后补跑一次 `heartbeat`
+  - 已补充自动化测试，覆盖 task-state remediation guidance 与 follow-up 文案
 
 当前仍未完成的重点：
 
@@ -569,6 +574,7 @@
   - `task continuity health` 现在已开始继续细分到 `missing goal / missing next step / missing goal+next step`
   - repair strategy 现在会随 task-state 缺口类型输出更细粒度标签
   - 当缺的是 `next step` 或 `goal+next step` 时，repair 路由现在会继续带出一次 `heartbeat` follow-up
+  - `status-report / sessions-status / sessions-diagnose` 现在会按 task-state 缺口类型输出更具体的 remediation guidance
   - 已补充自动化测试，覆盖 next-step 缺口的 follow-up heartbeat
   - 已补充自动化测试，覆盖 task-state 缺口分类
   - 已补充自动化测试，覆盖 task-state remediation 可见性
@@ -628,6 +634,7 @@
   - `status-report` 已不再只依赖 JSON 才能快速阅读 remediation 信息
   - session 观测与 upgrade 默认口径已开始优先贴近用户真实感知
   - strict-mode 自动修复路径已开始在 doctor / session diagnose / status-report / install / upgrade / configure 输出中显式化
+  - task-state remediation 的文本 guidance 已开始和 strict repair 路径对齐，不再只给笼统 repair 提示
 - 仍待完成：
   - strict-mode auto-fix 还缺少更多 manual/confirm 场景来源映射、更多参数预填充、交互补参、输入校验、更多参数候选建议与可学习偏好演化
 

@@ -78,6 +78,7 @@ const { runMemorySearch } = require('../scripts/memory-search');
 const { renderDoctorReport, runDoctor } = require('../scripts/doctor');
 const { discoverOpenClawSessions } = require('../scripts/lib/openclaw-session-discovery');
 const {
+  buildActionCommands,
   buildOpenClawSessionStatusReport,
   buildSchedulerDescriptor,
   detectSchedulerStatus,
@@ -3657,11 +3658,27 @@ test('session diagnosis surfaces task continuity health when task state is missi
   assert.match(rendered, /configure sessions -> recheck|repair task state -> recheck/);
 });
 
-test('status report recommends repairing task state when continuity is incomplete', () => {
+test('status report recommends repairing task state when continuity is incomplete', async () => {
   const workspace = makeWorkspace();
 
   try {
-    withOpenClawHome(workspace, () => {
+    await withOpenClawHome(workspace, async () => {
+      const openClawHome = path.join(workspace, 'openclaw-home');
+      const hostConfigFile = getHostConfigFile(openClawHome);
+      fs.mkdirSync(path.dirname(hostConfigFile), { recursive: true });
+      writeJson(hostConfigFile, {
+        defaults: {
+          user_id: 'default-user',
+          workspace
+        },
+        onboarding: {
+          auto_register_workspaces: true,
+          memory_takeover_mode: 'enforced'
+        },
+        users: [{ user_id: 'default-user' }],
+        workspaces: [{ workspace, user_id: 'default-user', project_id: 'demo' }],
+        sessions: []
+      });
       runSessionStart(workspace, 'task-state-report', 'demo', { userId: 'default-user' });
       const paths = createPaths(workspace);
       const runtimeFile = runtimeStateFile(paths, 'task-state-report');
@@ -3676,6 +3693,8 @@ test('status report recommends repairing task state when continuity is incomplet
       assert.equal(report.session.task_state_health.status, 'partial');
       assert.equal(report.recommended_action.type, 'repair_task_state');
       assert.equal(report.recommended_action.repair_strategy.type, 'repair_task_next_step_then_recheck');
+      assert.match(report.recommended_action.summary, /capture a fresh next step/i);
+      assert.match(report.recommended_action.resolution_hint, /run one heartbeat/i);
       assert.match(report.recommended_action.follow_up_command, /heartbeat\.js/);
     });
   } finally {
@@ -3718,6 +3737,87 @@ test('session status adds heartbeat follow-up when next step continuity is missi
   assert.match(commands.repair_command, /configure:sessions/);
   assert.match(commands.follow_up_command, /heartbeat\.js/);
   assert.equal(commands.repair_strategy.type, 'repair_task_next_step_then_recheck');
+  assert.match(commands.resolution_hint, /run one heartbeat/i);
+  assert.ok(Array.isArray(commands.command_examples));
+  assert.match(commands.command_examples[1], /heartbeat\.js/);
+});
+
+test('session diagnosis explains missing goal and next step with concrete remediation guidance', () => {
+  const report = {
+    openclaw_home: 'C:/Users/demo/.openclaw',
+    summary: {
+      total_sessions: 1,
+      attention_sessions: 1,
+      drift_workspaces: 0,
+      task_visible_workspaces: 1,
+      benefit_visible_workspaces: 0
+    },
+    global: {
+      installation: { ready: true },
+      configuration: { ready: true },
+      ownership: {}
+    },
+    commands: {
+      diagnostic_command: 'npm run diagnose:sessions',
+      repair_command: 'npm run configure:sessions',
+      recheck_command: 'npm run status:sessions',
+      repair_strategy: { label: 'configure sessions -> recheck', execution_mode: 'automatic' }
+    },
+    remediation_summary: { next_step: null },
+    groups: [
+      {
+        workspace: 'D:/demo',
+        needs_attention: true,
+        mirror: { available: true, collections: 1, documents: 1, indexed_sessions: 1 },
+        memory_sources: { health: { status: 'single_source' }, external_source_count: 0, unsynced_source_count: 0, last_legacy_sync_at: null },
+        task_state_summary: { visible: true, summary: 'progress=captured retry constraints', last_user_visible_progress: 'captured retry constraints' },
+        task_state_health: {
+          status: 'partial',
+          summary: 'Task continuity is missing current goal and next step.',
+          issues: ['task_state_missing_goal_and_next_step']
+        },
+        task_state_session_key: 'agent:main:checkout-fix',
+        last_benefit_summary: null,
+        last_benefit_session_key: null,
+        issues: ['task_state_missing_goal_and_next_step'],
+        diagnostic_command: 'npm run diagnose:sessions -- --workspace "D:/demo"',
+        repair_command: 'npm run configure:sessions -- --workspace "D:/demo" --session-key "agent:main:checkout-fix" --project-id "demo" --yes',
+        follow_up_command: 'node "D:/demo/heartbeat.js"',
+        recheck_command: 'npm run status:sessions -- --workspace "D:/demo"',
+        repair_strategy: {
+          type: 'repair_task_goal_and_next_step_then_recheck',
+          label: 'repair task goal+next step -> recheck',
+          execution_mode: 'automatic',
+          requires_manual_confirmation: false,
+          summary: 'Refresh task continuity, capture both current goal and next step again, then rerun session status.',
+          resolution_hint: 'Neither current goal nor next step is visible yet. Rebuild the session linkage first, then run one heartbeat so later restores stop feeling blank.',
+          command_examples: [
+            'npm run configure:sessions -- --workspace "D:/demo" --session-key "agent:main:checkout-fix" --project-id "demo" --yes',
+            'node "D:/demo/heartbeat.js"',
+            'npm run status:sessions -- --workspace "D:/demo"'
+          ]
+        },
+        remediation_summary: {
+          next_step: {
+            label: 'repair task goal+next step -> recheck',
+            summary: 'Refresh task continuity, capture both current goal and next step again, then rerun session status.',
+            execution_mode: 'automatic',
+            resolution_hint: 'Neither current goal nor next step is visible yet. Rebuild the session linkage first, then run one heartbeat so later restores stop feeling blank.',
+            command_examples: [
+              'npm run configure:sessions -- --workspace "D:/demo" --session-key "agent:main:checkout-fix" --project-id "demo" --yes'
+            ]
+          }
+        },
+        repair_sequence: [],
+        sessions: []
+      }
+    ]
+  };
+
+  const rendered = renderOpenClawSessionDiagnosisReport(report);
+  assert.match(rendered, /Guidance: Neither current goal nor next step is visible yet\./);
+  assert.match(rendered, /run one heartbeat/);
+  assert.match(rendered, /Example command: npm run configure:sessions/);
 });
 
 test('task-state summary stringifies structured current goal values for user-facing reports', () => {
