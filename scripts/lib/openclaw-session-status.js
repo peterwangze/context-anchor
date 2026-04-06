@@ -1155,6 +1155,9 @@ function renderCommandSummary(report) {
     if (report.remediation_summary?.next_step?.auto_fix_resume_command) {
       lines.push(field('Resume command', command(report.remediation_summary.next_step.auto_fix_resume_command), { kind: 'command' }));
     }
+    if (Array.isArray(report.remediation_summary?.next_step?.auto_fix_resume_missing_inputs) && report.remediation_summary.next_step.auto_fix_resume_missing_inputs.length > 0) {
+      lines.push(field('Resume inputs', report.remediation_summary.next_step.auto_fix_resume_missing_inputs.join(', '), { kind: 'warning' }));
+    }
   }
   if (report.summary.drift_workspaces > 0) {
     lines.push(field('Attention', `Memory drift detected in ${report.summary.drift_workspaces} workspace(s); prefer the per-workspace repair command shown below.`, { kind: 'warning' }));
@@ -1372,6 +1375,9 @@ function renderOpenClawSessionStatusReport(report) {
         if (group.remediation_summary?.next_step?.auto_fix_resume_command) {
           lines.push(field('Resume command', command(group.remediation_summary.next_step.auto_fix_resume_command), { indent: 2, kind: 'command' }));
         }
+        if (Array.isArray(group.remediation_summary?.next_step?.auto_fix_resume_missing_inputs) && group.remediation_summary.next_step.auto_fix_resume_missing_inputs.length > 0) {
+          lines.push(field('Resume inputs', group.remediation_summary.next_step.auto_fix_resume_missing_inputs.join(', '), { indent: 2, kind: 'warning' }));
+        }
       }
       renderRemediationGuidance(group.remediation_summary).forEach((line) => {
         const [label, ...rest] = line.split(': ');
@@ -1452,6 +1458,9 @@ function renderOpenClawSessionDiagnosisReport(report) {
         if (group.remediation_summary?.next_step?.auto_fix_resume_command) {
           lines.push(field('Resume command', command(group.remediation_summary.next_step.auto_fix_resume_command), { indent: 2, kind: 'command' }));
         }
+        if (Array.isArray(group.remediation_summary?.next_step?.auto_fix_resume_missing_inputs) && group.remediation_summary.next_step.auto_fix_resume_missing_inputs.length > 0) {
+          lines.push(field('Resume inputs', group.remediation_summary.next_step.auto_fix_resume_missing_inputs.join(', '), { indent: 2, kind: 'warning' }));
+        }
       }
       renderRemediationGuidance(group.remediation_summary).forEach((line) => {
         const [label, ...rest] = line.split(': ');
@@ -1515,6 +1524,9 @@ function renderOpenClawSessionDiagnosisReport(report) {
       }
       if (group.remediation_summary?.next_step?.auto_fix_resume_command) {
         lines.push(field('Resume command', command(group.remediation_summary.next_step.auto_fix_resume_command), { indent: 2, kind: 'command' }));
+      }
+      if (Array.isArray(group.remediation_summary?.next_step?.auto_fix_resume_missing_inputs) && group.remediation_summary.next_step.auto_fix_resume_missing_inputs.length > 0) {
+        lines.push(field('Resume inputs', group.remediation_summary.next_step.auto_fix_resume_missing_inputs.join(', '), { indent: 2, kind: 'warning' }));
       }
     }
     renderRemediationGuidance(group.remediation_summary).forEach((line) => {

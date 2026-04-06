@@ -166,6 +166,9 @@ function renderStatusReportText(report) {
     if (report.remediation_summary?.next_step?.auto_fix_resume_command) {
       lines.push(field('Resume command', command(report.remediation_summary.next_step.auto_fix_resume_command), { kind: 'command' }));
     }
+    if (Array.isArray(report.remediation_summary?.next_step?.auto_fix_resume_missing_inputs) && report.remediation_summary.next_step.auto_fix_resume_missing_inputs.length > 0) {
+      lines.push(field('Resume inputs', report.remediation_summary.next_step.auto_fix_resume_missing_inputs.join(', '), { kind: 'warning' }));
+    }
   }
   if (report.recommended_action?.resolution_hint) {
     lines.push(field('Guidance', report.recommended_action.resolution_hint, { kind: 'muted' }));

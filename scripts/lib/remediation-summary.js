@@ -53,6 +53,13 @@ function countCommandFlags(command = '') {
   return (String(command).match(/--[a-z0-9-]+/gi) || []).length;
 }
 
+function listMissingTemplateInputs(command = '') {
+  const tokens = (String(command).match(/<([^>]+)>/g) || [])
+    .map((entry) => entry.slice(1, -1).trim().toLowerCase())
+    .filter(Boolean);
+  return [...new Set(tokens)];
+}
+
 function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
   const type = String(strategy.type || action?.type || '').toLowerCase();
   const sourceKey = String(source || 'unknown').toLowerCase();
@@ -245,6 +252,10 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
       executionMode === 'manual' && manualSubtype !== 'external_environment'
         ? confirmRequirement.resume_command || null
         : null,
+    auto_fix_resume_missing_inputs:
+      executionMode === 'manual' && manualSubtype !== 'external_environment'
+        ? listMissingTemplateInputs(confirmRequirement.resume_command || '')
+        : [],
     resolution_hint: strategy.resolution_hint || action?.resolution_hint || null,
     command_examples: Array.isArray(strategy.command_examples)
       ? strategy.command_examples.filter(Boolean)
@@ -341,5 +352,6 @@ module.exports = {
   buildRemediationCommandSequence,
   dedupeEntries,
   inferConfirmOnlyRequirement,
+  listMissingTemplateInputs,
   normalizeRemediationEntry
 };

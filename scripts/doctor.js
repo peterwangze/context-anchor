@@ -968,6 +968,9 @@ function renderDoctorRemediationSummary(remediationSummary = {}) {
       if (remediationSummary.next_step.auto_fix_resume_command) {
         lines.push(field('Resume command', command(remediationSummary.next_step.auto_fix_resume_command), { kind: 'command' }));
       }
+      if (Array.isArray(remediationSummary.next_step.auto_fix_resume_missing_inputs) && remediationSummary.next_step.auto_fix_resume_missing_inputs.length > 0) {
+        lines.push(field('Resume inputs', remediationSummary.next_step.auto_fix_resume_missing_inputs.join(', '), { kind: 'warning' }));
+      }
     }
     if (Array.isArray(remediationSummary.next_step.command_examples) && remediationSummary.next_step.command_examples.length > 0) {
       lines.push(field('Example command', command(remediationSummary.next_step.command_examples[0]), { kind: 'command' }));

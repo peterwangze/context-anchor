@@ -223,6 +223,10 @@
   - 同一入口存在多个 `Resume command` 候选模板时，系统会优先选择剩余占位符更少、改动更小的模板
   - resume command 现在更倾向于直接可用，而不是让用户再删改更多参数
   - 已补充自动化测试，覆盖同源模板的最小改动优选
+- `2026-04-06`
+  - 如果 `Resume command` 仍保留关键占位符，文本输出现在会额外显示 `Resume inputs`
+  - 用户可以直接看到还缺哪些输入，而不需要自己扫描命令模板
+  - 已补充自动化测试，覆盖 session-key 缺失输入列表
 
 当前仍未完成的重点：
 
@@ -597,7 +601,7 @@
   - session 观测与 upgrade 默认口径已开始优先贴近用户真实感知
   - strict-mode 自动修复路径已开始在 doctor / session diagnose / status-report / install / upgrade / configure 输出中显式化
 - 仍待完成：
-  - strict-mode auto-fix 还缺少更多 manual/confirm 场景来源映射、更多参数预填充、交互补参与可学习偏好演化
+  - strict-mode auto-fix 还缺少更多 manual/confirm 场景来源映射、更多参数预填充、交互补参、输入校验与可学习偏好演化
 
 ## 测试设计
 

@@ -882,6 +882,9 @@ function renderUpgradeReport(result) {
     if (verification.remediation_summary?.next_step?.auto_fix_resume_command) {
       lines.push(field('Resume command', command(verification.remediation_summary.next_step.auto_fix_resume_command), { kind: 'command' }));
     }
+    if (Array.isArray(verification.remediation_summary?.next_step?.auto_fix_resume_missing_inputs) && verification.remediation_summary.next_step.auto_fix_resume_missing_inputs.length > 0) {
+      lines.push(field('Resume inputs', verification.remediation_summary.next_step.auto_fix_resume_missing_inputs.join(', '), { kind: 'warning' }));
+    }
   }
 
   return lines.join('\n');
