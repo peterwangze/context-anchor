@@ -115,7 +115,8 @@ function assessTaskStateHealth(summary = {}) {
     return {
       status: 'partial',
       issues: ['task_state_missing_goal_and_next_step'],
-      summary: 'Task continuity is visible, but current goal and next step are still missing.'
+      summary: 'Task continuity is visible, but current goal and next step are still missing.',
+      remediation_focus: 'restore_goal_and_next_step'
     };
   }
 
@@ -123,7 +124,8 @@ function assessTaskStateHealth(summary = {}) {
     return {
       status: 'partial',
       issues: ['task_state_missing_next_step'],
-      summary: 'Current goal is visible, but next step is still missing.'
+      summary: 'Current goal is visible, but next step is still missing.',
+      remediation_focus: 'restore_next_step'
     };
   }
 
@@ -131,13 +133,15 @@ function assessTaskStateHealth(summary = {}) {
     return {
       status: 'partial',
       issues: ['task_state_missing_goal'],
-      summary: 'Next step is visible, but current goal is still missing.'
+      summary: 'Next step is visible, but current goal is still missing.',
+      remediation_focus: 'restore_goal'
     };
   }
 
   return {
     status: 'ready',
     issues: [],
+    remediation_focus: 'none',
     summary:
       latestVerifiedResult || blockedBy || lastUserVisibleProgress
         ? 'Task continuity is ready for restore and repair flows.'

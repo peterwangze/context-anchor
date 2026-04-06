@@ -441,7 +441,14 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
         ? {
             type: 'repair_task_state',
             priority: 'medium',
-            summary: 'Task continuity is still incomplete. Refresh the session linkage and runtime state, then rerun status-report.',
+            summary:
+              taskStateHealth.issues?.includes('task_state_missing_goal_and_next_step')
+                ? 'Task continuity is missing both current goal and next step. Refresh the session linkage and runtime state, then rerun status-report.'
+                : taskStateHealth.issues?.includes('task_state_missing_next_step')
+                ? 'Task continuity is missing the next step. Refresh the session linkage and runtime state, then rerun status-report.'
+                : taskStateHealth.issues?.includes('task_state_missing_goal')
+                ? 'Task continuity is missing the current goal. Refresh the session linkage and runtime state, then rerun status-report.'
+                : 'Task continuity is still incomplete. Refresh the session linkage and runtime state, then rerun status-report.',
             command: buildNpmScriptCommand('configure:sessions', {
               workspace: paths.workspace,
               openclawHome: paths.openClawHome,
@@ -449,7 +456,13 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
               yes: true
             }),
             resolution_hint:
-              taskStateHealth.status === 'missing'
+              taskStateHealth.issues?.includes('task_state_missing_goal_and_next_step')
+                ? 'Neither current goal nor next step is visible yet, so restore and follow-up repair flows may feel blank until the session linkage is refreshed.'
+                : taskStateHealth.issues?.includes('task_state_missing_next_step')
+                ? 'Current goal is visible, but the next step is still missing, so the restored workflow may feel stalled until the session linkage is refreshed.'
+                : taskStateHealth.issues?.includes('task_state_missing_goal')
+                ? 'Next step is visible, but the current goal is still missing, so the restored workflow may feel contextless until the session linkage is refreshed.'
+                : taskStateHealth.status === 'missing'
                 ? 'Current goal / next step is not visible yet, so continuity restore may feel blank until the session linkage is refreshed.'
                 : 'Current goal / next step / blocked state is still incomplete, so continuity restore may feel inconsistent until the session linkage is refreshed.',
             command_examples: [
@@ -464,11 +477,29 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
             follow_up_command: null,
             issues: taskStateHealth.issues || [],
             repair_strategy: {
-              type: 'repair_task_state_then_recheck',
-              label: 'repair task state -> recheck',
+              type: taskStateHealth.issues?.includes('task_state_missing_goal_and_next_step')
+                ? 'repair_task_goal_and_next_step_then_recheck'
+                : taskStateHealth.issues?.includes('task_state_missing_next_step')
+                ? 'repair_task_next_step_then_recheck'
+                : taskStateHealth.issues?.includes('task_state_missing_goal')
+                ? 'repair_task_goal_then_recheck'
+                : 'repair_task_state_then_recheck',
+              label: taskStateHealth.issues?.includes('task_state_missing_goal_and_next_step')
+                ? 'repair task goal+next step -> recheck'
+                : taskStateHealth.issues?.includes('task_state_missing_next_step')
+                ? 'repair task next step -> recheck'
+                : taskStateHealth.issues?.includes('task_state_missing_goal')
+                ? 'repair task goal -> recheck'
+                : 'repair task state -> recheck',
               execution_mode: 'automatic',
               requires_manual_confirmation: false,
-              summary: 'Refresh task continuity first, then rerun status-report.'
+              summary: taskStateHealth.issues?.includes('task_state_missing_goal_and_next_step')
+                ? 'Refresh task continuity and restore both current goal and next step, then rerun status-report.'
+                : taskStateHealth.issues?.includes('task_state_missing_next_step')
+                ? 'Refresh task continuity and restore the next step, then rerun status-report.'
+                : taskStateHealth.issues?.includes('task_state_missing_goal')
+                ? 'Refresh task continuity and restore the current goal, then rerun status-report.'
+                : 'Refresh task continuity first, then rerun status-report.'
             }
           }
         : {

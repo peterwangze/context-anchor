@@ -3675,11 +3675,24 @@ test('status report recommends repairing task state when continuity is incomplet
 
       assert.equal(report.session.task_state_health.status, 'partial');
       assert.equal(report.recommended_action.type, 'repair_task_state');
-      assert.equal(report.recommended_action.repair_strategy.type, 'repair_task_state_then_recheck');
+      assert.equal(report.recommended_action.repair_strategy.type, 'repair_task_next_step_then_recheck');
     });
   } finally {
     cleanupWorkspace(workspace);
   }
+});
+
+test('task-state health classifies missing goal and next step distinctly', () => {
+  const summary = assessTaskStateHealth({
+    visible: true,
+    current_goal: null,
+    next_step: null,
+    blocked_by: null,
+    last_user_visible_progress: 'captured retry constraints'
+  });
+
+  assert.equal(summary.status, 'partial');
+  assert.deepEqual(summary.issues, ['task_state_missing_goal_and_next_step']);
 });
 
 test('task-state summary stringifies structured current goal values for user-facing reports', () => {

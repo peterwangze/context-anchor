@@ -566,6 +566,9 @@
   - 当前已显式区分 `READY / PARTIAL / MISSING`
   - `status-report / sessions-diagnose` 已开始把 `task continuity health` 缺口纳入 repair 路由
   - 当前已开始显式给出 `repair task state -> recheck`
+  - `task continuity health` 现在已开始继续细分到 `missing goal / missing next step / missing goal+next step`
+  - repair strategy 现在会随 task-state 缺口类型输出更细粒度标签
+  - 已补充自动化测试，覆盖 task-state 缺口分类
   - 已补充自动化测试，覆盖 task-state remediation 可见性
   - 已补充自动化测试，覆盖 task continuity health 可见性
   - 已补充自动化测试，覆盖 runtime task-state update 与 continuity restore

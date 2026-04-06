@@ -170,6 +170,12 @@ function describeIssue(issue) {
       return 'task continuity is not visible yet';
     case 'task_state_incomplete':
       return 'task continuity is still incomplete';
+    case 'task_state_missing_goal':
+      return 'task continuity is missing current goal';
+    case 'task_state_missing_next_step':
+      return 'task continuity is missing next step';
+    case 'task_state_missing_goal_and_next_step':
+      return 'task continuity is missing current goal and next step';
     default:
       return issue;
   }
@@ -351,6 +357,33 @@ function buildSessionRepairStrategy(type) {
         requires_manual_confirmation: false,
         summary: 'Refresh task continuity first, then rerun session status.',
         resolution_hint: 'This workspace is missing enough task-state continuity that later restore and repair flows may feel incomplete. Refresh the session linkage and runtime state, then rerun status.'
+      };
+    case 'repair_task_goal_then_recheck':
+      return {
+        type,
+        label: 'repair task goal -> recheck',
+        execution_mode: 'automatic',
+        requires_manual_confirmation: false,
+        summary: 'Refresh task continuity and restore the current goal, then rerun session status.',
+        resolution_hint: 'The next step is visible, but the current goal is still missing. Refresh the session linkage so later restores stop feeling contextless.'
+      };
+    case 'repair_task_next_step_then_recheck':
+      return {
+        type,
+        label: 'repair task next step -> recheck',
+        execution_mode: 'automatic',
+        requires_manual_confirmation: false,
+        summary: 'Refresh task continuity and restore the next step, then rerun session status.',
+        resolution_hint: 'The current goal is visible, but the next step is still missing. Refresh the session linkage so later restores stop feeling stalled.'
+      };
+    case 'repair_task_goal_and_next_step_then_recheck':
+      return {
+        type,
+        label: 'repair task goal+next step -> recheck',
+        execution_mode: 'automatic',
+        requires_manual_confirmation: false,
+        summary: 'Refresh task continuity and restore both current goal and next step, then rerun session status.',
+        resolution_hint: 'Task continuity is visible only as fragments, so refresh the session linkage before trusting the restored work state.'
       };
     case 'configure_sessions_then_migrate_then_recheck':
       return {
@@ -605,7 +638,13 @@ function buildActionCommands(scope, options = {}) {
       : needsTakeoverEnforcement
       ? 'enforce_then_recheck'
       : needsTaskStateRepair
-      ? 'repair_task_state_then_recheck'
+      ? issues.includes('task_state_missing_goal_and_next_step')
+        ? 'repair_task_goal_and_next_step_then_recheck'
+        : issues.includes('task_state_missing_next_step')
+        ? 'repair_task_next_step_then_recheck'
+        : issues.includes('task_state_missing_goal')
+        ? 'repair_task_goal_then_recheck'
+        : 'repair_task_state_then_recheck'
       : 'refresh_then_recheck'
   );
   repair_strategy.command_examples = [repair_command, follow_up_command, recheck_command].filter(Boolean);
