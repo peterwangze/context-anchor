@@ -102,6 +102,18 @@ function buildStatusReportRecheckCommand(workspace, sessionKey, projectId, userI
   return args.join(' ');
 }
 
+function buildHeartbeatCommand(workspace, sessionKey, projectId, usagePercent = 50) {
+  const args = [
+    'node',
+    quoteArg(path.join(__dirname, 'heartbeat.js')),
+    quoteArg(workspace),
+    quoteArg(sessionKey || DEFAULTS.sessionKey),
+    quoteArg(projectId || DEFAULTS.projectId),
+    quoteArg(usagePercent)
+  ];
+  return args.join(' ');
+}
+
 function renderStatusReportText(report) {
   const lines = [];
   const memoryHealthKind =
@@ -472,9 +484,17 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
                 skillsRoot: path.join(paths.openClawHome, 'skills'),
                 yes: true
               }),
+              taskStateHealth.issues?.includes('task_state_missing_next_step') ||
+              taskStateHealth.issues?.includes('task_state_missing_goal_and_next_step')
+                ? buildHeartbeatCommand(paths.workspace, sessionKey, projectId, 50)
+                : null,
               buildStatusReportRecheckCommand(paths.workspace, sessionKey, projectId, userId)
-            ],
-            follow_up_command: null,
+            ].filter(Boolean),
+            follow_up_command:
+              taskStateHealth.issues?.includes('task_state_missing_next_step') ||
+              taskStateHealth.issues?.includes('task_state_missing_goal_and_next_step')
+                ? buildHeartbeatCommand(paths.workspace, sessionKey, projectId, 50)
+                : null,
             issues: taskStateHealth.issues || [],
             repair_strategy: {
               type: taskStateHealth.issues?.includes('task_state_missing_goal_and_next_step')

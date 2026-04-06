@@ -568,6 +568,8 @@
   - 当前已开始显式给出 `repair task state -> recheck`
   - `task continuity health` 现在已开始继续细分到 `missing goal / missing next step / missing goal+next step`
   - repair strategy 现在会随 task-state 缺口类型输出更细粒度标签
+  - 当缺的是 `next step` 或 `goal+next step` 时，repair 路由现在会继续带出一次 `heartbeat` follow-up
+  - 已补充自动化测试，覆盖 next-step 缺口的 follow-up heartbeat
   - 已补充自动化测试，覆盖 task-state 缺口分类
   - 已补充自动化测试，覆盖 task-state remediation 可见性
   - 已补充自动化测试，覆盖 task continuity health 可见性

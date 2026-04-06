@@ -3676,6 +3676,7 @@ test('status report recommends repairing task state when continuity is incomplet
       assert.equal(report.session.task_state_health.status, 'partial');
       assert.equal(report.recommended_action.type, 'repair_task_state');
       assert.equal(report.recommended_action.repair_strategy.type, 'repair_task_next_step_then_recheck');
+      assert.match(report.recommended_action.follow_up_command, /heartbeat\.js/);
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -3693,6 +3694,30 @@ test('task-state health classifies missing goal and next step distinctly', () =>
 
   assert.equal(summary.status, 'partial');
   assert.deepEqual(summary.issues, ['task_state_missing_goal_and_next_step']);
+});
+
+test('session status adds heartbeat follow-up when next step continuity is missing', () => {
+  const commands = buildActionCommands(
+    {
+      workspace: 'D:/demo',
+      sessionKey: 'agent:main:checkout-fix',
+      projectId: 'demo',
+      userId: 'alice'
+    },
+    {
+      openclawHome: 'D:/openclaw-home',
+      skillsRoot: 'D:/openclaw-home/skills',
+      issues: ['task_state_missing_next_step'],
+      globalConfigurationReady: true,
+      memoryTakeoverMode: 'enforced',
+      memorySourceStatus: 'single_source',
+      forceYes: true
+    }
+  );
+
+  assert.match(commands.repair_command, /configure:sessions/);
+  assert.match(commands.follow_up_command, /heartbeat\.js/);
+  assert.equal(commands.repair_strategy.type, 'repair_task_next_step_then_recheck');
 });
 
 test('task-state summary stringifies structured current goal values for user-facing reports', () => {

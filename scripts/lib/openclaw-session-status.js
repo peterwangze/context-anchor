@@ -105,6 +105,18 @@ function buildNpmCommand(scriptName, options = {}) {
   return parts.join(' ');
 }
 
+function buildHeartbeatCommand(workspace, sessionKey, projectId, usagePercent = 50) {
+  const args = [
+    'node',
+    quoteCommandArg(path.join(__dirname, '..', 'heartbeat.js')),
+    quoteCommandArg(workspace),
+    quoteCommandArg(sessionKey || DEFAULTS.sessionKey),
+    quoteCommandArg(projectId || DEFAULTS.projectId),
+    quoteCommandArg(usagePercent)
+  ];
+  return args.join(' ');
+}
+
 function normalizeScopeWorkspace(workspace) {
   return workspace ? path.resolve(workspace) : null;
 }
@@ -540,7 +552,13 @@ function buildActionCommands(scope, options = {}) {
     issues.includes('session_not_ready');
   const needsTaskStateRepair =
     !needsSessionRepair &&
-    (issues.includes('task_state_missing') || issues.includes('task_state_incomplete'));
+    (
+      issues.includes('task_state_missing') ||
+      issues.includes('task_state_incomplete') ||
+      issues.includes('task_state_missing_goal') ||
+      issues.includes('task_state_missing_next_step') ||
+      issues.includes('task_state_missing_goal_and_next_step')
+    );
   const needsHostRepair =
     issues.includes('hook_not_configured') ||
     issues.includes('monitor_not_configured') ||
@@ -610,6 +628,14 @@ function buildActionCommands(scope, options = {}) {
       ...commandScope,
       yes: Boolean(options.forceYes)
     });
+    if (
+      scope.workspace &&
+      scope.sessionKey &&
+      scope.projectId &&
+      (issues.includes('task_state_missing_next_step') || issues.includes('task_state_missing_goal_and_next_step'))
+    ) {
+      follow_up_command = buildHeartbeatCommand(scope.workspace, scope.sessionKey, scope.projectId, 50);
+    }
   } else {
     repair_command = buildNpmCommand('configure:sessions', {
       ...commandScope,
