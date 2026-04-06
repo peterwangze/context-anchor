@@ -45,6 +45,14 @@ function fillTemplateCommand(command, context = {}) {
   return rendered;
 }
 
+function countPlaceholderTokens(command = '') {
+  return (String(command).match(/<[^>]+>/g) || []).length;
+}
+
+function countCommandFlags(command = '') {
+  return (String(command).match(/--[a-z0-9-]+/gi) || []).length;
+}
+
 function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
   const type = String(strategy.type || action?.type || '').toLowerCase();
   const sourceKey = String(source || 'unknown').toLowerCase();
@@ -83,6 +91,11 @@ function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
     }
     return 0;
   };
+  const rankForEffort = (entry) => {
+    const unresolvedPlaceholders = countPlaceholderTokens(entry);
+    const flagCount = countCommandFlags(entry);
+    return unresolvedPlaceholders * 100 + flagCount;
+  };
   const firstMatchingCommand = (predicate) => {
     if (typeof predicate !== 'function') {
       return templateCommands[0] || null;
@@ -91,7 +104,19 @@ function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
     if (matches.length === 0) {
       return templateCommands[0] || null;
     }
-    return matches.sort((left, right) => rankForSource(left) - rankForSource(right))[0] || null;
+    return (
+      matches.sort((left, right) => {
+        const sourceDelta = rankForSource(left) - rankForSource(right);
+        if (sourceDelta !== 0) {
+          return sourceDelta;
+        }
+        const effortDelta = rankForEffort(left) - rankForEffort(right);
+        if (effortDelta !== 0) {
+          return effortDelta;
+        }
+        return String(left).length - String(right).length;
+      })[0] || null
+    );
   };
 
   if (haystack.includes('<session-key>') || /--session-key\b/.test(haystack)) {

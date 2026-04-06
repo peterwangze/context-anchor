@@ -387,6 +387,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 同时系统现在还会直接给出 `Resume command` 模板，方便你在原命令基础上把缺失输入补上再继续。
 `Resume command` 现在也会尽量优先贴近当前入口语境，例如升级诊断更优先给 `upgrade:sessions` 路径，而 session 诊断更优先给 `status:sessions` / `configure:sessions` 路径。
 如果当前上下文里已经知道 `workspace`、`session-key`、`openclaw-home`、`skills-root` 等参数，`Resume command` 现在还会尽量直接预填进去，减少你手工替换占位符的成本。
+当同一入口存在多个候选模板时，系统现在还会优先选择“剩余占位符更少、改动更小”的那个命令，进一步降低恢复门槛。
 `sessions-diagnose.js` 现在也会把 remediation 的 `Guidance` 和 `Example command` 直接显示出来；`status-report.js` 的 `recommended_action` 也会带这两类字段，方便上层直接展示。
 `status-report.js` 现在默认也会输出轻量文本视图；如果你需要完整 JSON 或 snapshot，再显式用 JSON/snapshot 模式。
 `doctor.js` 现在默认也会直接输出一份更友好的文本摘要视图；如果你仍然需要完整 JSON，再显式加 `--json`。  

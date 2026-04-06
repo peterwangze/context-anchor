@@ -4213,6 +4213,41 @@ test('resume command prefers source-matching template when multiple confirm-only
   assert.match(summary.next_step.auto_fix_resume_command, /upgrade:sessions/);
 });
 
+test('resume command prefers lower-edit template within the same source context', () => {
+  const summary = buildRemediationSummary(
+    [
+      {
+        source: 'sessions',
+        action: {
+          type: 'session_select',
+          recheck_command: 'npm run status:sessions -- --workspace "D:/demo" --session-key "<session-key>"',
+          repair_strategy: {
+            type: 'select_session_then_recheck',
+            label: 'select session -> recheck',
+            execution_mode: 'manual',
+            manual_subtype: 'confirm_only',
+            requires_manual_confirmation: true,
+            summary: 'Pick the target session first, then rerun status.',
+            command_examples: [
+              'npm run status:sessions -- --workspace "<workspace>" --session-key "<session-key>" --project-id "<project-id>"',
+              'npm run status:sessions -- --workspace "D:/demo" --session-key "<session-key>"'
+            ]
+          }
+        }
+      }
+    ],
+    {
+      auto_fix_options: {
+        workspace: 'D:/demo',
+        userId: 'alice'
+      }
+    }
+  );
+
+  assert.doesNotMatch(summary.next_step.auto_fix_resume_command, /--project-id/);
+  assert.match(summary.next_step.auto_fix_resume_command, /status:sessions/);
+});
+
 test('resume command pre-fills known context parameters into templates', () => {
   const summary = buildRemediationSummary(
     [
