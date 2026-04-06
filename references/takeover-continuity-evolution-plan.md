@@ -564,6 +564,9 @@
   - `sessions-status / sessions-diagnose` 已按 workspace 显示 `task continuity`
   - `sessions-status / sessions-diagnose / status-report` 已开始显式区分 `task continuity health`
   - 当前已显式区分 `READY / PARTIAL / MISSING`
+  - `status-report / sessions-diagnose` 已开始把 `task continuity health` 缺口纳入 repair 路由
+  - 当前已开始显式给出 `repair task state -> recheck`
+  - 已补充自动化测试，覆盖 task-state remediation 可见性
   - 已补充自动化测试，覆盖 task continuity health 可见性
   - 已补充自动化测试，覆盖 runtime task-state update 与 continuity restore
 - 仍待完成：

@@ -299,6 +299,8 @@ node scripts/sessions-diagnose.js
 - `task continuity health`，明确区分当前任务态是 `READY`、`PARTIAL` 还是 `MISSING`
 - 最近一次 `last benefit`，直接告诉你这轮 session 最近沉淀了什么可见收益
 
+当 `task continuity health` 处于 `PARTIAL` 或 `MISSING` 时，状态与诊断输出现在也会把它纳入 repair 路由，优先提示你刷新 session linkage / task state，而不是只显示材料层信息。
+
 默认会尽量只显示用户真正可感知的 session。  
 像没有 transcript、没有 workspace、系统残留但用户无感知的 hidden session，会默认从状态和升级口径里排除，避免 session 数量明显失真。  
 如果你确实要排查这类隐藏候选，可以显式加：

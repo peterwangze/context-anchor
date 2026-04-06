@@ -3654,6 +3654,32 @@ test('session diagnosis surfaces task continuity health when task state is missi
   assert.match(rendered, /Task continuity health/);
   assert.match(rendered, /MISSING/);
   assert.match(rendered, /task continuity is not visible yet/);
+  assert.match(rendered, /configure sessions -> recheck|repair task state -> recheck/);
+});
+
+test('status report recommends repairing task state when continuity is incomplete', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      runSessionStart(workspace, 'task-state-report', 'demo', { userId: 'default-user' });
+      const paths = createPaths(workspace);
+      const runtimeFile = runtimeStateFile(paths, 'task-state-report');
+      const runtimeState = readJson(runtimeFile, {});
+      runtimeState.current_goal = 'stabilize checkout retries';
+      runtimeState.next_step = null;
+      runtimeState.blocked_by = null;
+      writeJson(runtimeFile, runtimeState);
+
+      const report = runStatusReport(workspace, 'task-state-report', 'demo', 'default-user');
+
+      assert.equal(report.session.task_state_health.status, 'partial');
+      assert.equal(report.recommended_action.type, 'repair_task_state');
+      assert.equal(report.recommended_action.repair_strategy.type, 'repair_task_state_then_recheck');
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
 });
 
 test('task-state summary stringifies structured current goal values for user-facing reports', () => {

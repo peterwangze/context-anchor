@@ -343,6 +343,15 @@ function formatMonitorDisplay(statusValue, runtimeValue) {
 
 function buildSessionRepairStrategy(type) {
   switch (type) {
+    case 'repair_task_state_then_recheck':
+      return {
+        type,
+        label: 'repair task state -> recheck',
+        execution_mode: 'automatic',
+        requires_manual_confirmation: false,
+        summary: 'Refresh task continuity first, then rerun session status.',
+        resolution_hint: 'This workspace is missing enough task-state continuity that later restore and repair flows may feel incomplete. Refresh the session linkage and runtime state, then rerun status.'
+      };
     case 'configure_sessions_then_migrate_then_recheck':
       return {
         type,
@@ -496,6 +505,9 @@ function buildActionCommands(scope, options = {}) {
   const needsSessionRepair =
     issues.includes('workspace_unresolved') ||
     issues.includes('session_not_ready');
+  const needsTaskStateRepair =
+    !needsSessionRepair &&
+    (issues.includes('task_state_missing') || issues.includes('task_state_incomplete'));
   const needsHostRepair =
     issues.includes('hook_not_configured') ||
     issues.includes('monitor_not_configured') ||
@@ -560,6 +572,11 @@ function buildActionCommands(scope, options = {}) {
       enforceMemoryTakeover: true,
       yes: true
     });
+  } else if (needsTaskStateRepair) {
+    repair_command = buildNpmCommand('configure:sessions', {
+      ...commandScope,
+      yes: Boolean(options.forceYes)
+    });
   } else {
     repair_command = buildNpmCommand('configure:sessions', {
       ...commandScope,
@@ -587,6 +604,8 @@ function buildActionCommands(scope, options = {}) {
       ? 'migrate_then_recheck'
       : needsTakeoverEnforcement
       ? 'enforce_then_recheck'
+      : needsTaskStateRepair
+      ? 'repair_task_state_then_recheck'
       : 'refresh_then_recheck'
   );
   repair_strategy.command_examples = [repair_command, follow_up_command, recheck_command].filter(Boolean);

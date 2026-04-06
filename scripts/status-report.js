@@ -133,16 +133,6 @@ function renderStatusReportText(report) {
     lines.push(field('Task state', report.session.task_state_summary.summary, { kind: 'info' }));
   }
   if (report.session.task_state_health?.status) {
-    const taskHealthKind = report.session.task_state_health.status === 'ready' ? 'success' : 'warning';
-    lines.push(
-      field(
-        'Task continuity',
-        `${status(String(report.session.task_state_health.status).toUpperCase(), taskHealthKind)} | ${report.session.task_state_health.summary}`,
-        { kind: taskHealthKind }
-      )
-    );
-  }
-  if (report.session.task_state_health?.status) {
     const healthKind =
       report.session.task_state_health.status === 'ready'
         ? 'success'
@@ -447,6 +437,40 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
               summary: 'Enforce takeover first, then rerun status-report.'
             }
           }
+        : taskStateHealth.status !== 'ready'
+        ? {
+            type: 'repair_task_state',
+            priority: 'medium',
+            summary: 'Task continuity is still incomplete. Refresh the session linkage and runtime state, then rerun status-report.',
+            command: buildNpmScriptCommand('configure:sessions', {
+              workspace: paths.workspace,
+              openclawHome: paths.openClawHome,
+              skillsRoot: path.join(paths.openClawHome, 'skills'),
+              yes: true
+            }),
+            resolution_hint:
+              taskStateHealth.status === 'missing'
+                ? 'Current goal / next step is not visible yet, so continuity restore may feel blank until the session linkage is refreshed.'
+                : 'Current goal / next step / blocked state is still incomplete, so continuity restore may feel inconsistent until the session linkage is refreshed.',
+            command_examples: [
+              buildNpmScriptCommand('configure:sessions', {
+                workspace: paths.workspace,
+                openclawHome: paths.openClawHome,
+                skillsRoot: path.join(paths.openClawHome, 'skills'),
+                yes: true
+              }),
+              buildStatusReportRecheckCommand(paths.workspace, sessionKey, projectId, userId)
+            ],
+            follow_up_command: null,
+            issues: taskStateHealth.issues || [],
+            repair_strategy: {
+              type: 'repair_task_state_then_recheck',
+              label: 'repair task state -> recheck',
+              execution_mode: 'automatic',
+              requires_manual_confirmation: false,
+              summary: 'Refresh task continuity first, then rerun status-report.'
+            }
+          }
         : {
             type: 'none',
             priority: 'low',
@@ -463,6 +487,9 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
               summary: 'No repair action is required right now; rerun status-report when the environment changes.'
             }
           };
+
+  const taskStateSummary = buildTaskStateSummary(runtimeState || {});
+  const taskStateHealth = assessTaskStateHealth(taskStateSummary);
 
   const report = {
     status: memorySourceHealth.drift_detected ? 'warning' : 'ok',
@@ -498,9 +525,8 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
       skills: sessionSkills.length,
       last_checkpoint: runtimeState?.last_checkpoint || sessionState.last_checkpoint,
       last_summary: runtimeState?.last_summary || sessionState.last_summary,
-      task_state_summary: buildTaskStateSummary(runtimeState || {}),
-      task_state_health: assessTaskStateHealth(buildTaskStateSummary(runtimeState || {})),
-      task_state_health: assessTaskStateHealth(buildTaskStateSummary(runtimeState || {})),
+      task_state_summary: taskStateSummary,
+      task_state_health: taskStateHealth,
       last_benefit_summary: sessionSummary?.benefit_summary
         ? {
             visible: Boolean(sessionSummary.benefit_summary.visible),
