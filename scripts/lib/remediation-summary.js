@@ -1,4 +1,15 @@
+const fs = require('fs');
+
 const { buildAutoFixCommand } = require('./auto-fix');
+
+const RESUME_INPUT_FLAGS = {
+  workspace: '--workspace',
+  'session-key': '--session-key',
+  'project-id': '--project-id',
+  'user-id': '--user-id',
+  'openclaw-home': '--openclaw-home',
+  'skills-root': '--skills-root'
+};
 
 function quoteTemplateValue(value) {
   return `"${String(value).replace(/"/g, '\\"')}"`;
@@ -119,11 +130,31 @@ function uniqueStringList(values = []) {
   return [...new Set((Array.isArray(values) ? values : []).filter(Boolean).map((entry) => String(entry)))];
 }
 
+function isPathLikeResumeInput(input) {
+  return ['workspace', 'openclaw-home', 'skills-root'].includes(String(input || '').toLowerCase());
+}
+
+function sortResumeCandidates(input, values = []) {
+  const entries = uniqueStringList(values);
+  if (!isPathLikeResumeInput(input)) {
+    return entries;
+  }
+
+  return entries.sort((left, right) => {
+    const leftExists = fs.existsSync(left);
+    const rightExists = fs.existsSync(right);
+    if (leftExists !== rightExists) {
+      return leftExists ? -1 : 1;
+    }
+    return left.localeCompare(right);
+  });
+}
+
 function buildResumeInputCandidates(input, context = {}) {
   const key = String(input || '').toLowerCase();
   switch (key) {
     case 'workspace':
-      return uniqueStringList([
+      return sortResumeCandidates(key, [
         context.workspace,
         ...(Array.isArray(context.candidateWorkspaces) ? context.candidateWorkspaces : [])
       ]).slice(0, 3);
@@ -143,18 +174,130 @@ function buildResumeInputCandidates(input, context = {}) {
         ...(Array.isArray(context.candidateUserIds) ? context.candidateUserIds : [])
       ]).slice(0, 3);
     case 'openclaw-home':
-      return uniqueStringList([
+      return sortResumeCandidates(key, [
         context.openclawHome,
         ...(Array.isArray(context.candidateOpenClawHomes) ? context.candidateOpenClawHomes : [])
       ]).slice(0, 3);
     case 'skills-root':
-      return uniqueStringList([
+      return sortResumeCandidates(key, [
         context.skillsRoot,
         ...(Array.isArray(context.candidateSkillsRoots) ? context.candidateSkillsRoots : [])
       ]).slice(0, 3);
     default:
       return [];
   }
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function extractResumeInputValue(command = '', input) {
+  const flag = RESUME_INPUT_FLAGS[String(input || '').toLowerCase()];
+  if (!flag) {
+    return null;
+  }
+
+  const pattern = new RegExp(`${escapeRegex(flag)}\\s+(?:"([^"]*)"|'([^']*)'|([^\\s]+))`, 'i');
+  const match = String(command || '').match(pattern);
+  if (!match) {
+    return null;
+  }
+
+  return match[1] || match[2] || match[3] || null;
+}
+
+function isPlaceholderValue(value) {
+  return /^<[^>]+>$/.test(String(value || '').trim());
+}
+
+function listResumeInputKeys(command = '') {
+  const keys = new Set(listMissingTemplateInputs(command));
+  Object.entries(RESUME_INPUT_FLAGS).forEach(([input, flag]) => {
+    if (new RegExp(`${escapeRegex(flag)}\\b`, 'i').test(String(command || ''))) {
+      keys.add(input);
+    }
+  });
+  return [...keys];
+}
+
+function buildResumeInputValidationDetail(input, command = '', context = {}) {
+  const metadata = describeMissingTemplateInput(input);
+  const candidates = buildResumeInputCandidates(input, context);
+  const rawValue = extractResumeInputValue(command, input);
+  const value = rawValue && !isPlaceholderValue(rawValue) ? rawValue : null;
+  const pendingValue = !value;
+  let validationStatus = 'ready';
+  let validationSummary = '已预填，当前检查通过。';
+
+  if (pendingValue) {
+    if (candidates.length > 0) {
+      validationStatus = 'candidate_available';
+      validationSummary = `仍需补齐，当前已有 ${candidates.length} 个候选值可直接选择。`;
+    } else {
+      validationStatus = 'needs_value';
+      validationSummary = '仍需手工补齐这个输入。';
+    }
+  } else if (isPathLikeResumeInput(input)) {
+    if (fs.existsSync(value)) {
+      validationStatus = 'ready';
+      validationSummary = '已预填，路径当前存在。';
+    } else {
+      validationStatus = 'path_missing';
+      validationSummary = '已预填，但该路径当前不存在。';
+    }
+  } else if (candidates.length > 0) {
+    if (candidates.includes(value)) {
+      validationStatus = 'ready';
+      validationSummary = '已预填，且命中了当前候选值。';
+    } else {
+      validationStatus = 'candidate_mismatch';
+      validationSummary = '已预填，但不在当前候选值中。';
+    }
+  }
+
+  return {
+    ...metadata,
+    value,
+    candidates,
+    validation_status: validationStatus,
+    validation_summary: validationSummary
+  };
+}
+
+function summarizeResumeValidation(details = [], resumeCommand = '') {
+  if (!resumeCommand) {
+    return {
+      status: 'needs_attention',
+      summary: 'Resume command 还不可用，当前无法继续恢复流程。'
+    };
+  }
+
+  const attention = details.filter((entry) => ['path_missing', 'candidate_mismatch'].includes(entry.validation_status));
+  if (attention.length > 0) {
+    const entry = attention[0];
+    return {
+      status: 'needs_attention',
+      summary: `${entry.label}: ${entry.validation_summary}`
+    };
+  }
+
+  const pending = details.filter((entry) => ['needs_value', 'candidate_available'].includes(entry.validation_status));
+  if (pending.length > 0) {
+    const entry = pending[0];
+    return {
+      status: 'needs_input',
+      summary: `${entry.label}: ${entry.validation_summary}`
+    };
+  }
+
+  return {
+    status: 'ready',
+    summary:
+      details.length > 0
+        ? 'Resume command 已经补齐，当前已知输入检查通过；重新执行这条命令即可继续流程。'
+        : 'Resume command 已可直接重新执行；完成这一步后 auto-fix 就可以继续。'
+  };
 }
 
 function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
@@ -299,6 +442,20 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
     executionMode === 'manual' && manualSubtype !== 'external_environment'
       ? inferConfirmOnlyRequirement(source, action, strategy)
       : null;
+  const resumeCommand =
+    executionMode === 'manual' && manualSubtype !== 'external_environment'
+      ? confirmRequirement.resume_command || null
+      : null;
+  const resumeInputDetails =
+    executionMode === 'manual' && manualSubtype !== 'external_environment'
+      ? listResumeInputKeys(resumeCommand).map((entry) =>
+          buildResumeInputValidationDetail(entry, resumeCommand, action?.resume_context || {})
+        )
+      : [];
+  const resumeValidation =
+    executionMode === 'manual' && manualSubtype !== 'external_environment'
+      ? summarizeResumeValidation(resumeInputDetails, resumeCommand)
+      : null;
 
   if (!label && !recheckCommand) {
     return null;
@@ -347,19 +504,24 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
     auto_fix_resume_hint: autoFixResumeHint,
     auto_fix_resume_command:
       executionMode === 'manual' && manualSubtype !== 'external_environment'
-        ? confirmRequirement.resume_command || null
+        ? resumeCommand
         : null,
     auto_fix_resume_missing_inputs:
       executionMode === 'manual' && manualSubtype !== 'external_environment'
-        ? listMissingTemplateInputs(confirmRequirement.resume_command || '')
+        ? listMissingTemplateInputs(resumeCommand || '')
         : [],
     auto_fix_resume_input_details:
       executionMode === 'manual' && manualSubtype !== 'external_environment'
-        ? listMissingTemplateInputs(confirmRequirement.resume_command || '').map((entry) => ({
-            ...describeMissingTemplateInput(entry),
-            candidates: buildResumeInputCandidates(entry, action?.resume_context || {})
-          }))
+        ? resumeInputDetails
         : [],
+    auto_fix_resume_validation_status:
+      executionMode === 'manual' && manualSubtype !== 'external_environment'
+        ? resumeValidation?.status || null
+        : null,
+    auto_fix_resume_validation_summary:
+      executionMode === 'manual' && manualSubtype !== 'external_environment'
+        ? resumeValidation?.summary || null
+        : null,
     resolution_hint: strategy.resolution_hint || action?.resolution_hint || null,
     command_examples: Array.isArray(strategy.command_examples)
       ? strategy.command_examples.filter(Boolean)
@@ -458,6 +620,8 @@ module.exports = {
   describeMissingTemplateInput,
   dedupeEntries,
   inferConfirmOnlyRequirement,
+  extractResumeInputValue,
   listMissingTemplateInputs,
+  listResumeInputKeys,
   normalizeRemediationEntry
 };

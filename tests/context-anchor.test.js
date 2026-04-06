@@ -4437,6 +4437,102 @@ test('resume input details can expose candidate suggestions for missing paramete
   ]);
 });
 
+test('resume validation summarizes missing inputs when candidates are already available', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    const summary = buildRemediationSummary(
+      [
+        {
+          source: 'sessions',
+          action: {
+            type: 'session_select',
+            recheck_command: `npm run status:sessions -- --workspace "${workspace}" --session-key "<session-key>"`,
+            resume_context: {
+              workspace,
+              candidateSessionKeys: ['agent:main:checkout-fix', 'agent:main:review']
+            },
+            repair_strategy: {
+              type: 'select_session_then_recheck',
+              label: 'select session -> recheck',
+              execution_mode: 'manual',
+              manual_subtype: 'confirm_only',
+              requires_manual_confirmation: true,
+              summary: 'Pick the target session first, then rerun status.',
+              command_examples: [`npm run status:sessions -- --workspace "${workspace}" --session-key "<session-key>"`]
+            }
+          }
+        }
+      ],
+      {
+        auto_fix_options: {
+          workspace,
+          userId: 'alice'
+        }
+      }
+    );
+
+    assert.equal(summary.next_step.auto_fix_resume_validation_status, 'needs_input');
+    assert.match(summary.next_step.auto_fix_resume_validation_summary, /session-key/i);
+    assert.match(summary.next_step.auto_fix_resume_validation_summary, /候选值/);
+    assert.equal(summary.next_step.auto_fix_resume_input_details[0].validation_status, 'candidate_available');
+    assert.match(summary.next_step.auto_fix_resume_input_details[0].validation_summary, /候选值/);
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('resume validation flags prefilled profile paths that no longer exist', () => {
+  const workspace = makeWorkspace();
+  const missingOpenClawHome = path.join(workspace, 'missing-openclaw-home');
+  const missingSkillsRoot = path.join(missingOpenClawHome, 'skills');
+
+  try {
+    const summary = buildRemediationSummary(
+      [
+        {
+          source: 'upgrade_verification',
+          action: {
+            type: 'profile_select',
+            recheck_command: 'npm run upgrade:sessions',
+            resume_context: {
+              workspace,
+              openclawHome: missingOpenClawHome,
+              skillsRoot: missingSkillsRoot
+            },
+            repair_strategy: {
+              type: 'select_profile_then_recheck',
+              label: 'select profile -> recheck',
+              execution_mode: 'manual',
+              manual_subtype: 'confirm_only',
+              requires_manual_confirmation: true,
+              summary: 'Pick the target profile first, then rerun upgrade.',
+              command_examples: [
+                'npm run upgrade:sessions -- --openclaw-home "<openclaw-home>" --skills-root "<skills-root>"'
+              ]
+            }
+          }
+        }
+      ],
+      {
+        auto_fix_options: {
+          workspace,
+          userId: 'alice'
+        }
+      }
+    );
+
+    const homeDetail = summary.next_step.auto_fix_resume_input_details.find((entry) => entry.label === 'openclaw-home');
+
+    assert.equal(summary.next_step.auto_fix_resume_validation_status, 'needs_attention');
+    assert.match(summary.next_step.auto_fix_resume_validation_summary, /openclaw-home/i);
+    assert.equal(homeDetail.validation_status, 'path_missing');
+    assert.match(homeDetail.validation_summary, /不存在/);
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('resume command prefers source-matching template when multiple confirm-only commands exist', () => {
   const summary = buildRemediationSummary(
     [
@@ -4548,6 +4644,65 @@ test('resume command pre-fills known context parameters into templates', () => {
   assert.match(summary.next_step.auto_fix_resume_command, /--skills-root "D:\/openclaw-home\/skills"/i);
   assert.match(summary.next_step.auto_fix_resume_command, /--workspace "D:\/demo"/i);
   assert.match(summary.next_step.auto_fix_resume_command, /--session-key "s1"/i);
+});
+
+test('status report text view shows resume validation guidance for confirm-only remediation', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    const summary = buildRemediationSummary(
+      [
+        {
+          source: 'sessions',
+          action: {
+            type: 'session_select',
+            recheck_command: `npm run status:sessions -- --workspace "${workspace}" --session-key "<session-key>"`,
+            resume_context: {
+              workspace,
+              candidateSessionKeys: ['agent:main:checkout-fix']
+            },
+            repair_strategy: {
+              type: 'select_session_then_recheck',
+              label: 'select session -> recheck',
+              execution_mode: 'manual',
+              manual_subtype: 'confirm_only',
+              requires_manual_confirmation: true,
+              summary: 'Pick the target session first, then rerun status.',
+              command_examples: [`npm run status:sessions -- --workspace "${workspace}" --session-key "<session-key>"`]
+            }
+          }
+        }
+      ],
+      {
+        auto_fix_options: {
+          workspace,
+          userId: 'alice'
+        }
+      }
+    );
+
+    const rendered = renderStatusReportText({
+      workspace,
+      user: { id: 'alice' },
+      project: { id: 'demo' },
+      session: {
+        key: 's1',
+        task_state_summary: null,
+        task_state_health: null,
+        last_benefit_summary: null
+      },
+      governance: { active: 0, budgeted_out: 0 },
+      memory_source_health: { status: 'single_source' },
+      remediation_summary: summary,
+      recommended_action: {}
+    });
+
+    assert.match(rendered, /Resume checks:/);
+    assert.match(rendered, /session-key/i);
+    assert.match(rendered, /check=/);
+  } finally {
+    cleanupWorkspace(workspace);
+  }
 });
 
 test('doctor reports installed absolute paths and wrapper returns a helpful payload error', async () => {

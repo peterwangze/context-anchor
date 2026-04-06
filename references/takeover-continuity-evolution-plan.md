@@ -240,6 +240,11 @@
   - 当前已显式区分缺 `goal`、缺 `next step`、缺 `goal+next step`
   - 缺 `next step` / `goal+next step` 的场景现在会更明确提醒 repair 之后补跑一次 `heartbeat`
   - 已补充自动化测试，覆盖 task-state remediation guidance 与 follow-up 文案
+- `2026-04-06`
+  - `manual/confirm_only` 场景已开始输出 `Resume checks`
+  - 系统现在会显式区分当前 `Resume command` 是已经可运行、仍缺输入，还是预填路径已失效
+  - `Resume inputs` 的细项现在会继续带 `check` 校验结果，例如候选已就绪、路径不存在、已命中当前候选值
+  - 已补充自动化测试，覆盖 confirm-only 输入校验、失效路径提示与文本视图可见性
 
 当前仍未完成的重点：
 
@@ -635,8 +640,9 @@
   - session 观测与 upgrade 默认口径已开始优先贴近用户真实感知
   - strict-mode 自动修复路径已开始在 doctor / session diagnose / status-report / install / upgrade / configure 输出中显式化
   - task-state remediation 的文本 guidance 已开始和 strict repair 路径对齐，不再只给笼统 repair 提示
+  - confirm-only 场景已开始对 resume command 做基础输入校验，不再只显示缺失输入名
 - 仍待完成：
-  - strict-mode auto-fix 还缺少更多 manual/confirm 场景来源映射、更多参数预填充、交互补参、输入校验、更多参数候选建议与可学习偏好演化
+  - strict-mode auto-fix 还缺少更多 manual/confirm 场景来源映射、更多参数预填充、交互补参、更丰富的参数候选建议与可学习偏好演化
 
 ## 测试设计
 
@@ -670,6 +676,20 @@
 
 - runtime state 字段正确
 - 恢复链路优先读任务态
+
+### A3. remediation resume validation
+
+覆盖：
+
+- confirm-only 缺失输入但已有候选
+- confirm-only 预填路径已失效
+- 文本视图展示 `Resume checks`
+
+断言：
+
+- `Resume command` 校验状态正确
+- `Resume inputs` 细项带校验说明
+- 文本输出能直接说明“还缺什么 / 哪个路径失效”
 
 ## B. 集成测试
 
