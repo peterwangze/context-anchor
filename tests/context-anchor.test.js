@@ -97,7 +97,7 @@ const { runSessionClose } = require('../scripts/session-close');
 const { runSessionCompact } = require('../scripts/session-compact');
 const { runSessionStart } = require('../scripts/session-start');
 const { runConfigureSessions } = require('../scripts/configure-sessions');
-const { runUpgradeSessions } = require('../scripts/upgrade-sessions');
+const { renderUpgradeReport, runUpgradeSessions } = require('../scripts/upgrade-sessions');
 const { runSkillStatusUpdate } = require('../scripts/skill-status-update');
 const { runSkillCreate } = require('../scripts/skill-create');
 const { runSkillDraftCreate } = require('../scripts/skill-draft-create');
@@ -2769,6 +2769,81 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
         ),
         false
       );
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('upgrade-sessions turns unresolved targets into confirm-only workspace selection when workspace candidates exist', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const primaryWorkspace = path.join(workspace, 'primary-project');
+  const secondaryWorkspace = path.join(workspace, 'secondary-project');
+  const agentSessionsDir = path.join(openClawHome, 'agents', 'main', 'sessions');
+  const transcriptFile = path.join(agentSessionsDir, 'unresolved-upgrade.jsonl');
+  const sessionsIndex = path.join(agentSessionsDir, 'sessions.json');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: false,
+        enableScheduler: false,
+        defaultUserId: 'peter',
+        defaultWorkspace: primaryWorkspace,
+        addUsers: [],
+        addWorkspaces: [
+          {
+            workspace: secondaryWorkspace,
+            userId: 'peter',
+            projectId: 'secondary-project'
+          }
+        ]
+      });
+
+      fs.mkdirSync(agentSessionsDir, { recursive: true });
+      fs.writeFileSync(
+        transcriptFile,
+        `${JSON.stringify({
+          type: 'session',
+          version: 3,
+          id: 'unresolved-upgrade-session-id',
+          timestamp: '2026-03-27T20:08:14.164Z'
+        })}\n`,
+        'utf8'
+      );
+      writeJson(sessionsIndex, {
+        'agent:main:upgrade:unresolved': {
+          sessionId: 'unresolved-upgrade-session-id',
+          sessionFile: transcriptFile,
+          updatedAt: 1774705709043,
+          chatType: 'direct'
+        }
+      });
+
+      const result = runUpgradeSessions(openClawHome, path.join(openClawHome, 'skills'));
+      const rendered = renderUpgradeReport(result);
+      const workspaceDetail = result.verification.remediation_summary.next_step.auto_fix_resume_input_details.find(
+        (entry) => entry.label === 'workspace'
+      );
+
+      assert.equal(result.status, 'ok');
+      assert.equal(result.unresolved_sessions, 1);
+      assert.equal(result.results[0].reason, 'workspace_unresolved');
+      assert.equal(result.verification.status, 'needs_attention');
+      assert.equal(result.verification.repair_strategy.type, 'select_workspace_then_recheck');
+      assert.equal(result.verification.repair_strategy.manual_subtype, 'confirm_only');
+      assert.equal(result.verification.remediation_summary.next_step.auto_fix_command, null);
+      assert.match(result.verification.remediation_summary.next_step.auto_fix_blocked_reason, /workspace/i);
+      assert.doesNotMatch(result.verification.remediation_summary.next_step.auto_fix_blocked_reason, /session key/i);
+      assert.match(result.verification.remediation_summary.next_step.auto_fix_resume_command, /upgrade:sessions/);
+      assert.equal(result.verification.remediation_summary.next_step.auto_fix_resume_validation_status, 'needs_input');
+      assert.match(result.verification.remediation_summary.next_step.auto_fix_resume_validation_summary, /workspace/i);
+      assert.deepEqual(workspaceDetail.candidates, [primaryWorkspace, secondaryWorkspace]);
+      assert.equal(workspaceDetail.validation_status, 'candidate_available');
+      assert.match(rendered, /Resume checks:/);
+      assert.match(rendered, /Input workspace options:/);
     });
   } finally {
     cleanupWorkspace(workspace);

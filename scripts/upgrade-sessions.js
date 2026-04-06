@@ -156,6 +156,45 @@ function buildUpgradeRecheckCommand(openClawHome, skillsRoot, options = {}) {
   return `npm run status:sessions -- ${forwarded.join(' ')}`;
 }
 
+function collectUpgradeCandidateWorkspaces(openClawHome, options = {}, results = [], autoFixWorkspace = null) {
+  const hostConfig = readHostConfig(openClawHome);
+  const candidates = [
+    options.workspace || null,
+    autoFixWorkspace || null,
+    ...(Array.isArray(results) ? results.map((entry) => entry.workspace || null) : []),
+    hostConfig.defaults?.workspace || null,
+    ...((hostConfig.workspaces || []).map((entry) => entry.workspace || null))
+  ];
+  const seen = new Set();
+
+  return candidates.filter((entry) => {
+    if (!entry) {
+      return false;
+    }
+    const resolved = path.resolve(entry);
+    const key = normalizeWorkspaceKey(resolved);
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function collectUpgradeCandidateSessionKeys(options = {}, results = []) {
+  const seen = new Set();
+  return [options.sessionKey || null, ...(Array.isArray(results) ? results.map((entry) => entry.session_key || null) : [])]
+    .filter(Boolean)
+    .filter((entry) => {
+      const key = sanitizeKey(entry);
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+}
+
 function buildUpgradeRepairStrategy(verification = {}) {
   if (verification.configuration_required_targets > 0) {
     return {
@@ -168,6 +207,28 @@ function buildUpgradeRepairStrategy(verification = {}) {
   }
 
   if (verification.unresolved_targets > 0) {
+    if (Array.isArray(verification.candidate_workspaces) && verification.candidate_workspaces.length > 0) {
+      return {
+        type: 'select_workspace_then_recheck',
+        label: 'select workspace -> recheck',
+        execution_mode: 'manual',
+        manual_subtype: 'confirm_only',
+        requires_manual_confirmation: true,
+        summary: 'Pick the target workspace for the unresolved upgrade target, then rerun upgrade.',
+        resolution_hint:
+          'This upgrade target could not recover a workspace path from the discovered session metadata. Re-run upgrade with an explicit --workspace; candidate workspaces from the current profile are listed below when available.',
+        command_examples: [
+          buildUpgradeRecheckCommand(verification.openClawHome, verification.skillsRoot, {
+            workspace: '<workspace>',
+            sessionKey: verification.example_session_key || null
+          }).replace('status:sessions', 'upgrade:sessions'),
+          verification.example_session_key
+            ? `npm run configure:sessions -- --openclaw-home ${quoteArg(verification.openClawHome)} --skills-root ${quoteArg(verification.skillsRoot)} --workspace ${quoteArg('<workspace>')} --session-key ${quoteArg(verification.example_session_key)} --yes`
+            : null
+        ].filter(Boolean)
+      };
+    }
+
     return {
       type: 'resolve_workspace_then_recheck',
       label: 'resolve workspace -> recheck',
@@ -279,6 +340,8 @@ function buildUpgradeVerification({
     projectId: options.projectId || null,
     userId: options.userId || null
   });
+  const candidateWorkspaces = collectUpgradeCandidateWorkspaces(openClawHome, options, results, autoFixWorkspace);
+  const candidateSessionKeys = collectUpgradeCandidateSessionKeys(options, results);
   const upgradedKeys = new Set(upgradedResults.map((entry) => sanitizeKey(entry.session_key)));
   const verifiedSessions = sessionReport.sessions.filter((entry) => upgradedKeys.has(sanitizeKey(entry.session_key)));
   const remainingAttention = verifiedSessions.filter((entry) => {
@@ -347,7 +410,8 @@ function buildUpgradeVerification({
       configuration_required_targets: configurationRequiredTargets.length,
       openClawHome,
       skillsRoot,
-      example_session_key: unresolvedTargets[0]?.session_key || options.sessionKey || null
+      example_session_key: unresolvedTargets[0]?.session_key || options.sessionKey || null,
+      candidate_workspaces: candidateWorkspaces
     }),
     readiness_transition: {
       changed,
@@ -382,7 +446,9 @@ function buildUpgradeVerification({
               sessionKey: options.sessionKey || upgradedResults[0]?.session_key || null,
               userId: autoFixOwnership.userId || null,
               openclawHome: openClawHome,
-              skillsRoot
+              skillsRoot,
+              candidateWorkspaces,
+              candidateSessionKeys
             },
             repair_strategy: buildUpgradeRepairStrategy({
               remaining_attention_sessions: remainingAttention.length,
@@ -390,7 +456,8 @@ function buildUpgradeVerification({
               configuration_required_targets: configurationRequiredTargets.length,
               openClawHome,
               skillsRoot,
-              example_session_key: unresolvedTargets[0]?.session_key || options.sessionKey || null
+              example_session_key: unresolvedTargets[0]?.session_key || options.sessionKey || null,
+              candidate_workspaces: candidateWorkspaces
             })
           }
         }

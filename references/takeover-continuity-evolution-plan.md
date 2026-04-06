@@ -245,6 +245,11 @@
   - 系统现在会显式区分当前 `Resume command` 是已经可运行、仍缺输入，还是预填路径已失效
   - `Resume inputs` 的细项现在会继续带 `check` 校验结果，例如候选已就绪、路径不存在、已命中当前候选值
   - 已补充自动化测试，覆盖 confirm-only 输入校验、失效路径提示与文本视图可见性
+- `2026-04-06`
+  - `upgrade-sessions` 遇到 unresolved target 且当前 profile 已有候选 workspace 时，已开始优先转成 `confirm_only`
+  - 当前会直接给出 `Resume command`、候选 workspace 与 `Resume checks`
+  - unresolved upgrade target 不再一律退化成笼统的 external-environment 问题
+  - 已补充自动化测试，覆盖 unresolved upgrade target 的 confirm-only 路由与文本输出
 
 当前仍未完成的重点：
 
@@ -641,6 +646,7 @@
   - strict-mode 自动修复路径已开始在 doctor / session diagnose / status-report / install / upgrade / configure 输出中显式化
   - task-state remediation 的文本 guidance 已开始和 strict repair 路径对齐，不再只给笼统 repair 提示
   - confirm-only 场景已开始对 resume command 做基础输入校验，不再只显示缺失输入名
+  - upgrade unresolved target 现在也开始复用 confirm-only resume 闭环，而不是只停在外部环境提示
 - 仍待完成：
   - strict-mode auto-fix 还缺少更多 manual/confirm 场景来源映射、更多参数预填充、交互补参、更丰富的参数候选建议与可学习偏好演化
 
@@ -683,6 +689,7 @@
 
 - confirm-only 缺失输入但已有候选
 - confirm-only 预填路径已失效
+- upgrade unresolved target 转 confirm-only
 - 文本视图展示 `Resume checks`
 
 断言：

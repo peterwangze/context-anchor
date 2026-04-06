@@ -303,18 +303,7 @@ function summarizeResumeValidation(details = [], resumeCommand = '') {
 function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
   const type = String(strategy.type || action?.type || '').toLowerCase();
   const sourceKey = String(source || 'unknown').toLowerCase();
-  const haystack = [
-    strategy.summary,
-    action?.summary,
-    strategy.resolution_hint,
-    ...(Array.isArray(strategy.command_examples) ? strategy.command_examples : []),
-    ...(Array.isArray(action?.command_examples) ? action.command_examples : []),
-    action?.recheck_command,
-    action?.command
-  ]
-    .filter(Boolean)
-    .join('\n')
-    .toLowerCase();
+  const resumeContext = action?.resume_context || {};
   const templateCommands = [
     ...(Array.isArray(strategy.command_examples) ? strategy.command_examples : []),
     ...(Array.isArray(action?.command_examples) ? action.command_examples : []),
@@ -365,21 +354,40 @@ function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
       })[0] || null
     );
   };
+  const primaryTemplateCommand =
+    type === 'select_session_then_recheck'
+      ? firstMatchingCommand((entry) => entry.includes('<session-key>') || /--session-key\b/i.test(entry))
+      : type === 'select_workspace_then_recheck'
+      ? firstMatchingCommand((entry) => entry.includes('<workspace>') || /--workspace\b/i.test(entry))
+      : type === 'select_project_then_recheck'
+      ? firstMatchingCommand((entry) => entry.includes('<project-id>') || /--project-id\b/i.test(entry))
+      : type === 'select_profile_then_recheck'
+      ? firstMatchingCommand(
+          (entry) =>
+            entry.includes('<openclaw-home>') ||
+            /--openclaw-home\b/i.test(entry) ||
+            entry.includes('<skills-root>') ||
+            /--skills-root\b/i.test(entry) ||
+            /profile/i.test(entry)
+        )
+      : firstMatchingCommand(() => true);
+  const primaryResumeCommand = fillTemplateCommand(primaryTemplateCommand, resumeContext);
+  const pendingInputs = new Set(listMissingTemplateInputs(primaryResumeCommand || primaryTemplateCommand || ''));
 
-  if (haystack.includes('<session-key>') || /--session-key\b/.test(haystack)) {
+  if (pendingInputs.has('session-key')) {
     return {
       key: 'session_key',
       blocked_reason: 'Select the target session first; auto-fix will stay unavailable until the session key is explicit.',
       resume_hint:
         'Re-run the suggested command with an explicit --session-key, then auto-fix can resume on the selected session.',
       resume_command: fillTemplateCommand(
-        firstMatchingCommand((entry) => entry.includes('<session-key>') || /--session-key\b/.test(entry)),
-        action?.resume_context || {}
+        firstMatchingCommand((entry) => entry.includes('<session-key>')),
+        resumeContext
       )
     };
   }
 
-  if (type === 'select_workspace_then_recheck' || haystack.includes('<workspace>') || /--workspace\b/.test(haystack)) {
+  if (pendingInputs.has('workspace') || (type === 'select_workspace_then_recheck' && !resumeContext.workspace)) {
     return {
       key: 'workspace',
       blocked_reason: 'Select the target workspace first; auto-fix will stay unavailable until the workspace is explicit.',
@@ -387,25 +395,54 @@ function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
         'Re-run the suggested command with an explicit --workspace, then auto-fix can resume on the resolved workspace.',
       resume_command: fillTemplateCommand(
         firstMatchingCommand((entry) => entry.includes('<workspace>') || /--workspace\b/.test(entry)),
-        action?.resume_context || {}
+        resumeContext
       )
     };
   }
 
-  if (haystack.includes('<project-id>') || /--project-id\b/.test(haystack)) {
+  if (pendingInputs.has('project-id')) {
     return {
       key: 'project_id',
       blocked_reason: 'Select the target project first; auto-fix will stay unavailable until the project is explicit.',
       resume_hint:
         'Re-run the suggested command with an explicit --project-id, then auto-fix can resume on the selected project.',
       resume_command: fillTemplateCommand(
-        firstMatchingCommand((entry) => entry.includes('<project-id>') || /--project-id\b/.test(entry)),
-        action?.resume_context || {}
+        firstMatchingCommand((entry) => entry.includes('<project-id>')),
+        resumeContext
       )
     };
   }
 
-  if (haystack.includes('<openclaw-home>') || /--openclaw-home\b/.test(haystack) || haystack.includes('profile')) {
+  if (pendingInputs.has('user-id')) {
+    return {
+      key: 'user_id',
+      blocked_reason: 'Select the target user first; auto-fix will stay unavailable until the user id is explicit.',
+      resume_hint:
+        'Re-run the suggested command with an explicit --user-id, then auto-fix can resume on the selected user.',
+      resume_command: fillTemplateCommand(
+        firstMatchingCommand((entry) => entry.includes('<user-id>')),
+        resumeContext
+      )
+    };
+  }
+
+  if (pendingInputs.has('skills-root')) {
+    return {
+      key: 'skills_root',
+      blocked_reason: 'Select the target skills root first; auto-fix will stay unavailable until the skills root is explicit.',
+      resume_hint:
+        'Re-run the suggested command with an explicit --skills-root, then auto-fix can resume on the selected profile assets.',
+      resume_command: fillTemplateCommand(
+        firstMatchingCommand((entry) => entry.includes('<skills-root>')),
+        resumeContext
+      )
+    };
+  }
+
+  if (
+    pendingInputs.has('openclaw-home') ||
+    (type === 'select_profile_then_recheck' && !resumeContext.openclawHome)
+  ) {
     return {
       key: 'profile',
       blocked_reason: 'Select the target OpenClaw profile first; auto-fix will stay unavailable until the profile is explicit.',
@@ -415,7 +452,7 @@ function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
         firstMatchingCommand(
           (entry) => entry.includes('<openclaw-home>') || /--openclaw-home\b/.test(entry) || /profile/.test(entry)
         ),
-        action?.resume_context || {}
+        resumeContext
       )
     };
   }
@@ -423,10 +460,10 @@ function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
   return {
     key: 'confirmation',
     blocked_reason:
-      'This path still needs one manual confirmation before automation can continue, so auto-fix is intentionally disabled for now.',
+      'This path still needs one manual rerun of the suggested command before automation can continue, so auto-fix is intentionally disabled for now.',
     resume_hint:
-      'Finish the required confirmation step first, then rerun the suggested command to unlock auto-fix.',
-    resume_command: fillTemplateCommand(firstMatchingCommand(() => true), action?.resume_context || {})
+      'Rerun the suggested command once with the current confirmed inputs, then auto-fix can continue from the refreshed state.',
+    resume_command: primaryResumeCommand
   };
 }
 
