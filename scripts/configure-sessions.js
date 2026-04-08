@@ -219,6 +219,18 @@ function buildConfigureSessionsVerification({
   };
 }
 
+function summarizeConfigureSessionsHealthStatus({ verification, doctor }) {
+  if (verification?.status === 'needs_attention' || doctor?.status === 'warning') {
+    return 'warning';
+  }
+
+  if (doctor?.status === 'notice') {
+    return 'notice';
+  }
+
+  return 'ok';
+}
+
 function askText(prompt, defaultValue = '', ask = null) {
   if (ask) {
     return ask(prompt, defaultValue);
@@ -531,9 +543,14 @@ async function runConfigureSessions(openClawHomeArg, skillsRootArg, options = {}
     beforeSessionReport,
     sessionReport: verificationReport
   });
+  const healthStatus = summarizeConfigureSessionsHealthStatus({
+    verification,
+    doctor
+  });
 
   return {
     status: 'ok',
+    health_status: healthStatus,
     openclaw_home: openClawHome,
     skills_root: skillsRoot,
     discovered_sessions: discoveredSessions.length,
@@ -551,18 +568,28 @@ async function runConfigureSessions(openClawHomeArg, skillsRootArg, options = {}
 function renderConfigureSessionsReport(result) {
   const lines = [];
   const verification = result.verification || {};
+  const healthStatus = result.health_status || 'unknown';
   const verificationKind =
     verification.status === 'verified'
       ? 'success'
       : verification.status === 'needs_attention'
       ? 'warning'
       : 'info';
+  const healthKind =
+    healthStatus === 'warning'
+      ? 'warning'
+      : healthStatus === 'notice'
+      ? 'info'
+      : healthStatus === 'ok'
+      ? 'success'
+      : 'muted';
   const unresolved = Array.isArray(result.results)
     ? result.results.filter((entry) => entry.status === 'unresolved').length
     : 0;
 
   lines.push(section('Context-Anchor Session Configuration', { kind: verificationKind }));
   lines.push(field('Status', status(String(result.status || 'ok').toUpperCase(), verificationKind), { kind: verificationKind }));
+  lines.push(field('Health', status(String(healthStatus || 'unknown').toUpperCase(), healthKind), { kind: healthKind }));
   lines.push(
     field(
       'Selection',
@@ -685,5 +712,6 @@ module.exports = {
   normalizeWorkspaceKey,
   parseArgs,
   renderConfigureSessionsReport,
-  runConfigureSessions
+  runConfigureSessions,
+  summarizeConfigureSessionsHealthStatus
 };

@@ -273,6 +273,34 @@ function buildConfigureHostVerification({
   };
 }
 
+function summarizeConfigureHostHealthStatus({
+  verification,
+  takeoverAudit,
+  hostTakeoverAudit,
+  profileTakeoverAudit,
+  memoryTakeover
+}) {
+  if (
+    verification?.status === 'needs_attention' ||
+    takeoverAudit?.status === 'warning' ||
+    hostTakeoverAudit?.status === 'warning' ||
+    profileTakeoverAudit?.status === 'warning'
+  ) {
+    return 'warning';
+  }
+
+  if (
+    memoryTakeover !== 'enforced' ||
+    takeoverAudit?.status === 'notice' ||
+    hostTakeoverAudit?.status === 'notice' ||
+    profileTakeoverAudit?.status === 'notice'
+  ) {
+    return 'notice';
+  }
+
+  return 'ok';
+}
+
 function quoteVbs(value) {
   return `"${String(value).replace(/"/g, '""')}"`;
 }
@@ -1275,9 +1303,17 @@ async function runConfigureHost(openClawHomeArg, skillsRootArg, options = {}) {
     openClawHome,
     skillsRoot
   });
+  const healthStatus = summarizeConfigureHostHealthStatus({
+    verification,
+    takeoverAudit,
+    hostTakeoverAudit: doctorAudit.host_takeover_audit,
+    profileTakeoverAudit: doctorAudit.profile_takeover_audit,
+    memoryTakeover: memoryTakeover ? 'enforced' : 'best_effort'
+  });
 
   return {
     status: 'configured',
+    health_status: healthStatus,
     paths,
     config,
     memory_takeover: {
@@ -1303,6 +1339,7 @@ async function runConfigureHost(openClawHomeArg, skillsRootArg, options = {}) {
 function renderConfigureHostReport(result) {
   const lines = [];
   const verification = result.verification || {};
+  const healthStatus = result.health_status || 'unknown';
   const takeoverMode = result.memory_takeover?.mode || 'best_effort';
   const verificationKind =
     verification.status === 'verified'
@@ -1310,6 +1347,14 @@ function renderConfigureHostReport(result) {
       : verification.status === 'needs_attention'
       ? 'warning'
       : 'info';
+  const healthKind =
+    healthStatus === 'warning'
+      ? 'warning'
+      : healthStatus === 'notice'
+      ? 'info'
+      : healthStatus === 'ok'
+      ? 'success'
+      : 'muted';
   const takeoverKind = takeoverMode === 'enforced' ? 'success' : 'warning';
   const schedulerKind =
     result.scheduler?.status === 'registered'
@@ -1322,6 +1367,7 @@ function renderConfigureHostReport(result) {
 
   lines.push(section('Context-Anchor Host Configuration', { kind: verificationKind }));
   lines.push(field('Status', status(String(result.status || 'configured').toUpperCase(), verificationKind), { kind: verificationKind }));
+  lines.push(field('Health', status(String(healthStatus || 'unknown').toUpperCase(), healthKind), { kind: healthKind }));
   lines.push(
     field(
       'Memory takeover',
@@ -1451,5 +1497,6 @@ module.exports = {
   parseWorkspaceSpec,
   renderConfigureHostReport,
   registerScheduler,
-  runConfigureHost
+  runConfigureHost,
+  summarizeConfigureHostHealthStatus
 };

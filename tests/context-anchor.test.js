@@ -57,7 +57,8 @@ const {
   buildHostPaths,
   cleanupWindowsSchedulerState,
   computeSchedulerLauncherId,
-  runConfigureHost
+  runConfigureHost,
+  summarizeConfigureHostHealthStatus
 } = require('../scripts/configure-host');
 const { runContextPressureHandle } = require('../scripts/context-pressure-handle');
 const { runContextPressureMonitor } = require('../scripts/context-pressure-monitor');
@@ -67,7 +68,7 @@ const { runInstallHostAssets } = require('../scripts/install-host-assets');
 const { runAutoFix } = require('../scripts/auto-fix');
 const { runExternalMemoryWatch } = require('../scripts/external-memory-watch');
 const { runLegacyMemorySync } = require('../scripts/legacy-memory-sync');
-const { runOneClickInstall } = require('../scripts/install-one-click');
+const { runOneClickInstall, summarizeInstallHealthStatus } = require('../scripts/install-one-click');
 const { runMigrateGlobalToUser } = require('../scripts/migrate-global-to-user');
 const { runMirrorRebuild } = require('../scripts/mirror-rebuild');
 const { runMemoryFlow } = require('../scripts/memory-flow');
@@ -96,7 +97,7 @@ const { runSkillSupersede } = require('../scripts/skill-supersede');
 const { runSessionClose } = require('../scripts/session-close');
 const { runSessionCompact } = require('../scripts/session-compact');
 const { runSessionStart } = require('../scripts/session-start');
-const { runConfigureSessions } = require('../scripts/configure-sessions');
+const { runConfigureSessions, summarizeConfigureSessionsHealthStatus } = require('../scripts/configure-sessions');
 const { renderUpgradeReport, runUpgradeSessions, summarizeUpgradeRunStatus } = require('../scripts/upgrade-sessions');
 const { runSkillStatusUpdate } = require('../scripts/skill-status-update');
 const { runSkillCreate } = require('../scripts/skill-create');
@@ -4885,6 +4886,90 @@ test('doctor status summary distinguishes ok, notice, and warning states', () =>
       memorySourceHealth: { status: 'drift_detected' },
       hostTakeoverAudit: { status: 'ok' },
       profileTakeoverAudit: { status: 'ok' }
+    }),
+    'warning'
+  );
+});
+
+test('configure-host health summary distinguishes ok, notice, and warning states', () => {
+  assert.equal(
+    summarizeConfigureHostHealthStatus({
+      verification: { status: 'verified' },
+      takeoverAudit: { status: 'ok' },
+      hostTakeoverAudit: { status: 'ok' },
+      profileTakeoverAudit: { status: 'ok' },
+      memoryTakeover: 'enforced'
+    }),
+    'ok'
+  );
+  assert.equal(
+    summarizeConfigureHostHealthStatus({
+      verification: { status: 'verified' },
+      takeoverAudit: { status: 'notice' },
+      hostTakeoverAudit: { status: 'ok' },
+      profileTakeoverAudit: { status: 'ok' },
+      memoryTakeover: 'best_effort'
+    }),
+    'notice'
+  );
+  assert.equal(
+    summarizeConfigureHostHealthStatus({
+      verification: { status: 'needs_attention' },
+      takeoverAudit: { status: 'warning' },
+      hostTakeoverAudit: { status: 'ok' },
+      profileTakeoverAudit: { status: 'ok' },
+      memoryTakeover: 'enforced'
+    }),
+    'warning'
+  );
+});
+
+test('configure-sessions health summary distinguishes ok, notice, and warning states', () => {
+  assert.equal(
+    summarizeConfigureSessionsHealthStatus({
+      verification: { status: 'verified' },
+      doctor: { status: 'ok' }
+    }),
+    'ok'
+  );
+  assert.equal(
+    summarizeConfigureSessionsHealthStatus({
+      verification: { status: 'verified' },
+      doctor: { status: 'notice' }
+    }),
+    'notice'
+  );
+  assert.equal(
+    summarizeConfigureSessionsHealthStatus({
+      verification: { status: 'needs_attention' },
+      doctor: { status: 'ok' }
+    }),
+    'warning'
+  );
+});
+
+test('install health summary distinguishes ok, notice, and warning states', () => {
+  assert.equal(
+    summarizeInstallHealthStatus({
+      verification: { status: 'verified' },
+      configuration: { health_status: 'ok', memory_takeover: { mode: 'enforced' }, takeover_audit: { status: 'ok' } },
+      sessionUpgrade: { health_status: 'ok', status: 'ok', takeover_audit: { status: 'ok' } }
+    }),
+    'ok'
+  );
+  assert.equal(
+    summarizeInstallHealthStatus({
+      verification: { status: 'verified' },
+      configuration: { health_status: 'notice', memory_takeover: { mode: 'best_effort' }, takeover_audit: { status: 'notice' } },
+      sessionUpgrade: null
+    }),
+    'notice'
+  );
+  assert.equal(
+    summarizeInstallHealthStatus({
+      verification: { status: 'needs_attention' },
+      configuration: { health_status: 'ok', memory_takeover: { mode: 'enforced' }, takeover_audit: { status: 'ok' } },
+      sessionUpgrade: { health_status: 'warning', status: 'warning', takeover_audit: { status: 'warning' } }
     }),
     'warning'
   );

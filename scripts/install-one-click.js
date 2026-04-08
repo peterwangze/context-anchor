@@ -434,6 +434,41 @@ function buildInstallVerification(configuration, sessionUpgrade) {
   };
 }
 
+function summarizeInstallHealthStatus({ verification, configuration, sessionUpgrade }) {
+  const configurationHealth = configuration?.health_status || null;
+  const sessionUpgradeStatus = sessionUpgrade?.status || null;
+  const sessionUpgradeHealth = sessionUpgrade?.health_status || null;
+  const takeoverStatus = sessionUpgrade?.takeover_audit?.status || configuration?.takeover_audit?.status || null;
+  const hostAuditStatus = sessionUpgrade?.host_takeover_audit?.status || configuration?.host_takeover_audit?.status || null;
+  const profileAuditStatus = sessionUpgrade?.profile_takeover_audit?.status || configuration?.profile_takeover_audit?.status || null;
+  const memoryTakeoverMode = configuration?.memory_takeover?.mode || null;
+
+  if (
+    verification?.status === 'needs_attention' ||
+    configurationHealth === 'warning' ||
+    sessionUpgradeHealth === 'warning' ||
+    sessionUpgradeStatus === 'warning' ||
+    takeoverStatus === 'warning' ||
+    hostAuditStatus === 'warning' ||
+    profileAuditStatus === 'warning'
+  ) {
+    return 'warning';
+  }
+
+  if (
+    configurationHealth === 'notice' ||
+    sessionUpgradeHealth === 'notice' ||
+    takeoverStatus === 'notice' ||
+    hostAuditStatus === 'notice' ||
+    profileAuditStatus === 'notice' ||
+    memoryTakeoverMode === 'best_effort'
+  ) {
+    return 'notice';
+  }
+
+  return 'ok';
+}
+
 function dirHasFiles(targetDir) {
   if (!pathExists(targetDir)) {
     return false;
@@ -773,8 +808,16 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
     });
   }
 
+  const verification = buildInstallVerification(configuration, sessionUpgrade);
+  const healthStatus = summarizeInstallHealthStatus({
+    verification,
+    configuration,
+    sessionUpgrade
+  });
+
   return {
     status: 'installed',
+    health_status: healthStatus,
     previous_install_detected: state.has_install_artifacts,
     previous_memory_detected: state.has_memory_data,
     preserved_memories: preserveMemories,
@@ -782,7 +825,7 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
     configuration,
     session_upgrade: sessionUpgrade,
     mirror_rebuild: mirrorRebuild,
-    verification: buildInstallVerification(configuration, sessionUpgrade),
+    verification,
     takeover_audit: sessionUpgrade?.takeover_audit || configuration?.takeover_audit || null,
     host_takeover_audit: sessionUpgrade?.host_takeover_audit || configuration?.host_takeover_audit || null,
     profile_takeover_audit: sessionUpgrade?.profile_takeover_audit || configuration?.profile_takeover_audit || null
@@ -792,17 +835,27 @@ async function runOneClickInstall(openClawHomeArg, skillsRootArg, options = {}) 
 function renderInstallReport(result) {
   const lines = [];
   const verification = result.verification || {};
+  const healthStatus = result.health_status || 'unknown';
   const verificationKind =
     verification.status === 'verified'
       ? 'success'
       : verification.status === 'needs_attention'
       ? 'warning'
       : 'info';
+  const healthKind =
+    healthStatus === 'warning'
+      ? 'warning'
+      : healthStatus === 'notice'
+      ? 'info'
+      : healthStatus === 'ok'
+      ? 'success'
+      : 'muted';
   const upgradedSessions = Number(result.session_upgrade?.upgraded_sessions || 0);
   const unresolvedSessions = Number(result.session_upgrade?.unresolved_sessions || 0);
 
   lines.push(section('Context-Anchor Installation', { kind: verificationKind }));
   lines.push(field('Status', status(String(result.status || 'installed').toUpperCase(), verificationKind), { kind: verificationKind }));
+  lines.push(field('Health', status(String(healthStatus || 'unknown').toUpperCase(), healthKind), { kind: healthKind }));
   lines.push(
     field(
       'Install flow',
@@ -929,5 +982,6 @@ module.exports = {
   createCliProgressReporter,
   detectExistingState,
   renderInstallReport,
-  runOneClickInstall
+  runOneClickInstall,
+  summarizeInstallHealthStatus
 };

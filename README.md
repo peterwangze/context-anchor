@@ -371,6 +371,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 `configure-host.js` 和 `configure-sessions.js` 现在还会返回 `verification`。  
 如果这次 repair 没有真正把目标状态修到位，结果里会直接显示 `verification.status = needs_attention`，并附带 `recheck_command`，避免用户执行完修复后还要自己猜有没有生效。
 现在 `verification` 里还会带 `readiness_transition.before / after`，直接告诉你这次 repair 前后到底有没有把 attention session、drift workspace 或 host readiness 改善掉。
+本轮开始，`configure-host.js`、`configure-sessions.js`、`install-one-click.js` 还会额外返回 `health_status = ok|notice|warning`：用来直接表示“当前整体是否已经健康”，避免顶层 `status = configured|installed|ok` 和真实验证状态混在一起。
 
 `upgrade-sessions.js` 现在也会返回 `verification` 和 `verification_report`，`install-one-click.js` 会在顶层聚合成自己的 `verification`。  
 这样升级或一键安装结束后，你可以直接看“这轮是否已经验证通过”，而不是只看到 audit 告警再自己手工补检查。
@@ -411,6 +412,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 `doctor.js` 现在默认也会直接输出一份更友好的文本摘要视图；如果你仍然需要完整 JSON，再显式加 `--json`。  
 如果当前存在手工外部问题，文本摘要里还会直接显示 `External issues:`，例如 `workspace_registration_missing` 或 `workspace_path_unresolved`，减少用户自己猜是哪类外部问题。
 对于这类外部问题，`doctor` 文本摘要现在还会直接给出 `Guidance` 和 `Example command`，方便用户按具体问题类型落地处理。
+同时 `doctor.js` 的顶层 `status` 现在也会区分 `ok / notice / warning`：当 profile 当前可用但仍有待补齐事项时，会返回 `notice`，而不是误报 `ok`。
 
 如果你希望比定时 workspace monitor 更快地收敛外部 `MEMORY.md` / `memory/*.md` 变化，现在还可以直接运行：
 

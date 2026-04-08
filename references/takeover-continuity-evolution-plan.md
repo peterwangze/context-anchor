@@ -259,18 +259,23 @@
   - 当前如果 profile 已可用但 workspace drift audit 尚未选定，或同级 profile 仍处于 `best_effort`，结果会返回 `notice`
   - `doctor` 文本摘要现在也会直接显示顶层 `Status`
   - 已补充自动化测试，覆盖 doctor 顶层状态分级与文本可见性
+- `2026-04-08`
+  - `configure-host / configure-sessions / install-one-click` 已开始统一返回 `health_status = ok|notice|warning`
+  - 当前顶层动作状态与整体健康状态已开始显式拆开，避免 `configured / installed` 与真实验证结果混淆
+  - `Stage 5` 主线中的 strict remediation / verify / recheck / auto-fix / resume / health visibility 已基本收口
+  - 已补充自动化测试，覆盖 configure/install health status 分级
 
 当前仍未完成的重点：
 
 - 任务连续性已经有基础 goal/result/next-step 模型，但还没有完全收敛到严格 repair / diagnose 闭环
-- 严格模式还没有形成完整的 drift 告警与自动修复闭环
+- 严格接管模式的后续增强仍有空间，但 Stage 5 主线闭环已基本完成
 
 下一步建议：
 
-1. 继续并行推进 `Stage 2 / Stage 4 / Stage 5`
-2. 其中优先收口 `Stage 5：严格模式与自动修复闭环`，因为它最直接影响用户的低感知、低误导与自助修复体验
-3. 同步把 `Stage 4：任务连续性模型` 继续向 strict repair / diagnose 闭环靠拢，避免外层修复体验领先任务态内核过多
-4. `Stage 2：接管能力强化` 保持持续补洞，重点收口 strict-mode 下的 takeover / drift repair 闭环
+1. 继续并行推进 `Stage 2 / Stage 4`
+2. 优先把 `Stage 4：任务连续性模型` 继续向 strict repair / diagnose 闭环靠拢，避免任务态内核落后于外层修复体验
+3. `Stage 2：接管能力强化` 保持持续补洞，重点收口 strict-mode 下的 takeover / drift repair 闭环
+4. `Stage 5` 后续只作为增强线，继续扩展 manual/confirm 场景映射、候选建议和偏好演化
 
 后续每一轮开发完成后，都应更新本节，至少补：
 
@@ -312,7 +317,7 @@
 当前仍未完成的关键问题：
 
 - 任务连续性仍偏“材料恢复”，还不够“状态恢复”
-- 严格接管模式还没有形成完整的 drift 告警、强约束和自动修复闭环
+- 严格接管模式主线闭环已完成，但后续增强仍可继续扩展更多 manual/confirm 场景与偏好演化
 - 计划文档中的阶段优先级描述，已经需要显式反映当前 `Stage 2 / 4 / 5` 并行推进的现实状态
 
 ## 总目标
@@ -474,7 +479,7 @@
 
 状态：
 
-- `进行中`
+- `已完成`
 - 已完成部分：
   - `configure-host / install-one-click / upgrade-sessions` 已执行接管一致性回读审计
   - enforced 模式下的 external drift 已提升为明确 warning
@@ -658,8 +663,10 @@
   - upgrade unresolved target 现在也开始复用 confirm-only resume 闭环，而不是只停在外部环境提示
   - upgrade 顶层状态现在也开始避免误导，不再在 verification / audit 仍异常时返回 `ok`
   - doctor 顶层状态现在也开始避免误导，不再把可继续但仍需补齐的 notice 场景误报成 `ok`
-- 仍待完成：
-  - strict-mode auto-fix 还缺少更多 manual/confirm 场景来源映射、更多参数预填充、交互补参、更丰富的参数候选建议与可学习偏好演化
+  - `configure-host / configure-sessions / install-one-click` 已开始补齐统一 `health_status = ok|notice|warning`
+- 后续增强：
+  - strict-mode auto-fix 仍可继续补更多 manual/confirm 场景来源映射
+  - 仍可继续增强参数预填充、交互补参、更丰富的参数候选建议与可学习偏好演化
 
 ## 测试设计
 
