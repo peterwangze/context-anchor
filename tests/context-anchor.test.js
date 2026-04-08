@@ -3809,6 +3809,52 @@ test('status report recommends repairing task state when continuity is incomplet
   }
 });
 
+test('status report treats result-only task continuity as complete and does not route to repair', async () => {
+  const workspace = makeWorkspace();
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      const openClawHome = path.join(workspace, 'openclaw-home');
+      const hostConfigFile = getHostConfigFile(openClawHome);
+      fs.mkdirSync(path.dirname(hostConfigFile), { recursive: true });
+      writeJson(hostConfigFile, {
+        defaults: {
+          user_id: 'default-user',
+          workspace
+        },
+        onboarding: {
+          auto_register_workspaces: true,
+          memory_takeover_mode: 'enforced'
+        },
+        users: [{ user_id: 'default-user' }],
+        workspaces: [{ workspace, user_id: 'default-user', project_id: 'demo' }],
+        sessions: []
+      });
+
+      runSessionStart(workspace, 'completed-task-report', 'demo', { userId: 'default-user' });
+      const paths = createPaths(workspace);
+      const runtimeFile = runtimeStateFile(paths, 'completed-task-report');
+      const runtimeState = readJson(runtimeFile, {});
+      runtimeState.current_goal = null;
+      runtimeState.latest_verified_result = 'validated retry direction';
+      runtimeState.next_step = null;
+      runtimeState.blocked_by = null;
+      runtimeState.last_user_visible_progress = 'validated retry direction';
+      writeJson(runtimeFile, runtimeState);
+
+      const report = runStatusReport(workspace, 'completed-task-report', 'demo', 'default-user');
+      const rendered = renderStatusReportText(report);
+
+      assert.equal(report.session.task_state_health.status, 'complete');
+      assert.equal(report.recommended_action.type, 'none');
+      assert.match(rendered, /COMPLETE/);
+      assert.match(rendered, /reference-only progress/i);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('task-state health classifies missing goal and next step distinctly', () => {
   const summary = assessTaskStateHealth({
     visible: true,
@@ -3820,6 +3866,21 @@ test('task-state health classifies missing goal and next step distinctly', () =>
 
   assert.equal(summary.status, 'partial');
   assert.deepEqual(summary.issues, ['task_state_missing_goal_and_next_step']);
+});
+
+test('task-state health classifies reference-only completed continuity as complete', () => {
+  const { assessTaskStateHealth } = require('../scripts/lib/task-state');
+  const summary = assessTaskStateHealth({
+    visible: true,
+    current_goal: null,
+    next_step: null,
+    blocked_by: null,
+    latest_verified_result: 'validated retry direction',
+    last_user_visible_progress: 'captured retry constraints'
+  });
+
+  assert.equal(summary.status, 'complete');
+  assert.deepEqual(summary.issues, []);
 });
 
 test('session status adds heartbeat follow-up when next step continuity is missing', () => {
@@ -6055,6 +6116,15 @@ test('session-start does not carry forward stale active task from a closed sessi
         reason: 'command-reset'
       });
 
+      const previousRuntimeFile = runtimeStateFile(createPaths(workspace), 'finished-session');
+      const previousRuntime = readJson(previousRuntimeFile, {});
+      previousRuntime.current_goal = 'stale task from older round';
+      previousRuntime.latest_verified_result = 'completed sqlite mirror rollout';
+      previousRuntime.next_step = null;
+      previousRuntime.blocked_by = null;
+      previousRuntime.last_user_visible_progress = 'completed sqlite mirror rollout';
+      writeJson(previousRuntimeFile, previousRuntime);
+
       const result = runSessionStart(workspace, 'next-session', 'demo');
 
       assert.equal(result.session.continued_from, 'finished-session');
@@ -6062,6 +6132,11 @@ test('session-start does not carry forward stale active task from a closed sessi
       assert.equal(result.recovery.pending_commitments.length, 0);
       assert.equal(result.recovery.continuity.inherited_active_task, false);
       assert.equal(result.recovery.continuity.reference_only, true);
+      assert.equal(result.recovery.continuity_summary.restored_goal, null);
+      assert.equal(result.recovery.continuity_summary.next_step, null);
+      assert.equal(result.recovery.continuity_summary.latest_result, 'completed sqlite mirror rollout');
+      assert.equal(result.recovery.task_state_summary.current_goal, null);
+      assert.equal(result.recovery.task_state_summary.next_step, null);
     });
   } finally {
     cleanupWorkspace(workspace);

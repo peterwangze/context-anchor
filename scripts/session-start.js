@@ -159,16 +159,19 @@ function summarizeContinuationNextStep(sessionState = {}, continuationSource = n
 }
 
 function buildContinuitySummary(sessionState = {}, continuationSource = null, continuityRestoration = {}) {
+  const referenceOnly = Boolean(continuityRestoration.reference_only);
   const restoredGoal =
-    continuationSource?.current_goal ||
-    sessionState.active_task ||
-    continuationSource?.active_task ||
-    null;
+    referenceOnly
+      ? null
+      : continuationSource?.current_goal ||
+        sessionState.active_task ||
+        continuationSource?.active_task ||
+        null;
   const latestResult =
     continuationSource?.latest_verified_result ||
     summarizeContinuationLatestResult(continuationSource);
-  const nextStep = summarizeContinuationNextStep(sessionState, continuationSource);
-  const blockedBy = continuationSource?.blocked_by || null;
+  const nextStep = referenceOnly ? null : summarizeContinuationNextStep(sessionState, continuationSource);
+  const blockedBy = referenceOnly ? null : continuationSource?.blocked_by || null;
   const lastUserVisibleProgress = continuationSource?.last_user_visible_progress || latestResult;
   const recoveredAssets = continuationSource
     ? {
@@ -193,7 +196,7 @@ function buildContinuitySummary(sessionState = {}, continuationSource = null, co
     next_step: nextStep,
     blocked_by: blockedBy,
     last_user_visible_progress: lastUserVisibleProgress,
-    reference_only: Boolean(continuityRestoration.reference_only),
+    reference_only: referenceOnly,
     recovered_before_restore: Boolean(continuityRestoration.recovered_before_restore),
     recovered_assets: recoveredAssets,
     visible:

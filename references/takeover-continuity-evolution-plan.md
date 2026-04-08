@@ -264,18 +264,21 @@
   - 当前顶层动作状态与整体健康状态已开始显式拆开，避免 `configured / installed` 与真实验证结果混淆
   - `Stage 5` 主线中的 strict remediation / verify / recheck / auto-fix / resume / health visibility 已基本收口
   - 已补充自动化测试，覆盖 configure/install health status 分级
+- `2026-04-08`
+  - `task continuity health` 已开始显式区分 `COMPLETE`
+  - 当前如果只剩最新完成结果 / 最近用户可见进展，而没有活动 goal / next step / blocked state，会按参考连续性处理
+  - 已完成任务不再被误判为需要 repair 的不完整任务态
+  - 已补充自动化测试，覆盖 reference-only continuity 与 completed task-state classification
 
 当前仍未完成的重点：
 
-- 任务连续性已经有基础 goal/result/next-step 模型，但还没有完全收敛到严格 repair / diagnose 闭环
 - 严格接管模式的后续增强仍有空间，但 Stage 5 主线闭环已基本完成
 
 下一步建议：
 
-1. 继续并行推进 `Stage 2 / Stage 4`
-2. 优先把 `Stage 4：任务连续性模型` 继续向 strict repair / diagnose 闭环靠拢，避免任务态内核落后于外层修复体验
-3. `Stage 2：接管能力强化` 保持持续补洞，重点收口 strict-mode 下的 takeover / drift repair 闭环
-4. `Stage 5` 后续只作为增强线，继续扩展 manual/confirm 场景映射、候选建议和偏好演化
+1. 继续推进 `Stage 2：接管能力强化`
+2. `Stage 5` 后续只作为增强线，继续扩展 manual/confirm 场景映射、候选建议和偏好演化
+3. `Stage 4` 后续如继续增强，重点放在任务态摘要质量与参考连续性的可解释性，而不是再补主线闭环
 
 后续每一轮开发完成后，都应更新本节，至少补：
 
@@ -316,7 +319,7 @@
 
 当前仍未完成的关键问题：
 
-- 任务连续性仍偏“材料恢复”，还不够“状态恢复”
+- 任务连续性主线闭环已完成，但仍可继续增强摘要质量与参考连续性的可解释性
 - 严格接管模式主线闭环已完成，但后续增强仍可继续扩展更多 manual/confirm 场景与偏好演化
 - 计划文档中的阶段优先级描述，已经需要显式反映当前 `Stage 2 / 4 / 5` 并行推进的现实状态
 
@@ -577,7 +580,7 @@
 
 状态：
 
-- `进行中`
+- `已完成`
 - 已完成部分：
   - runtime state 已增加 `current_goal`
   - runtime state 已增加 `latest_verified_result`
@@ -592,20 +595,21 @@
   - bootstrap / startup resume 已进一步优先展示任务态摘要
   - `sessions-status / sessions-diagnose` 已按 workspace 显示 `task continuity`
   - `sessions-status / sessions-diagnose / status-report` 已开始显式区分 `task continuity health`
-  - 当前已显式区分 `READY / PARTIAL / MISSING`
+  - 当前已显式区分 `READY / COMPLETE / PARTIAL / MISSING`
   - `status-report / sessions-diagnose` 已开始把 `task continuity health` 缺口纳入 repair 路由
   - 当前已开始显式给出 `repair task state -> recheck`
   - `task continuity health` 现在已开始继续细分到 `missing goal / missing next step / missing goal+next step`
   - repair strategy 现在会随 task-state 缺口类型输出更细粒度标签
   - 当缺的是 `next step` 或 `goal+next step` 时，repair 路由现在会继续带出一次 `heartbeat` follow-up
   - `status-report / sessions-status / sessions-diagnose` 现在会按 task-state 缺口类型输出更具体的 remediation guidance
+  - 参考连续性的已完成任务现在会返回 `COMPLETE`，不再被误判为需要 repair 的不完整任务态
   - 已补充自动化测试，覆盖 next-step 缺口的 follow-up heartbeat
   - 已补充自动化测试，覆盖 task-state 缺口分类
   - 已补充自动化测试，覆盖 task-state remediation 可见性
   - 已补充自动化测试，覆盖 task continuity health 可见性
   - 已补充自动化测试，覆盖 runtime task-state update 与 continuity restore
-- 仍待完成：
-  - 任务态字段还需要继续向更严格的 repair / diagnose 闭环靠拢
+- 后续增强：
+  - 继续优化任务态摘要质量与 reference-only continuity 的可解释性
 
 ## Stage 5：严格模式与自动修复闭环
 

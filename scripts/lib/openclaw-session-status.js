@@ -294,7 +294,7 @@ function renderTaskContinuityHealth(summary) {
     return null;
   }
 
-  const kind = summary.status === 'ready' ? 'success' : 'warning';
+  const kind = summary.status === 'ready' || summary.status === 'complete' ? 'success' : 'warning';
   return `${status(String(summary.status).toUpperCase(), kind)} | ${summary.summary}`;
 }
 
@@ -1501,7 +1501,7 @@ function renderOpenClawSessionStatusReport(report) {
     }
     const taskHealthLine = renderTaskContinuityHealth(group.task_state_health);
     if (taskHealthLine) {
-      lines.push(field('Task continuity health', taskHealthLine, { indent: 2, kind: group.task_state_health?.status === 'ready' ? 'success' : 'warning' }));
+      lines.push(field('Task continuity health', taskHealthLine, { indent: 2, kind: ['ready', 'complete'].includes(group.task_state_health?.status) ? 'success' : 'warning' }));
     }
     const benefitLine = renderVisibleSummaryLine(
       'Last benefit',
@@ -1581,7 +1581,7 @@ function renderOpenClawSessionStatusReport(report) {
     lines.push('');
   }
 
-  lines.push(field('Legend', 'READY = linked session state and host registration; PARTIAL = only one side is present; ON = hook is enabled; RUNNING = monitor task is active; CONFIGURED = monitor assets exist but the scheduler is idle/queued; DRIFT = external memory files changed after the last central sync.', { kind: 'muted' }));
+  lines.push(field('Legend', 'READY = active task continuity is fully restorable; COMPLETE = previous task is finished and kept as reference-only continuity; PARTIAL = only part of the active task state is visible; ON = hook is enabled; RUNNING = monitor task is active; CONFIGURED = monitor assets exist but the scheduler is idle/queued; DRIFT = external memory files changed after the last central sync.', { kind: 'muted' }));
 
   return lines.join('\n');
 }
@@ -1611,7 +1611,7 @@ function renderOpenClawSessionDiagnosisReport(report) {
       }
       const taskHealthLine = renderTaskContinuityHealth(group.task_state_health);
       if (taskHealthLine) {
-        lines.push(field('Task continuity health', taskHealthLine, { indent: 2, kind: group.task_state_health?.status === 'ready' ? 'success' : 'warning' }));
+        lines.push(field('Task continuity health', taskHealthLine, { indent: 2, kind: ['ready', 'complete'].includes(group.task_state_health?.status) ? 'success' : 'warning' }));
       }
       const benefitLine = renderVisibleSummaryLine(
         'Last benefit',
@@ -1702,7 +1702,7 @@ function renderOpenClawSessionDiagnosisReport(report) {
     }
     const taskHealthLine = renderTaskContinuityHealth(group.task_state_health);
     if (taskHealthLine) {
-      lines.push(field('Task continuity health', taskHealthLine, { indent: 2, kind: group.task_state_health?.status === 'ready' ? 'success' : 'warning' }));
+      lines.push(field('Task continuity health', taskHealthLine, { indent: 2, kind: ['ready', 'complete'].includes(group.task_state_health?.status) ? 'success' : 'warning' }));
     }
     const benefitLine = renderVisibleSummaryLine(
       'Last benefit',

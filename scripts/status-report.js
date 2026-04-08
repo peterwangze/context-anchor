@@ -149,6 +149,8 @@ function renderStatusReportText(report) {
     const healthKind =
       report.session.task_state_health.status === 'ready'
         ? 'success'
+        : report.session.task_state_health.status === 'complete'
+        ? 'success'
         : report.session.task_state_health.status === 'partial'
         ? 'warning'
         : 'warning';
@@ -468,7 +470,7 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
               summary: 'Enforce takeover first, then rerun status-report.'
             }
           }
-        : taskStateHealth.status !== 'ready'
+        : !['ready', 'complete'].includes(taskStateHealth.status)
         ? {
             type: 'repair_task_state',
             priority: 'medium',

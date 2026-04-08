@@ -73,9 +73,15 @@ function buildTaskStateSummary(state = {}) {
     Boolean(nextStep) ||
     Boolean(blockedBy) ||
     Boolean(lastUserVisibleProgress);
+  const mode = !visible
+    ? 'missing'
+    : currentGoal || nextStep || blockedBy
+    ? 'active'
+    : 'reference_only';
 
   return {
     visible,
+    mode,
     current_goal: currentGoal,
     latest_verified_result: latestVerifiedResult,
     next_step: nextStep,
@@ -107,7 +113,17 @@ function assessTaskStateHealth(summary = {}) {
     return {
       status: 'missing',
       issues: ['task_state_missing'],
-      summary: 'No visible task-state continuity is available yet.'
+      summary: 'No visible task-state continuity is available yet.',
+      remediation_focus: 'restore_task_state'
+    };
+  }
+
+  if (!currentGoal && !nextStep && !blockedBy && (latestVerifiedResult || lastUserVisibleProgress)) {
+    return {
+      status: 'complete',
+      issues: [],
+      remediation_focus: 'none',
+      summary: 'Previous task appears completed; continuity is available as reference-only progress.'
     };
   }
 
