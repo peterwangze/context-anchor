@@ -1010,6 +1010,15 @@ function renderDoctorRemediationSummary(remediationSummary = {}) {
 
 function renderDoctorReport(report) {
   const lines = [];
+  const reportStatus = String(report.status || 'unknown').toUpperCase();
+  const reportKind =
+    report.status === 'warning'
+      ? 'warning'
+      : report.status === 'notice'
+      ? 'info'
+      : report.status === 'ok'
+      ? 'success'
+      : 'muted';
   const takeoverLabel =
     String(report.configuration.memory_takeover_mode || 'best_effort').toLowerCase() === 'best_effort'
       ? 'BEST EFFORT'
@@ -1024,6 +1033,7 @@ function renderDoctorReport(report) {
       : String(report.memory_sources.health?.status || 'unknown').replace(/_/g, ' ').toUpperCase();
   lines.push(section('Context-Anchor Doctor'));
   lines.push(field('Platform', report.platform_label, { kind: 'muted' }));
+  lines.push(field('Status', status(reportStatus, reportKind), { kind: reportKind }));
   lines.push(
     field(
       'Readiness',
@@ -1056,6 +1066,32 @@ function renderDoctorReport(report) {
     lines.push(field('Sync command', command(report.commands.sync_legacy_memory), { kind: 'command' }));
   }
   return lines.join('\n');
+}
+
+function summarizeDoctorRunStatus({
+  installation,
+  configuration,
+  memorySourceHealth,
+  hostTakeoverAudit,
+  profileTakeoverAudit
+}) {
+  const memoryStatus = String(memorySourceHealth?.status || 'unknown').toLowerCase();
+  const hostStatus = String(hostTakeoverAudit?.status || 'unknown').toLowerCase();
+  const profileStatus = String(profileTakeoverAudit?.status || 'unknown').toLowerCase();
+
+  if (!installation?.ready || !configuration?.ready) {
+    return 'warning';
+  }
+
+  if (memoryStatus === 'drift_detected' || hostStatus === 'warning' || profileStatus === 'warning') {
+    return 'warning';
+  }
+
+  if (memoryStatus === 'best_effort' || memoryStatus === 'unknown' || hostStatus === 'notice' || profileStatus === 'notice') {
+    return 'notice';
+  }
+
+  return 'ok';
 }
 
 function runDoctor(options = {}) {
@@ -1184,14 +1220,13 @@ function runDoctor(options = {}) {
   });
 
   return {
-    status:
-      installation.ready &&
-      configuration.ready &&
-      !memorySourceHealth.drift_detected &&
-      hostTakeoverAudit.status !== 'warning' &&
-      profileTakeoverAudit.status !== 'warning'
-        ? 'ok'
-        : 'warning',
+    status: summarizeDoctorRunStatus({
+      installation,
+      configuration,
+      memorySourceHealth,
+      hostTakeoverAudit,
+      profileTakeoverAudit
+    }),
     platform: process.platform,
     platform_label: platformLabel(process.platform),
     paths: {
@@ -1351,5 +1386,6 @@ module.exports = {
   runDoctor,
   runHostTakeoverAudit,
   runProfileTakeoverAudit,
-  runTakeoverAudit
+  runTakeoverAudit,
+  summarizeDoctorRunStatus
 };

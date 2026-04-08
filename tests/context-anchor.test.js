@@ -75,7 +75,7 @@ const { runMemorySave } = require('../scripts/memory-save');
 const { runHeartbeat } = require('../scripts/heartbeat');
 const { runHeatEvaluation } = require('../scripts/heat-eval');
 const { runMemorySearch } = require('../scripts/memory-search');
-const { renderDoctorReport, runDoctor } = require('../scripts/doctor');
+const { renderDoctorReport, runDoctor, summarizeDoctorRunStatus } = require('../scripts/doctor');
 const { discoverOpenClawSessions } = require('../scripts/lib/openclaw-session-discovery');
 const {
   buildActionCommands,
@@ -4827,8 +4827,9 @@ test('doctor reports installed absolute paths and wrapper returns a helpful payl
         addWorkspaces: []
       });
       const doctor = runDoctor({ openclawHome: openClawHome });
+      const rendered = renderDoctorReport(doctor);
 
-      assert.equal(doctor.status, 'ok');
+      assert.equal(doctor.status, 'notice');
       assert.equal(doctor.installation.ready, true);
       assert.equal(doctor.paths.hook_handler, result.hook_handler);
       assert.equal(doctor.paths.monitor_script, result.monitor_script);
@@ -4840,6 +4841,8 @@ test('doctor reports installed absolute paths and wrapper returns a helpful payl
       assert.ok(!doctor.configuration.missing.includes('memory_takeover_mode'));
       assert.ok(doctor.commands.hook_with_payload_file.includes(result.hook_handler));
       assert.match(doctor.commands.rebuild_mirror, /mirror-rebuild\.js/);
+      assert.match(rendered, /Status:/);
+      assert.match(rendered, /NOTICE/);
 
       assert.throws(
         () => execFileSync(process.execPath, [result.hook_handler, 'heartbeat', '{broken-json'], { encoding: 'utf8' }),
@@ -4852,6 +4855,39 @@ test('doctor reports installed absolute paths and wrapper returns a helpful payl
   } finally {
     cleanupWorkspace(workspace);
   }
+});
+
+test('doctor status summary distinguishes ok, notice, and warning states', () => {
+  assert.equal(
+    summarizeDoctorRunStatus({
+      installation: { ready: true },
+      configuration: { ready: true },
+      memorySourceHealth: { status: 'single_source' },
+      hostTakeoverAudit: { status: 'ok' },
+      profileTakeoverAudit: { status: 'ok' }
+    }),
+    'ok'
+  );
+  assert.equal(
+    summarizeDoctorRunStatus({
+      installation: { ready: true },
+      configuration: { ready: true },
+      memorySourceHealth: { status: 'workspace_required' },
+      hostTakeoverAudit: { status: 'notice' },
+      profileTakeoverAudit: { status: 'ok' }
+    }),
+    'notice'
+  );
+  assert.equal(
+    summarizeDoctorRunStatus({
+      installation: { ready: true },
+      configuration: { ready: true },
+      memorySourceHealth: { status: 'drift_detected' },
+      hostTakeoverAudit: { status: 'ok' },
+      profileTakeoverAudit: { status: 'ok' }
+    }),
+    'warning'
+  );
 });
 
 test('doctor builds remediation summary without crashing when openclaw-home is included in resume context', async () => {

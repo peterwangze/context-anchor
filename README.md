@@ -259,6 +259,12 @@ node scripts/configure-sessions.js
 node scripts/doctor.js
 ```
 
+`doctor.js` 的顶层 `status` 现在会区分 `ok / notice / warning`：
+
+- `ok`：当前 profile、workspace drift 和同级 profile 审计都没有明显问题
+- `notice`：当前还能继续用，但仍有需要主动补齐的事项，例如还没选中 workspace 做 drift audit，或者同级 profile 仍在 `best_effort`
+- `warning`：当前存在会直接影响接管一致性或恢复可信度的问题，例如 drift、profile 未就绪，或 takeover audit 明确告警
+
 ```bash
 node scripts/doctor.js --openclaw-home "D:/openclaw-home" --skills-root "D:/openclaw-home/skills"
 ```
