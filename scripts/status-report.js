@@ -166,6 +166,9 @@ function renderStatusReportText(report) {
         `${report.remediation_summary.next_step.summary ? ` - ${report.remediation_summary.next_step.summary}` : ''}`,
       { kind: report.remediation_summary.next_step.execution_mode === 'manual' ? 'warning' : 'info' }
     ));
+    if (report.remediation_summary.next_step.affected_targets_summary) {
+      lines.push(field('Affected targets', report.remediation_summary.next_step.affected_targets_summary, { kind: 'muted' }));
+    }
   }
   if (
     report.remediation_summary?.next_step?.execution_mode !== 'manual' &&

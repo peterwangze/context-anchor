@@ -550,6 +550,7 @@ function buildHostTakeoverAudit(options = {}) {
             autoFixableProblems.map((entry) => entry.recommended_action),
             aggregateRecheckCommand
           ),
+          affected_targets: autoFixableProblems.map((entry) => entry.workspace),
           repair_strategy: buildRepairStrategy('repair_registered_workspaces_then_recheck', {
             workspace: options.selectedWorkspace || null,
             openClawHome: options.openClawHome,
@@ -860,6 +861,7 @@ function buildProfileTakeoverAudit(options = {}) {
             autoFixableProfiles.map((entry) => entry.recommended_action),
             aggregateRecheckCommand
           ),
+          affected_targets: autoFixableProfiles.map((entry) => entry.openclaw_home),
           repair_strategy: buildRepairStrategy('repair_profile_family_then_recheck', {
             openClawHome: options.openClawHome,
             skillsRoot: options.skillsRoot
@@ -1070,6 +1072,9 @@ function renderDoctorRemediationSummary(remediationSummary = {}) {
         { kind: remediationSummary.next_step.execution_mode === 'manual' ? 'warning' : 'info' }
       )
     );
+    if (remediationSummary.next_step.affected_targets_summary) {
+      lines.push(field('Affected targets', remediationSummary.next_step.affected_targets_summary, { kind: 'muted' }));
+    }
     if (remediationSummary.next_step.resolution_hint) {
       lines.push(field('Guidance', remediationSummary.next_step.resolution_hint, { kind: 'muted' }));
     }

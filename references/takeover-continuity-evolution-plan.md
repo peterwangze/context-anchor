@@ -274,6 +274,10 @@
   - 当前如果同时有多个 drift workspace 或多个 sibling profile 需要处理，会直接给出批量 repair -> recheck 闭环
   - strict-mode 下的 takeover / drift repair 不再只停在“先修第一个问题”
   - 已补充自动化测试，覆盖多 workspace / 多 profile 的聚合 repair sequence
+- `2026-04-09`
+  - 聚合 takeover / drift repair 现在已开始显式输出 `Affected targets`
+  - 当前用户在执行批量 repair / auto-fix 前，可以直接看到将影响哪些 workspace 或 sibling profile
+  - 已补充自动化测试，覆盖聚合 repair 的 affected target 可见性
 
 当前仍未完成的重点：
 

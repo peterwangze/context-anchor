@@ -358,6 +358,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 如果你已经开启强制接管，但外部记忆文件还在最近一次归并后继续变化，audit 会直接返回 warning 和推荐修复命令。  
 如果问题不在当前 workspace，而是在另一个已登记 workspace，`host_takeover_audit` 也会把它显示出来。
 如果同时有多个已登记 workspace 或多个 sibling profile 一起发生漂移，当前 audit 还会直接聚合出一条可执行的 repair path / auto-fix 链路，按问题顺序批量修复后再统一 recheck，而不再只给第一个问题路径。
+这类聚合修复现在还会直接显示 `Affected targets`，让你在执行 auto-fix 前就能看清这条修复链会影响哪些 workspace 或哪些 sibling profile。
 
 现在 `doctor.js` 还会输出 `profile_takeover_audit`，用来提示同级 OpenClaw profile 是否仍处于 `best_effort`、未完成配置，或者仍存在外部记忆漂移。
 `doctor.js` 的 `recommended_action` 现在也会带 `recheck_command` 和 `repair_sequence`，可以直接把 strict-mode 下的修复步骤串起来执行。

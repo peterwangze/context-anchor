@@ -905,6 +905,9 @@ function renderInstallReport(result) {
         { kind: verification.remediation_summary.next_step.execution_mode === 'manual' ? 'warning' : 'info' }
       )
     );
+    if (verification.remediation_summary.next_step.affected_targets_summary) {
+      lines.push(field('Affected targets', verification.remediation_summary.next_step.affected_targets_summary, { kind: 'muted' }));
+    }
   }
   if (
     verification.remediation_summary?.next_step?.execution_mode !== 'manual' &&

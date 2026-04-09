@@ -1283,6 +1283,9 @@ function renderCommandSummary(report) {
   if (nextStepLine) {
     lines.push(field('Next step', nextStepLine.replace(/^Next step:\s*/, ''), { kind: 'info' }));
   }
+  if (report.remediation_summary?.next_step?.affected_targets_summary) {
+    lines.push(field('Affected targets', report.remediation_summary.next_step.affected_targets_summary, { kind: 'muted' }));
+  }
   const autoFixPath = renderAutoFixPath(report.remediation_summary);
   if (autoFixPath) {
     lines.push(field('Auto fix path', autoFixPath, { kind: 'command' }));
@@ -1527,6 +1530,9 @@ function renderOpenClawSessionStatusReport(report) {
       if (nextStepLine) {
         lines.push(field('Next step', nextStepLine.replace(/^Next step:\s*/, ''), { indent: 2, kind: 'info' }));
       }
+      if (group.remediation_summary?.next_step?.affected_targets_summary) {
+        lines.push(field('Affected targets', group.remediation_summary.next_step.affected_targets_summary, { indent: 2, kind: 'muted' }));
+      }
       const autoFixPath = renderAutoFixPath(group.remediation_summary);
       if (autoFixPath) {
         lines.push(field('Auto fix path', autoFixPath, { indent: 2, kind: 'command' }));
@@ -1635,6 +1641,9 @@ function renderOpenClawSessionDiagnosisReport(report) {
       if (nextStepLine) {
         lines.push(field('Next step', nextStepLine.replace(/^Next step:\s*/, ''), { indent: 2, kind: 'info' }));
       }
+      if (group.remediation_summary?.next_step?.affected_targets_summary) {
+        lines.push(field('Affected targets', group.remediation_summary.next_step.affected_targets_summary, { indent: 2, kind: 'muted' }));
+      }
       const autoFixPath = renderAutoFixPath(group.remediation_summary);
       if (autoFixPath) {
         lines.push(field('Auto fix path', autoFixPath, { indent: 2, kind: 'command' }));
@@ -1726,6 +1735,9 @@ function renderOpenClawSessionDiagnosisReport(report) {
     const nextStepLine = renderRemediationNextStep(group.remediation_summary);
     if (nextStepLine) {
       lines.push(field('Next step', nextStepLine.replace(/^Next step:\s*/, ''), { indent: 2, kind: 'info' }));
+    }
+    if (group.remediation_summary?.next_step?.affected_targets_summary) {
+      lines.push(field('Affected targets', group.remediation_summary.next_step.affected_targets_summary, { indent: 2, kind: 'muted' }));
     }
     const autoFixPath = renderAutoFixPath(group.remediation_summary);
     if (autoFixPath) {

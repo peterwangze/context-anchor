@@ -514,6 +514,24 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
         ? null
         : confirmRequirement.resume_hint
       : null;
+  const affectedTargets = [...new Set(
+    (Array.isArray(strategy.affected_targets)
+      ? strategy.affected_targets
+      : Array.isArray(action?.affected_targets)
+      ? action.affected_targets
+      : []
+    )
+      .filter(Boolean)
+      .map((entry) => String(entry))
+  )];
+  const affectedTargetsSummary =
+    strategy.affected_targets_summary ||
+    action?.affected_targets_summary ||
+    (affectedTargets.length > 0
+      ? affectedTargets.length <= 3
+        ? affectedTargets.join(' | ')
+        : `${affectedTargets.slice(0, 3).join(' | ')} | +${affectedTargets.length - 3} more`
+      : null);
 
   return {
     source: source || 'unknown',
@@ -559,6 +577,8 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
       executionMode === 'manual' && manualSubtype !== 'external_environment'
         ? resumeValidation?.summary || null
         : null,
+    affected_targets: affectedTargets,
+    affected_targets_summary: affectedTargetsSummary,
     resolution_hint: strategy.resolution_hint || action?.resolution_hint || null,
     command_examples: Array.isArray(strategy.command_examples)
       ? strategy.command_examples.filter(Boolean)
@@ -626,7 +646,19 @@ function buildRemediationSummary(pairs = [], options = {}) {
     return acc;
   }, {});
   const recheckCommands = [...new Set(entries.map((entry) => entry.recheck_command).filter(Boolean))];
-  const nextStep = automatic[0] || manual[0] || null;
+  const rankNextStep = (entry) => {
+    const isNoop = ['none', 'recheck_only', 'unknown'].includes(String(entry?.type || '').toLowerCase()) ? 1 : 0;
+    const manualRank = entry?.execution_mode === 'manual' ? 1 : 0;
+    return isNoop * 100 + manualRank * 10;
+  };
+  const nextStep =
+    [...entries].sort((left, right) => {
+      const rankDelta = rankNextStep(left) - rankNextStep(right);
+      if (rankDelta !== 0) {
+        return rankDelta;
+      }
+      return 0;
+    })[0] || null;
 
   return {
     total: entries.length,

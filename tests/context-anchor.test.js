@@ -5279,14 +5279,19 @@ test('doctor host audit aggregates repair steps across multiple drift workspaces
       });
 
       const doctor = runDoctor({ openclawHome: openClawHome, workspace: primaryWorkspace });
+      const rendered = renderDoctorReport(doctor);
       const repairSequence = doctor.host_takeover_audit.recommended_action.repair_sequence || [];
 
       assert.equal(doctor.host_takeover_audit.status, 'warning');
       assert.equal(doctor.host_takeover_audit.drift_workspaces, 2);
       assert.equal(doctor.host_takeover_audit.recommended_action.repair_strategy.type, 'repair_registered_workspaces_then_recheck');
+      assert.deepEqual(doctor.remediation_summary.next_step.affected_targets, [secondaryWorkspaceA, secondaryWorkspaceB]);
       assert.ok(repairSequence.some((entry) => String(entry.command).includes(secondaryWorkspaceA)));
       assert.ok(repairSequence.some((entry) => String(entry.command).includes(secondaryWorkspaceB)));
       assert.equal(repairSequence.at(-1).step, 'recheck');
+      assert.match(rendered, /Affected targets:/);
+      assert.match(rendered, /secondary-project-a/);
+      assert.match(rendered, /secondary-project-b/);
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -5418,14 +5423,19 @@ test('doctor profile audit aggregates repair steps across multiple sibling profi
       });
 
       const doctor = runDoctor({ openclawHome: openClawHome, workspace: primaryWorkspace });
+      const rendered = renderDoctorReport(doctor);
       const repairSequence = doctor.profile_takeover_audit.recommended_action.repair_sequence || [];
 
       assert.equal(doctor.profile_takeover_audit.status, 'warning');
       assert.equal(doctor.profile_takeover_audit.drift_profiles, 2);
       assert.equal(doctor.profile_takeover_audit.recommended_action.repair_strategy.type, 'repair_profile_family_then_recheck');
+      assert.deepEqual(doctor.remediation_summary.next_step.affected_targets, [path.resolve(peerOpenClawHomeA), path.resolve(peerOpenClawHomeB)]);
       assert.ok(repairSequence.some((entry) => String(entry.command).includes(peerWorkspaceA)));
       assert.ok(repairSequence.some((entry) => String(entry.command).includes(peerWorkspaceB)));
       assert.equal(repairSequence.at(-1).step, 'recheck');
+      assert.match(rendered, /Affected targets:/);
+      assert.match(rendered, /openclaw-home-peer-a/);
+      assert.match(rendered, /openclaw-home-peer-b/);
     });
   } finally {
     cleanupWorkspace(workspace);
