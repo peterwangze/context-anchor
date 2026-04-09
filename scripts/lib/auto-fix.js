@@ -20,9 +20,13 @@ function recommendAutoFixStrategy(options = {}) {
 
   const isDriftFlow =
     actionType === 'sync_legacy_memory' ||
+    actionType === 'repair_registered_workspaces' ||
+    actionType === 'repair_profile_family' ||
     issues.includes('legacy_memory_never_synced') ||
     issues.includes('legacy_memory_changed_since_sync') ||
-    strategyType.includes('migrate_then');
+    strategyType.includes('migrate_then') ||
+    strategyType.includes('repair_registered_workspaces_then_recheck') ||
+    strategyType.includes('repair_profile_family_then_recheck');
 
   if (isDriftFlow) {
     return {

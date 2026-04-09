@@ -4407,6 +4407,66 @@ test('auto-fix keeps recheck in host-configuration flows by default', () => {
   assert.doesNotMatch(commandLine, /--skip-recheck/);
 });
 
+test('auto-fix treats aggregated registered-workspace drift repair as a drift flow', () => {
+  const strategy = recommendAutoFixStrategy({
+    actionType: 'repair_registered_workspaces',
+    strategyType: 'repair_registered_workspaces_then_recheck',
+    issues: ['registered_workspace_drift'],
+    hasFollowUp: false,
+    hasRecheck: true
+  });
+  const commandLine = buildAutoFixCommand(
+    [
+      { step: 'repair', command: 'npm run migrate:memory -- --workspace "D:/demo-a"' },
+      { step: 'repair', command: 'npm run migrate:memory -- --workspace "D:/demo-b"' },
+      { step: 'recheck', command: 'npm run doctor -- --workspace "D:/primary"' }
+    ],
+    {
+      workspace: 'D:/primary',
+      userId: 'alice',
+      actionType: 'repair_registered_workspaces',
+      strategyType: 'repair_registered_workspaces_then_recheck',
+      issues: ['registered_workspace_drift']
+    }
+  );
+
+  assert.equal(strategy.until, 'repair');
+  assert.equal(strategy.skipRecheck, true);
+  assert.equal(strategy.riskThreshold, 'high');
+  assert.match(commandLine, /--until repair/);
+  assert.match(commandLine, /--skip-recheck/);
+});
+
+test('auto-fix treats aggregated sibling-profile drift repair as a drift flow', () => {
+  const strategy = recommendAutoFixStrategy({
+    actionType: 'repair_profile_family',
+    strategyType: 'repair_profile_family_then_recheck',
+    issues: ['peer_profile_drift'],
+    hasFollowUp: false,
+    hasRecheck: true
+  });
+  const commandLine = buildAutoFixCommand(
+    [
+      { step: 'repair', command: 'npm run migrate:memory -- --workspace "D:/peer-a"' },
+      { step: 'repair', command: 'npm run migrate:memory -- --workspace "D:/peer-b"' },
+      { step: 'recheck', command: 'npm run doctor -- --openclaw-home "D:/primary-home"' }
+    ],
+    {
+      workspace: 'D:/primary',
+      userId: 'alice',
+      actionType: 'repair_profile_family',
+      strategyType: 'repair_profile_family_then_recheck',
+      issues: ['peer_profile_drift']
+    }
+  );
+
+  assert.equal(strategy.until, 'repair');
+  assert.equal(strategy.skipRecheck, true);
+  assert.equal(strategy.riskThreshold, 'high');
+  assert.match(commandLine, /--until repair/);
+  assert.match(commandLine, /--skip-recheck/);
+});
+
 test('auto-fix prefers repair-only defaults for workspace configuration recovery flows', () => {
   const strategy = recommendAutoFixStrategy({
     actionType: 'upgrade_verification',

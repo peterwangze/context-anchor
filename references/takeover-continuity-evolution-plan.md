@@ -278,6 +278,10 @@
   - 聚合 takeover / drift repair 现在已开始显式输出 `Affected targets`
   - 当前用户在执行批量 repair / auto-fix 前，可以直接看到将影响哪些 workspace 或 sibling profile
   - 已补充自动化测试，覆盖聚合 repair 的 affected target 可见性
+- `2026-04-09`
+  - 聚合 drift repair 的 `Auto fix command` 现在已开始复用 drift 流程默认策略
+  - 当前会优先停在 `repair`，默认跳过立即 `recheck`，进一步降低批量修复时的打断感
+  - 已补充自动化测试，覆盖 aggregated drift auto-fix strategy
 
 当前仍未完成的重点：
 
