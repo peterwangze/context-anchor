@@ -107,6 +107,50 @@ function buildRepairSequence(command, followUpCommand, recheckCommand) {
   ].filter(Boolean);
 }
 
+function buildActionSequence(action = {}) {
+  if (Array.isArray(action?.repair_sequence) && action.repair_sequence.length > 0) {
+    return action.repair_sequence
+      .map((entry) =>
+        entry?.command
+          ? {
+              step: entry.step || 'repair',
+              command: entry.command
+            }
+          : null
+      )
+      .filter(Boolean);
+  }
+
+  return buildRepairSequence(action?.command || null, action?.follow_up_command || null, action?.recheck_command || null);
+}
+
+function mergeRepairSequences(actions = [], recheckCommand = null) {
+  const merged = [];
+  const seen = new Set();
+
+  actions.forEach((action) => {
+    buildActionSequence(action)
+      .filter((entry) => entry.step !== 'recheck')
+      .forEach((entry) => {
+        const key = `${entry.step}::${entry.command}`;
+        if (seen.has(key)) {
+          return;
+        }
+        seen.add(key);
+        merged.push(entry);
+      });
+  });
+
+  if (recheckCommand) {
+    merged.push({
+      step: 'recheck',
+      command: recheckCommand
+    });
+  }
+
+  return merged;
+}
+
 function buildRepairStrategy(type, options = {}) {
   const workspace = options.workspace ? path.resolve(options.workspace) : null;
   const openclawHome = options.openClawHome || null;
@@ -147,6 +191,22 @@ function buildRepairStrategy(type, options = {}) {
         execution_mode: 'automatic',
         requires_manual_confirmation: false,
         summary: 'Repair host configuration first, then rerun doctor.'
+      };
+    case 'repair_registered_workspaces_then_recheck':
+      return {
+        type,
+        label: 'repair registered workspaces -> recheck',
+        execution_mode: 'automatic',
+        requires_manual_confirmation: false,
+        summary: 'Repair the affected registered workspaces first, then rerun doctor.'
+      };
+    case 'repair_profile_family_then_recheck':
+      return {
+        type,
+        label: 'repair profile family -> recheck',
+        execution_mode: 'automatic',
+        requires_manual_confirmation: false,
+        summary: 'Repair the affected OpenClaw profiles first, then rerun doctor.'
       };
     case 'review_workspace_then_recheck':
       return {
@@ -462,6 +522,42 @@ function buildHostTakeoverAudit(options = {}) {
     workspaces.find((entry) => entry.health.status === 'drift_detected' || entry.health.status === 'workspace_missing') ||
     workspaces.find((entry) => entry.health.status === 'best_effort') ||
     null;
+  const aggregateRecheckCommand = buildNpmScriptCommand('doctor', {
+    workspace: options.selectedWorkspace || null,
+    openClawHome: options.openClawHome,
+    skillsRoot: options.skillsRoot
+  });
+  const autoFixableProblems = workspaces.filter((entry) => {
+    if (entry.health.status === 'single_source') {
+      return false;
+    }
+    const mode = entry.recommended_action?.repair_strategy?.execution_mode || 'automatic';
+    return mode !== 'manual';
+  });
+  const hasManualProblems = workspaces.some((entry) => entry.recommended_action?.repair_strategy?.execution_mode === 'manual');
+  const aggregateAutoAction =
+    !hasManualProblems && autoFixableProblems.length > 1
+      ? {
+          type: 'repair_registered_workspaces',
+          summary:
+            driftCount > 0
+              ? `Repair ${autoFixableProblems.length} registered workspace(s) with takeover drift, then rerun doctor.`
+              : `Repair ${autoFixableProblems.length} registered workspace(s) under best-effort takeover, then rerun doctor.`,
+          command: autoFixableProblems[0]?.recommended_action?.command || null,
+          follow_up_command: autoFixableProblems[0]?.recommended_action?.follow_up_command || null,
+          recheck_command: aggregateRecheckCommand,
+          repair_sequence: mergeRepairSequences(
+            autoFixableProblems.map((entry) => entry.recommended_action),
+            aggregateRecheckCommand
+          ),
+          repair_strategy: buildRepairStrategy('repair_registered_workspaces_then_recheck', {
+            workspace: options.selectedWorkspace || null,
+            openClawHome: options.openClawHome,
+            skillsRoot: options.skillsRoot
+          }),
+          workspace: null
+        }
+      : null;
 
   return {
     status,
@@ -473,7 +569,9 @@ function buildHostTakeoverAudit(options = {}) {
     drift_workspaces: driftCount,
     issues,
     summary,
-    recommended_action: firstProblem
+    recommended_action: aggregateAutoAction
+      ? aggregateAutoAction
+      : firstProblem
       ? {
           workspace: firstProblem.workspace,
           ...firstProblem.recommended_action
@@ -738,6 +836,36 @@ function buildProfileTakeoverAudit(options = {}) {
   }
 
   const firstProblem = profiles.find((entry) => entry.status === 'warning' || entry.status === 'notice') || null;
+  const aggregateRecheckCommand = buildNpmScriptCommand('doctor', {
+    openClawHome: options.openClawHome,
+    skillsRoot: options.skillsRoot
+  });
+  const autoFixableProfiles = profiles.filter((entry) => {
+    const mode = entry.recommended_action?.repair_strategy?.execution_mode || 'automatic';
+    return entry.status !== 'ok' && mode !== 'manual';
+  });
+  const hasManualProfiles = profiles.some(
+    (entry) => entry.status !== 'ok' && entry.recommended_action?.repair_strategy?.execution_mode === 'manual'
+  );
+  const aggregateAutoAction =
+    !hasManualProfiles && autoFixableProfiles.length > 1
+      ? {
+          openclaw_home: null,
+          type: 'repair_profile_family',
+          summary: `Repair ${autoFixableProfiles.length} affected OpenClaw profile(s), then rerun doctor.`,
+          command: autoFixableProfiles[0]?.recommended_action?.command || null,
+          follow_up_command: autoFixableProfiles[0]?.recommended_action?.follow_up_command || null,
+          recheck_command: aggregateRecheckCommand,
+          repair_sequence: mergeRepairSequences(
+            autoFixableProfiles.map((entry) => entry.recommended_action),
+            aggregateRecheckCommand
+          ),
+          repair_strategy: buildRepairStrategy('repair_profile_family_then_recheck', {
+            openClawHome: options.openClawHome,
+            skillsRoot: options.skillsRoot
+          })
+        }
+      : null;
 
   return {
     status,
@@ -749,7 +877,9 @@ function buildProfileTakeoverAudit(options = {}) {
     not_ready_profiles: notReadyProfiles,
     issues,
     summary,
-    recommended_action: firstProblem
+    recommended_action: aggregateAutoAction
+      ? aggregateAutoAction
+      : firstProblem
       ? {
           openclaw_home: firstProblem.openclaw_home,
           ...firstProblem.recommended_action

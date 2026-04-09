@@ -269,16 +269,22 @@
   - 当前如果只剩最新完成结果 / 最近用户可见进展，而没有活动 goal / next step / blocked state，会按参考连续性处理
   - 已完成任务不再被误判为需要 repair 的不完整任务态
   - 已补充自动化测试，覆盖 reference-only continuity 与 completed task-state classification
+- `2026-04-09`
+  - `host_takeover_audit / profile_takeover_audit` 已开始聚合多 workspace / 多 profile 的 strict repair sequence
+  - 当前如果同时有多个 drift workspace 或多个 sibling profile 需要处理，会直接给出批量 repair -> recheck 闭环
+  - strict-mode 下的 takeover / drift repair 不再只停在“先修第一个问题”
+  - 已补充自动化测试，覆盖多 workspace / 多 profile 的聚合 repair sequence
 
 当前仍未完成的重点：
 
-- 严格接管模式的后续增强仍有空间，但 Stage 5 主线闭环已基本完成
+- 路线主线阶段已基本闭环完成，后续主要进入增强与质量收口
 
 下一步建议：
 
-1. 继续推进 `Stage 2：接管能力强化`
-2. `Stage 5` 后续只作为增强线，继续扩展 manual/confirm 场景映射、候选建议和偏好演化
-3. `Stage 4` 后续如继续增强，重点放在任务态摘要质量与参考连续性的可解释性，而不是再补主线闭环
+1. 后续优先推进整体增强与质量收口，而不再是主线闭环
+2. `Stage 2` 后续如继续增强，重点放在 takeover / drift 自愈能力与更低感知自动化
+3. `Stage 4` 后续如继续增强，重点放在任务态摘要质量与参考连续性的可解释性
+4. `Stage 5` 后续继续扩展 manual/confirm 场景映射、候选建议和偏好演化
 
 后续每一轮开发完成后，都应更新本节，至少补：
 
@@ -319,9 +325,9 @@
 
 当前仍未完成的关键问题：
 
-- 任务连续性主线闭环已完成，但仍可继续增强摘要质量与参考连续性的可解释性
-- 严格接管模式主线闭环已完成，但后续增强仍可继续扩展更多 manual/confirm 场景与偏好演化
-- 计划文档中的阶段优先级描述，已经需要显式反映当前 `Stage 2 / 4 / 5` 并行推进的现实状态
+- 主线阶段已闭环完成，但后续增强仍需继续降低用户感知成本
+- 任务态摘要、takeover 自愈、manual/confirm 体验仍可继续优化
+- 计划文档后续应从“主线闭环”转向“增强与质量治理”
 
 ## 总目标
 
@@ -495,8 +501,9 @@
   - `configure-host / configure-sessions` 已形成 repair -> verify 闭环
   - `upgrade-sessions / install-one-click` 已形成 upgrade/install -> verify 闭环
   - 已有可选 watcher 运行时，可在文件变化时更快触发 legacy memory sync
-- 仍待完成：
-  - 更强的 strict-mode repair 闭环
+  - `host_takeover_audit / profile_takeover_audit` 现在也已支持多 workspace / 多 profile 聚合 repair sequence
+- 后续增强：
+  - 继续增强 takeover / drift 自愈能力与更低感知自动化
 
 ## Stage 3：收益显性化
 

@@ -5224,6 +5224,75 @@ test('doctor host audit flags drift in another registered workspace', async () =
   }
 });
 
+test('doctor host audit aggregates repair steps across multiple drift workspaces', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const primaryWorkspace = path.join(workspace, 'primary-project');
+  const secondaryWorkspaceA = path.join(workspace, 'secondary-project-a');
+  const secondaryWorkspaceB = path.join(workspace, 'secondary-project-b');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      fs.mkdirSync(primaryWorkspace, { recursive: true });
+      fs.mkdirSync(secondaryWorkspaceA, { recursive: true });
+      fs.mkdirSync(secondaryWorkspaceB, { recursive: true });
+      fs.writeFileSync(
+        path.join(secondaryWorkspaceA, 'MEMORY.md'),
+        [
+          '## MEM-host-aggregate-1',
+          'type: best_practice',
+          'heat: 82',
+          'Secondary workspace A still drifts outside the canonical memory plane.'
+        ].join('\n'),
+        'utf8'
+      );
+      fs.writeFileSync(
+        path.join(secondaryWorkspaceB, 'MEMORY.md'),
+        [
+          '## MEM-host-aggregate-2',
+          'type: best_practice',
+          'heat: 84',
+          'Secondary workspace B still drifts outside the canonical memory plane.'
+        ].join('\n'),
+        'utf8'
+      );
+
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: primaryWorkspace,
+        addUsers: [],
+        addWorkspaces: [
+          {
+            workspace: secondaryWorkspaceA,
+            userId: 'default-user',
+            projectId: 'secondary-project-a'
+          },
+          {
+            workspace: secondaryWorkspaceB,
+            userId: 'default-user',
+            projectId: 'secondary-project-b'
+          }
+        ]
+      });
+
+      const doctor = runDoctor({ openclawHome: openClawHome, workspace: primaryWorkspace });
+      const repairSequence = doctor.host_takeover_audit.recommended_action.repair_sequence || [];
+
+      assert.equal(doctor.host_takeover_audit.status, 'warning');
+      assert.equal(doctor.host_takeover_audit.drift_workspaces, 2);
+      assert.equal(doctor.host_takeover_audit.recommended_action.repair_strategy.type, 'repair_registered_workspaces_then_recheck');
+      assert.ok(repairSequence.some((entry) => String(entry.command).includes(secondaryWorkspaceA)));
+      assert.ok(repairSequence.some((entry) => String(entry.command).includes(secondaryWorkspaceB)));
+      assert.equal(repairSequence.at(-1).step, 'recheck');
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('doctor profile audit flags drift in a sibling OpenClaw profile', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');
@@ -5277,6 +5346,86 @@ test('doctor profile audit flags drift in a sibling OpenClaw profile', async () 
       assert.equal(doctor.profile_takeover_audit.warning_profiles, 1);
       assert.equal(peerProfile.host_takeover_audit.drift_workspaces, 1);
       assert.match(doctor.profile_takeover_audit.summary, /1 profile\(s\) need attention/);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('doctor profile audit aggregates repair steps across multiple sibling profiles', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const peerOpenClawHomeA = path.join(workspace, 'openclaw-home-peer-a');
+  const peerOpenClawHomeB = path.join(workspace, 'openclaw-home-peer-b');
+  const primaryWorkspace = path.join(workspace, 'primary-project');
+  const peerWorkspaceA = path.join(workspace, 'peer-project-a');
+  const peerWorkspaceB = path.join(workspace, 'peer-project-b');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      fs.mkdirSync(primaryWorkspace, { recursive: true });
+      fs.mkdirSync(peerWorkspaceA, { recursive: true });
+      fs.mkdirSync(peerWorkspaceB, { recursive: true });
+
+      runInstallHostAssets(peerOpenClawHomeA);
+      fs.writeFileSync(
+        path.join(peerWorkspaceA, 'MEMORY.md'),
+        [
+          '## MEM-profile-aggregate-1',
+          'type: best_practice',
+          'heat: 83',
+          'Peer profile A still has external memory drift.'
+        ].join('\n'),
+        'utf8'
+      );
+      await runConfigureHost(peerOpenClawHomeA, path.join(peerOpenClawHomeA, 'skills'), {
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: peerWorkspaceA,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      runInstallHostAssets(peerOpenClawHomeB);
+      fs.writeFileSync(
+        path.join(peerWorkspaceB, 'MEMORY.md'),
+        [
+          '## MEM-profile-aggregate-2',
+          'type: best_practice',
+          'heat: 85',
+          'Peer profile B still has external memory drift.'
+        ].join('\n'),
+        'utf8'
+      );
+      await runConfigureHost(peerOpenClawHomeB, path.join(peerOpenClawHomeB, 'skills'), {
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: peerWorkspaceB,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: primaryWorkspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      const doctor = runDoctor({ openclawHome: openClawHome, workspace: primaryWorkspace });
+      const repairSequence = doctor.profile_takeover_audit.recommended_action.repair_sequence || [];
+
+      assert.equal(doctor.profile_takeover_audit.status, 'warning');
+      assert.equal(doctor.profile_takeover_audit.drift_profiles, 2);
+      assert.equal(doctor.profile_takeover_audit.recommended_action.repair_strategy.type, 'repair_profile_family_then_recheck');
+      assert.ok(repairSequence.some((entry) => String(entry.command).includes(peerWorkspaceA)));
+      assert.ok(repairSequence.some((entry) => String(entry.command).includes(peerWorkspaceB)));
+      assert.equal(repairSequence.at(-1).step, 'recheck');
     });
   } finally {
     cleanupWorkspace(workspace);
