@@ -282,6 +282,10 @@
   - 聚合 drift repair 的 `Auto fix command` 现在已开始复用 drift 流程默认策略
   - 当前会优先停在 `repair`，默认跳过立即 `recheck`，进一步降低批量修复时的打断感
   - 已补充自动化测试，覆盖 aggregated drift auto-fix strategy
+- `2026-04-09`
+  - `manual/confirm_only` 场景现在已开始输出 `Suggested resume`
+  - 当前如果缺失输入只有一个高置信候选值，系统会直接生成一条已代入候选值的可重跑命令
+  - 已补充自动化测试，覆盖 single-candidate suggested resume 与文本可见性
 
 当前仍未完成的重点：
 

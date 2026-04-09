@@ -1103,6 +1103,9 @@ function renderDoctorRemediationSummary(remediationSummary = {}) {
       if (remediationSummary.next_step.auto_fix_resume_command) {
         lines.push(field('Resume command', command(remediationSummary.next_step.auto_fix_resume_command), { kind: 'command' }));
       }
+      if (remediationSummary.next_step.auto_fix_resume_suggested_command) {
+        lines.push(field('Suggested resume', command(remediationSummary.next_step.auto_fix_resume_suggested_command), { kind: 'command' }));
+      }
       if (remediationSummary.next_step.auto_fix_resume_validation_summary) {
         lines.push(field(
           'Resume checks',
@@ -1110,6 +1113,18 @@ function renderDoctorRemediationSummary(remediationSummary = {}) {
           {
             kind:
               remediationSummary.next_step.auto_fix_resume_validation_status === 'ready'
+                ? 'success'
+                : 'warning'
+          }
+        ));
+      }
+      if (remediationSummary.next_step.auto_fix_resume_suggested_validation_summary) {
+        lines.push(field(
+          'Suggested checks',
+          remediationSummary.next_step.auto_fix_resume_suggested_validation_summary,
+          {
+            kind:
+              remediationSummary.next_step.auto_fix_resume_suggested_validation_status === 'ready'
                 ? 'success'
                 : 'warning'
           }

@@ -193,6 +193,9 @@ function renderStatusReportText(report) {
     if (report.remediation_summary?.next_step?.auto_fix_resume_command) {
       lines.push(field('Resume command', command(report.remediation_summary.next_step.auto_fix_resume_command), { kind: 'command' }));
     }
+    if (report.remediation_summary?.next_step?.auto_fix_resume_suggested_command) {
+      lines.push(field('Suggested resume', command(report.remediation_summary.next_step.auto_fix_resume_suggested_command), { kind: 'command' }));
+    }
     if (report.remediation_summary?.next_step?.auto_fix_resume_validation_summary) {
       lines.push(field(
         'Resume checks',
@@ -200,6 +203,18 @@ function renderStatusReportText(report) {
         {
           kind:
             report.remediation_summary.next_step.auto_fix_resume_validation_status === 'ready'
+              ? 'success'
+              : 'warning'
+        }
+      ));
+    }
+    if (report.remediation_summary?.next_step?.auto_fix_resume_suggested_validation_summary) {
+      lines.push(field(
+        'Suggested checks',
+        report.remediation_summary.next_step.auto_fix_resume_suggested_validation_summary,
+        {
+          kind:
+            report.remediation_summary.next_step.auto_fix_resume_suggested_validation_status === 'ready'
               ? 'success'
               : 'warning'
         }

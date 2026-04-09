@@ -1300,6 +1300,9 @@ function renderCommandSummary(report) {
     if (report.remediation_summary?.next_step?.auto_fix_resume_command) {
       lines.push(field('Resume command', command(report.remediation_summary.next_step.auto_fix_resume_command), { kind: 'command' }));
     }
+    if (report.remediation_summary?.next_step?.auto_fix_resume_suggested_command) {
+      lines.push(field('Suggested resume', command(report.remediation_summary.next_step.auto_fix_resume_suggested_command), { kind: 'command' }));
+    }
     if (report.remediation_summary?.next_step?.auto_fix_resume_validation_summary) {
       lines.push(field(
         'Resume checks',
@@ -1307,6 +1310,18 @@ function renderCommandSummary(report) {
         {
           kind:
             report.remediation_summary.next_step.auto_fix_resume_validation_status === 'ready'
+              ? 'success'
+              : 'warning'
+        }
+      ));
+    }
+    if (report.remediation_summary?.next_step?.auto_fix_resume_suggested_validation_summary) {
+      lines.push(field(
+        'Suggested checks',
+        report.remediation_summary.next_step.auto_fix_resume_suggested_validation_summary,
+        {
+          kind:
+            report.remediation_summary.next_step.auto_fix_resume_suggested_validation_status === 'ready'
               ? 'success'
               : 'warning'
         }
@@ -1547,6 +1562,9 @@ function renderOpenClawSessionStatusReport(report) {
         if (group.remediation_summary?.next_step?.auto_fix_resume_command) {
           lines.push(field('Resume command', command(group.remediation_summary.next_step.auto_fix_resume_command), { indent: 2, kind: 'command' }));
         }
+        if (group.remediation_summary?.next_step?.auto_fix_resume_suggested_command) {
+          lines.push(field('Suggested resume', command(group.remediation_summary.next_step.auto_fix_resume_suggested_command), { indent: 2, kind: 'command' }));
+        }
         if (group.remediation_summary?.next_step?.auto_fix_resume_validation_summary) {
           lines.push(field(
             'Resume checks',
@@ -1555,6 +1573,19 @@ function renderOpenClawSessionStatusReport(report) {
               indent: 2,
               kind:
                 group.remediation_summary.next_step.auto_fix_resume_validation_status === 'ready'
+                  ? 'success'
+                  : 'warning'
+            }
+          ));
+        }
+        if (group.remediation_summary?.next_step?.auto_fix_resume_suggested_validation_summary) {
+          lines.push(field(
+            'Suggested checks',
+            group.remediation_summary.next_step.auto_fix_resume_suggested_validation_summary,
+            {
+              indent: 2,
+              kind:
+                group.remediation_summary.next_step.auto_fix_resume_suggested_validation_status === 'ready'
                   ? 'success'
                   : 'warning'
             }
@@ -1658,6 +1689,9 @@ function renderOpenClawSessionDiagnosisReport(report) {
         if (group.remediation_summary?.next_step?.auto_fix_resume_command) {
           lines.push(field('Resume command', command(group.remediation_summary.next_step.auto_fix_resume_command), { indent: 2, kind: 'command' }));
         }
+        if (group.remediation_summary?.next_step?.auto_fix_resume_suggested_command) {
+          lines.push(field('Suggested resume', command(group.remediation_summary.next_step.auto_fix_resume_suggested_command), { indent: 2, kind: 'command' }));
+        }
         if (group.remediation_summary?.next_step?.auto_fix_resume_validation_summary) {
           lines.push(field(
             'Resume checks',
@@ -1666,6 +1700,19 @@ function renderOpenClawSessionDiagnosisReport(report) {
               indent: 2,
               kind:
                 group.remediation_summary.next_step.auto_fix_resume_validation_status === 'ready'
+                  ? 'success'
+                  : 'warning'
+            }
+          ));
+        }
+        if (group.remediation_summary?.next_step?.auto_fix_resume_suggested_validation_summary) {
+          lines.push(field(
+            'Suggested checks',
+            group.remediation_summary.next_step.auto_fix_resume_suggested_validation_summary,
+            {
+              indent: 2,
+              kind:
+                group.remediation_summary.next_step.auto_fix_resume_suggested_validation_status === 'ready'
                   ? 'success'
                   : 'warning'
             }
@@ -1753,6 +1800,9 @@ function renderOpenClawSessionDiagnosisReport(report) {
       if (group.remediation_summary?.next_step?.auto_fix_resume_command) {
         lines.push(field('Resume command', command(group.remediation_summary.next_step.auto_fix_resume_command), { indent: 2, kind: 'command' }));
       }
+      if (group.remediation_summary?.next_step?.auto_fix_resume_suggested_command) {
+        lines.push(field('Suggested resume', command(group.remediation_summary.next_step.auto_fix_resume_suggested_command), { indent: 2, kind: 'command' }));
+      }
       if (group.remediation_summary?.next_step?.auto_fix_resume_validation_summary) {
         lines.push(field(
           'Resume checks',
@@ -1761,6 +1811,19 @@ function renderOpenClawSessionDiagnosisReport(report) {
             indent: 2,
             kind:
               group.remediation_summary.next_step.auto_fix_resume_validation_status === 'ready'
+                ? 'success'
+                : 'warning'
+          }
+        ));
+      }
+      if (group.remediation_summary?.next_step?.auto_fix_resume_suggested_validation_summary) {
+        lines.push(field(
+          'Suggested checks',
+          group.remediation_summary.next_step.auto_fix_resume_suggested_validation_summary,
+          {
+            indent: 2,
+            kind:
+              group.remediation_summary.next_step.auto_fix_resume_suggested_validation_status === 'ready'
                 ? 'success'
                 : 'warning'
           }

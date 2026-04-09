@@ -188,6 +188,25 @@ function buildResumeInputCandidates(input, context = {}) {
   }
 }
 
+function inputToContextKey(input) {
+  switch (String(input || '').toLowerCase()) {
+    case 'workspace':
+      return 'workspace';
+    case 'session-key':
+      return 'sessionKey';
+    case 'project-id':
+      return 'projectId';
+    case 'user-id':
+      return 'userId';
+    case 'openclaw-home':
+      return 'openclawHome';
+    case 'skills-root':
+      return 'skillsRoot';
+    default:
+      return null;
+  }
+}
+
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -298,6 +317,37 @@ function summarizeResumeValidation(details = [], resumeCommand = '') {
         ? 'Resume command 已经补齐，当前已知输入检查通过；重新执行这条命令即可继续流程。'
         : 'Resume command 已可直接重新执行；完成这一步后 auto-fix 就可以继续。'
   };
+}
+
+function buildSuggestedResumeCommand(command = '', details = [], context = {}) {
+  if (!command) {
+    return null;
+  }
+
+  const suggestionContext = { ...(context || {}) };
+  let changed = false;
+
+  (Array.isArray(details) ? details : []).forEach((entry) => {
+    if (entry?.value) {
+      return;
+    }
+    if (!Array.isArray(entry?.candidates) || entry.candidates.length !== 1) {
+      return;
+    }
+    const contextKey = inputToContextKey(entry.label);
+    if (!contextKey) {
+      return;
+    }
+    suggestionContext[contextKey] = entry.candidates[0];
+    changed = true;
+  });
+
+  if (!changed) {
+    return null;
+  }
+
+  const suggested = fillTemplateCommand(command, suggestionContext);
+  return suggested && suggested !== command ? suggested : null;
 }
 
 function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
@@ -493,6 +543,20 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
     executionMode === 'manual' && manualSubtype !== 'external_environment'
       ? summarizeResumeValidation(resumeInputDetails, resumeCommand)
       : null;
+  const suggestedResumeCommand =
+    executionMode === 'manual' && manualSubtype !== 'external_environment'
+      ? buildSuggestedResumeCommand(resumeCommand, resumeInputDetails, action?.resume_context || {})
+      : null;
+  const suggestedResumeInputDetails =
+    executionMode === 'manual' && manualSubtype !== 'external_environment' && suggestedResumeCommand
+      ? listResumeInputKeys(suggestedResumeCommand).map((entry) =>
+          buildResumeInputValidationDetail(entry, suggestedResumeCommand, action?.resume_context || {})
+        )
+      : [];
+  const suggestedResumeValidation =
+    executionMode === 'manual' && manualSubtype !== 'external_environment' && suggestedResumeCommand
+      ? summarizeResumeValidation(suggestedResumeInputDetails, suggestedResumeCommand)
+      : null;
 
   if (!label && !recheckCommand) {
     return null;
@@ -576,6 +640,18 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
     auto_fix_resume_validation_summary:
       executionMode === 'manual' && manualSubtype !== 'external_environment'
         ? resumeValidation?.summary || null
+        : null,
+    auto_fix_resume_suggested_command:
+      executionMode === 'manual' && manualSubtype !== 'external_environment'
+        ? suggestedResumeCommand
+        : null,
+    auto_fix_resume_suggested_validation_status:
+      executionMode === 'manual' && manualSubtype !== 'external_environment'
+        ? suggestedResumeValidation?.status || null
+        : null,
+    auto_fix_resume_suggested_validation_summary:
+      executionMode === 'manual' && manualSubtype !== 'external_environment'
+        ? suggestedResumeValidation?.summary || null
         : null,
     affected_targets: affectedTargets,
     affected_targets_summary: affectedTargetsSummary,
