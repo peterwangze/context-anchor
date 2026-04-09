@@ -6389,11 +6389,17 @@ test('session-start does not carry forward stale active task from a closed sessi
       assert.equal(result.recovery.pending_commitments.length, 0);
       assert.equal(result.recovery.continuity.inherited_active_task, false);
       assert.equal(result.recovery.continuity.reference_only, true);
+      assert.equal(result.recovery.continuity_summary.mode, 'completed_reference');
       assert.equal(result.recovery.continuity_summary.restored_goal, null);
       assert.equal(result.recovery.continuity_summary.next_step, null);
       assert.equal(result.recovery.continuity_summary.latest_result, 'completed sqlite mirror rollout');
       assert.equal(result.recovery.task_state_summary.current_goal, null);
       assert.equal(result.recovery.task_state_summary.next_step, null);
+
+      const bootstrap = buildBootstrapCacheContent(result);
+      assert.match(bootstrap, /state: completed task kept as reference-only continuity/i);
+      assert.match(bootstrap, /restore: no active goal or next step was carried forward/i);
+      assert.doesNotMatch(bootstrap, /- progress: completed sqlite mirror rollout/i);
     });
   } finally {
     cleanupWorkspace(workspace);

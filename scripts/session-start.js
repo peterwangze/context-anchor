@@ -189,6 +189,13 @@ function buildContinuitySummary(sessionState = {}, continuationSource = null, co
     return null;
   }
 
+  const continuityMode =
+    referenceOnly
+      ? latestResult || lastUserVisibleProgress
+        ? 'completed_reference'
+        : 'reference_only'
+      : 'active';
+
   return {
     source_session_key: continuationSource?.session_key || null,
     restored_goal: restoredGoal,
@@ -197,6 +204,7 @@ function buildContinuitySummary(sessionState = {}, continuationSource = null, co
     blocked_by: blockedBy,
     last_user_visible_progress: lastUserVisibleProgress,
     reference_only: referenceOnly,
+    mode: continuityMode,
     recovered_before_restore: Boolean(continuityRestoration.recovered_before_restore),
     recovered_assets: recoveredAssets,
     visible:

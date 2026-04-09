@@ -286,6 +286,10 @@
   - `manual/confirm_only` 场景现在已开始输出 `Suggested resume`
   - 当前如果缺失输入只有一个高置信候选值，系统会直接生成一条已代入候选值的可重跑命令
   - 已补充自动化测试，覆盖 single-candidate suggested resume 与文本可见性
+- `2026-04-09`
+  - `Recovered Continuity` 对 reference-only completed task 的说明已进一步收口
+  - 当前会明确显示这是“已完成任务的参考连续性”，并说明不会恢复旧 goal / next step 为活动任务
+  - 已补充自动化测试，覆盖 completed reference continuity 的 bootstrap 文案
 
 当前仍未完成的重点：
 

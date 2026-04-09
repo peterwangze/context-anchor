@@ -380,7 +380,8 @@ function renderCurrentTaskState(summary, profile) {
     taskState.latest_verified_result
       ? `- latest result: ${compactText(taskState.latest_verified_result, profile.widths.hot)}`
       : null,
-    taskState.last_user_visible_progress
+    taskState.last_user_visible_progress &&
+    taskState.last_user_visible_progress !== taskState.latest_verified_result
       ? `- progress: ${compactText(taskState.last_user_visible_progress, profile.widths.hot)}`
       : null,
     taskState.next_step
@@ -420,13 +421,19 @@ function renderRecoveredContinuity(summary, profile) {
     continuity.source_session_key
       ? `- source: ${compactText(continuity.source_session_key, profile.widths.pending)}`
       : null,
+    continuity.mode === 'completed_reference'
+      ? '- state: completed task kept as reference-only continuity'
+      : continuity.reference_only
+      ? '- state: reference-only continuity'
+      : null,
     continuity.restored_goal
       ? `- goal: ${compactText(continuity.restored_goal, profile.widths.task)}`
       : null,
     continuity.latest_result
       ? `- latest result: ${compactText(continuity.latest_result, profile.widths.hot)}`
       : null,
-    continuity.last_user_visible_progress
+    continuity.last_user_visible_progress &&
+    continuity.last_user_visible_progress !== continuity.latest_result
       ? `- progress: ${compactText(continuity.last_user_visible_progress, profile.widths.hot)}`
       : null,
     continuity.next_step
@@ -438,7 +445,11 @@ function renderRecoveredContinuity(summary, profile) {
     recoveredAssets.length > 0
       ? `- recovered: ${compactText(recoveredAssets.join(', '), profile.widths.preference)}`
       : null,
-    continuity.reference_only ? '- mode: reference-only continuity' : null
+    continuity.mode === 'completed_reference'
+      ? '- restore: no active goal or next step was carried forward'
+      : continuity.reference_only
+      ? '- mode: reference-only continuity'
+      : null
   ]);
 }
 

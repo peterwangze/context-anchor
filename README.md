@@ -309,6 +309,7 @@ node scripts/sessions-diagnose.js
 现在这类 repair 还会继续细分：例如缺的是 `goal`、`next step`，还是两者都缺，都会影响输出里的 repair strategy 标签和说明。
 当缺的是 `next step` 或 `goal + next step` 时，修复路径现在还会优先带出一次 `heartbeat` follow-up，帮助系统尽快把后续动作重新落回任务态。
 如果当前只剩最近一次完成结果或用户可见进展，而不再有活动目标 / 下一步，`task continuity health` 现在会显示为 `COMPLETE`：这表示系统把前一轮工作视为“已完成、仅保留参考连续性”，不会再误导你去修复一个其实已经做完的任务。
+对于这种 `COMPLETE` 的参考连续性，bootstrap 里的 `Recovered Continuity` 现在也会更明确说明：这是一条“已完成任务的参考连续性”，系统不会再把旧 goal / next step 当成新的活动任务继续恢复。
 
 默认会尽量只显示用户真正可感知的 session。  
 像没有 transcript、没有 workspace、系统残留但用户无感知的 hidden session，会默认从状态和升级口径里排除，避免 session 数量明显失真。  
