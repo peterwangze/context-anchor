@@ -411,6 +411,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 如果当前上下文里已经能推断出少量高频候选值，系统现在还会直接显示候选建议，进一步降低补参成本。
 本轮开始，`manual/confirm_only` 场景还会额外显示 `Resume checks`：直接告诉你当前 `Resume command` 是已经可运行、仍缺输入，还是预填路径已经失效；`Input ...` 行里也会带 `check=...`，说明每个输入是“候选已就绪”还是“路径不存在”等校验结果。
 如果某个缺失输入当前只有一个高置信候选值，系统现在还会直接给出 `Suggested resume`，把这个唯一候选自动代入成一条可直接重跑的命令，进一步减少手工补参成本。
+如果缺失输入有多个候选值，系统现在也会基于当前排序第一的候选生成 `Suggested resume`，同时用 `Suggested checks` 明确提示“这仍是建议值、建议先确认”，在低打断和低误导之间保持平衡。
 对于 `upgrade-sessions.js` 里这类“session 已发现但 workspace 还没明确”的 unresolved target，如果当前 profile 下已经存在候选 workspace，系统现在会优先按 `confirm_only` 处理：直接给出 `Resume command`、候选 workspace 和 `Resume checks`，而不再一律退化成笼统的外部环境问题。
 `sessions-diagnose.js` 现在也会把 remediation 的 `Guidance` 和 `Example command` 直接显示出来；`status-report.js` 的 `recommended_action` 也会带这两类字段，方便上层直接展示。
 对于任务连续性缺口，`status-report.js` / `sessions-status.js` / `sessions-diagnose.js` 现在也会按缺失类型细分提示：缺 `goal`、缺 `next step`、或两者都缺，会给出不同的说明；其中缺 `next step` 的场景还会明确提醒在 session repair 之后补跑一次 `heartbeat`，避免用户只看到“需要修”却不知道为什么还要 follow-up。

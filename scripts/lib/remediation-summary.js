@@ -319,19 +319,21 @@ function summarizeResumeValidation(details = [], resumeCommand = '') {
   };
 }
 
-function buildSuggestedResumeCommand(command = '', details = [], context = {}) {
+function buildSuggestedResumePlan(command = '', details = [], context = {}) {
   if (!command) {
     return null;
   }
 
   const suggestionContext = { ...(context || {}) };
   let changed = false;
+  let singleCandidateCount = 0;
+  let multiCandidateCount = 0;
 
   (Array.isArray(details) ? details : []).forEach((entry) => {
     if (entry?.value) {
       return;
     }
-    if (!Array.isArray(entry?.candidates) || entry.candidates.length !== 1) {
+    if (!Array.isArray(entry?.candidates) || entry.candidates.length === 0) {
       return;
     }
     const contextKey = inputToContextKey(entry.label);
@@ -340,14 +342,39 @@ function buildSuggestedResumeCommand(command = '', details = [], context = {}) {
     }
     suggestionContext[contextKey] = entry.candidates[0];
     changed = true;
+    if (entry.candidates.length === 1) {
+      singleCandidateCount += 1;
+    } else {
+      multiCandidateCount += 1;
+    }
   });
 
   if (!changed) {
     return null;
   }
 
-  const suggested = fillTemplateCommand(command, suggestionContext);
-  return suggested && suggested !== command ? suggested : null;
+  const suggestedCommand = fillTemplateCommand(command, suggestionContext);
+  if (!suggestedCommand || suggestedCommand === command) {
+    return null;
+  }
+
+  const validationDetails = listResumeInputKeys(suggestedCommand).map((entry) =>
+    buildResumeInputValidationDetail(entry, suggestedCommand, context || {})
+  );
+  const validation = summarizeResumeValidation(validationDetails, suggestedCommand);
+  const needsReview = multiCandidateCount > 0;
+
+  return {
+    command: suggestedCommand,
+    validation_status: needsReview
+      ? 'needs_review'
+      : validation.status,
+    validation_summary: needsReview
+      ? `Suggested resume 已代入排序第一的候选值；其中 ${multiCandidateCount} 个输入仍建议先确认后再重跑。`
+      : validation.summary,
+    single_candidate_count: singleCandidateCount,
+    multi_candidate_count: multiCandidateCount
+  };
 }
 
 function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
@@ -543,19 +570,9 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
     executionMode === 'manual' && manualSubtype !== 'external_environment'
       ? summarizeResumeValidation(resumeInputDetails, resumeCommand)
       : null;
-  const suggestedResumeCommand =
+  const suggestedResumePlan =
     executionMode === 'manual' && manualSubtype !== 'external_environment'
-      ? buildSuggestedResumeCommand(resumeCommand, resumeInputDetails, action?.resume_context || {})
-      : null;
-  const suggestedResumeInputDetails =
-    executionMode === 'manual' && manualSubtype !== 'external_environment' && suggestedResumeCommand
-      ? listResumeInputKeys(suggestedResumeCommand).map((entry) =>
-          buildResumeInputValidationDetail(entry, suggestedResumeCommand, action?.resume_context || {})
-        )
-      : [];
-  const suggestedResumeValidation =
-    executionMode === 'manual' && manualSubtype !== 'external_environment' && suggestedResumeCommand
-      ? summarizeResumeValidation(suggestedResumeInputDetails, suggestedResumeCommand)
+      ? buildSuggestedResumePlan(resumeCommand, resumeInputDetails, action?.resume_context || {})
       : null;
 
   if (!label && !recheckCommand) {
@@ -643,15 +660,15 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
         : null,
     auto_fix_resume_suggested_command:
       executionMode === 'manual' && manualSubtype !== 'external_environment'
-        ? suggestedResumeCommand
+        ? suggestedResumePlan?.command || null
         : null,
     auto_fix_resume_suggested_validation_status:
       executionMode === 'manual' && manualSubtype !== 'external_environment'
-        ? suggestedResumeValidation?.status || null
+        ? suggestedResumePlan?.validation_status || null
         : null,
     auto_fix_resume_suggested_validation_summary:
       executionMode === 'manual' && manualSubtype !== 'external_environment'
-        ? suggestedResumeValidation?.summary || null
+        ? suggestedResumePlan?.validation_summary || null
         : null,
     affected_targets: affectedTargets,
     affected_targets_summary: affectedTargetsSummary,

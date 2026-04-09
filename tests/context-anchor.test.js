@@ -4702,6 +4702,43 @@ test('resume guidance can suggest a ready-to-run command when a missing input ha
   assert.match(summary.next_step.auto_fix_resume_suggested_validation_summary, /已知输入检查通过|可直接重新执行/i);
 });
 
+test('resume guidance can suggest a top-ranked command when missing input has multiple candidates', () => {
+  const summary = buildRemediationSummary(
+    [
+      {
+        source: 'sessions',
+        action: {
+          type: 'session_select',
+          recheck_command: 'npm run status:sessions -- --workspace "D:/demo" --session-key "<session-key>"',
+          resume_context: {
+            workspace: 'D:/demo',
+            candidateSessionKeys: ['agent:main:checkout-fix', 'agent:main:review']
+          },
+          repair_strategy: {
+            type: 'select_session_then_recheck',
+            label: 'select session -> recheck',
+            execution_mode: 'manual',
+            manual_subtype: 'confirm_only',
+            requires_manual_confirmation: true,
+            summary: 'Pick the target session first, then rerun status.',
+            command_examples: ['npm run status:sessions -- --workspace "D:/demo" --session-key "<session-key>"']
+          }
+        }
+      }
+    ],
+    {
+      auto_fix_options: {
+        workspace: 'D:/demo',
+        userId: 'alice'
+      }
+    }
+  );
+
+  assert.match(summary.next_step.auto_fix_resume_suggested_command, /--session-key "agent:main:checkout-fix"/i);
+  assert.equal(summary.next_step.auto_fix_resume_suggested_validation_status, 'needs_review');
+  assert.match(summary.next_step.auto_fix_resume_suggested_validation_summary, /排序第一的候选值/);
+});
+
 test('resume validation summarizes missing inputs when candidates are already available', () => {
   const workspace = makeWorkspace();
 
@@ -4966,6 +5003,7 @@ test('status report text view shows resume validation guidance for confirm-only 
     assert.match(rendered, /session-key/i);
     assert.match(rendered, /check=/);
     assert.match(rendered, /Suggested resume:/);
+    assert.match(rendered, /Suggested checks:/);
   } finally {
     cleanupWorkspace(workspace);
   }
