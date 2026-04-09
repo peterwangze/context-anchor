@@ -328,6 +328,7 @@ function buildSuggestedResumePlan(command = '', details = [], context = {}) {
   let changed = false;
   let singleCandidateCount = 0;
   let multiCandidateCount = 0;
+  const suggestedInputs = [];
 
   (Array.isArray(details) ? details : []).forEach((entry) => {
     if (entry?.value) {
@@ -342,6 +343,16 @@ function buildSuggestedResumePlan(command = '', details = [], context = {}) {
     }
     suggestionContext[contextKey] = entry.candidates[0];
     changed = true;
+    suggestedInputs.push({
+      label: entry.label,
+      value: entry.candidates[0],
+      reason:
+        entry.candidates.length === 1
+          ? 'only_candidate'
+          : isPathLikeResumeInput(entry.label) && fs.existsSync(entry.candidates[0])
+          ? 'existing_path'
+          : 'top_ranked_candidate'
+    });
     if (entry.candidates.length === 1) {
       singleCandidateCount += 1;
     } else {
@@ -363,6 +374,15 @@ function buildSuggestedResumePlan(command = '', details = [], context = {}) {
   );
   const validation = summarizeResumeValidation(validationDetails, suggestedCommand);
   const needsReview = multiCandidateCount > 0;
+  const suggestedInputsSummary = suggestedInputs
+    .map((entry) =>
+      entry.reason === 'only_candidate'
+        ? `${entry.label}=${entry.value} (only candidate)`
+        : entry.reason === 'existing_path'
+        ? `${entry.label}=${entry.value} (existing path)`
+        : `${entry.label}=${entry.value} (top-ranked candidate)`
+    )
+    .join(' | ');
 
   return {
     command: suggestedCommand,
@@ -373,7 +393,9 @@ function buildSuggestedResumePlan(command = '', details = [], context = {}) {
       ? `Suggested resume 已代入排序第一的候选值；其中 ${multiCandidateCount} 个输入仍建议先确认后再重跑。`
       : validation.summary,
     single_candidate_count: singleCandidateCount,
-    multi_candidate_count: multiCandidateCount
+    multi_candidate_count: multiCandidateCount,
+    suggested_inputs: suggestedInputs,
+    suggested_inputs_summary: suggestedInputsSummary
   };
 }
 
@@ -669,6 +691,14 @@ function normalizeRemediationEntry(source, action = {}, options = {}) {
     auto_fix_resume_suggested_validation_summary:
       executionMode === 'manual' && manualSubtype !== 'external_environment'
         ? suggestedResumePlan?.validation_summary || null
+        : null,
+    auto_fix_resume_suggested_inputs:
+      executionMode === 'manual' && manualSubtype !== 'external_environment'
+        ? suggestedResumePlan?.suggested_inputs || []
+        : [],
+    auto_fix_resume_suggested_inputs_summary:
+      executionMode === 'manual' && manualSubtype !== 'external_environment'
+        ? suggestedResumePlan?.suggested_inputs_summary || null
         : null,
     affected_targets: affectedTargets,
     affected_targets_summary: affectedTargetsSummary,

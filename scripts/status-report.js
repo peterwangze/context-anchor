@@ -196,6 +196,9 @@ function renderStatusReportText(report) {
     if (report.remediation_summary?.next_step?.auto_fix_resume_suggested_command) {
       lines.push(field('Suggested resume', command(report.remediation_summary.next_step.auto_fix_resume_suggested_command), { kind: 'command' }));
     }
+    if (report.remediation_summary?.next_step?.auto_fix_resume_suggested_inputs_summary) {
+      lines.push(field('Suggested inputs', report.remediation_summary.next_step.auto_fix_resume_suggested_inputs_summary, { kind: 'muted' }));
+    }
     if (report.remediation_summary?.next_step?.auto_fix_resume_validation_summary) {
       lines.push(field(
         'Resume checks',

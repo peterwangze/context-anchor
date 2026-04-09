@@ -969,6 +969,9 @@ function renderUpgradeReport(result) {
     if (verification.remediation_summary?.next_step?.auto_fix_resume_suggested_command) {
       lines.push(field('Suggested resume', command(verification.remediation_summary.next_step.auto_fix_resume_suggested_command), { kind: 'command' }));
     }
+    if (verification.remediation_summary?.next_step?.auto_fix_resume_suggested_inputs_summary) {
+      lines.push(field('Suggested inputs', verification.remediation_summary.next_step.auto_fix_resume_suggested_inputs_summary, { kind: 'muted' }));
+    }
     if (verification.remediation_summary?.next_step?.auto_fix_resume_validation_summary) {
       lines.push(field(
         'Resume checks',

@@ -1106,6 +1106,9 @@ function renderDoctorRemediationSummary(remediationSummary = {}) {
       if (remediationSummary.next_step.auto_fix_resume_suggested_command) {
         lines.push(field('Suggested resume', command(remediationSummary.next_step.auto_fix_resume_suggested_command), { kind: 'command' }));
       }
+      if (remediationSummary.next_step.auto_fix_resume_suggested_inputs_summary) {
+        lines.push(field('Suggested inputs', remediationSummary.next_step.auto_fix_resume_suggested_inputs_summary, { kind: 'muted' }));
+      }
       if (remediationSummary.next_step.auto_fix_resume_validation_summary) {
         lines.push(field(
           'Resume checks',

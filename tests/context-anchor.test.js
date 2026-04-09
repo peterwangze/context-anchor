@@ -4737,6 +4737,8 @@ test('resume guidance can suggest a top-ranked command when missing input has mu
   assert.match(summary.next_step.auto_fix_resume_suggested_command, /--session-key "agent:main:checkout-fix"/i);
   assert.equal(summary.next_step.auto_fix_resume_suggested_validation_status, 'needs_review');
   assert.match(summary.next_step.auto_fix_resume_suggested_validation_summary, /排序第一的候选值/);
+  assert.match(summary.next_step.auto_fix_resume_suggested_inputs_summary, /session-key=agent:main:checkout-fix/);
+  assert.match(summary.next_step.auto_fix_resume_suggested_inputs_summary, /top-ranked candidate/);
 });
 
 test('resume validation summarizes missing inputs when candidates are already available', () => {
@@ -5003,6 +5005,7 @@ test('status report text view shows resume validation guidance for confirm-only 
     assert.match(rendered, /session-key/i);
     assert.match(rendered, /check=/);
     assert.match(rendered, /Suggested resume:/);
+    assert.match(rendered, /Suggested inputs:/);
     assert.match(rendered, /Suggested checks:/);
   } finally {
     cleanupWorkspace(workspace);
