@@ -226,6 +226,20 @@ function extractResumeInputValue(command = '', input) {
   return match[1] || match[2] || match[3] || null;
 }
 
+function replaceResumeInputValue(command = '', input, value) {
+  const flag = RESUME_INPUT_FLAGS[String(input || '').toLowerCase()];
+  if (!flag || !value) {
+    return String(command || '');
+  }
+
+  const pattern = new RegExp(`${escapeRegex(flag)}\\s+(?:"[^"]*"|'[^']*'|[^\\s]+)`, 'i');
+  if (!pattern.test(String(command || ''))) {
+    return String(command || '');
+  }
+
+  return String(command || '').replace(pattern, `${flag} ${quoteTemplateValue(value)}`);
+}
+
 function isPlaceholderValue(value) {
   return /^<[^>]+>$/.test(String(value || '').trim());
 }
@@ -331,29 +345,44 @@ function buildSuggestedResumePlan(command = '', details = [], context = {}) {
   const suggestedInputs = [];
 
   (Array.isArray(details) ? details : []).forEach((entry) => {
-    if (entry?.value) {
+    if (!Array.isArray(entry?.candidates) || entry.candidates.length === 0) {
       return;
     }
-    if (!Array.isArray(entry?.candidates) || entry.candidates.length === 0) {
+    const candidatePool =
+      entry?.value && ['path_missing', 'candidate_mismatch'].includes(entry.validation_status)
+        ? entry.candidates.filter((candidate) => String(candidate) !== String(entry.value))
+        : entry.candidates;
+    if (candidatePool.length === 0) {
+      return;
+    }
+    const shouldSuggestForEntry =
+      !entry?.value ||
+      entry.validation_status === 'path_missing' ||
+      entry.validation_status === 'candidate_mismatch';
+    if (!shouldSuggestForEntry) {
       return;
     }
     const contextKey = inputToContextKey(entry.label);
     if (!contextKey) {
       return;
     }
-    suggestionContext[contextKey] = entry.candidates[0];
+    suggestionContext[contextKey] = candidatePool[0];
     changed = true;
     suggestedInputs.push({
       label: entry.label,
-      value: entry.candidates[0],
+      value: candidatePool[0],
       reason:
-        entry.candidates.length === 1
-          ? 'only_candidate'
-          : isPathLikeResumeInput(entry.label) && fs.existsSync(entry.candidates[0])
-          ? 'existing_path'
+        isPathLikeResumeInput(entry.label) && fs.existsSync(candidatePool[0])
+          ? entry?.value
+            ? 'existing_path_replacement'
+            : 'existing_path'
+          : candidatePool.length === 1
+          ? entry?.value
+            ? 'only_candidate_replacement'
+            : 'only_candidate'
           : 'top_ranked_candidate'
     });
-    if (entry.candidates.length === 1) {
+    if (candidatePool.length === 1) {
       singleCandidateCount += 1;
     } else {
       multiCandidateCount += 1;
@@ -364,7 +393,10 @@ function buildSuggestedResumePlan(command = '', details = [], context = {}) {
     return null;
   }
 
-  const suggestedCommand = fillTemplateCommand(command, suggestionContext);
+  let suggestedCommand = fillTemplateCommand(command, suggestionContext);
+  suggestedInputs.forEach((entry) => {
+    suggestedCommand = replaceResumeInputValue(suggestedCommand, entry.label, entry.value);
+  });
   if (!suggestedCommand || suggestedCommand === command) {
     return null;
   }
@@ -378,8 +410,12 @@ function buildSuggestedResumePlan(command = '', details = [], context = {}) {
     .map((entry) =>
       entry.reason === 'only_candidate'
         ? `${entry.label}=${entry.value} (only candidate)`
+        : entry.reason === 'only_candidate_replacement'
+        ? `${entry.label}=${entry.value} (replaces invalid value with the only candidate)`
         : entry.reason === 'existing_path'
         ? `${entry.label}=${entry.value} (existing path)`
+        : entry.reason === 'existing_path_replacement'
+        ? `${entry.label}=${entry.value} (replaces invalid value with an existing path)`
         : `${entry.label}=${entry.value} (top-ranked candidate)`
     )
     .join(' | ');

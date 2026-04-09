@@ -4790,8 +4790,11 @@ test('resume validation flags prefilled profile paths that no longer exist', () 
   const workspace = makeWorkspace();
   const missingOpenClawHome = path.join(workspace, 'missing-openclaw-home');
   const missingSkillsRoot = path.join(missingOpenClawHome, 'skills');
+  const replacementOpenClawHome = path.join(workspace, 'replacement-openclaw-home');
+  const replacementSkillsRoot = path.join(replacementOpenClawHome, 'skills');
 
   try {
+    fs.mkdirSync(replacementSkillsRoot, { recursive: true });
     const summary = buildRemediationSummary(
       [
         {
@@ -4802,7 +4805,9 @@ test('resume validation flags prefilled profile paths that no longer exist', () 
             resume_context: {
               workspace,
               openclawHome: missingOpenClawHome,
-              skillsRoot: missingSkillsRoot
+              skillsRoot: missingSkillsRoot,
+              candidateOpenClawHomes: [replacementOpenClawHome],
+              candidateSkillsRoots: [replacementSkillsRoot]
             },
             repair_strategy: {
               type: 'select_profile_then_recheck',
@@ -4832,6 +4837,10 @@ test('resume validation flags prefilled profile paths that no longer exist', () 
     assert.match(summary.next_step.auto_fix_resume_validation_summary, /openclaw-home/i);
     assert.equal(homeDetail.validation_status, 'path_missing');
     assert.match(homeDetail.validation_summary, /不存在/);
+    assert.match(summary.next_step.auto_fix_resume_suggested_command, /--openclaw-home ".*replacement-openclaw-home"/i);
+    assert.match(summary.next_step.auto_fix_resume_suggested_command, /--skills-root ".*replacement-openclaw-home[\\\/]skills"/i);
+    assert.equal(summary.next_step.auto_fix_resume_suggested_validation_status, 'ready');
+    assert.match(summary.next_step.auto_fix_resume_suggested_inputs_summary, /replaces invalid value with an existing path/i);
   } finally {
     cleanupWorkspace(workspace);
   }

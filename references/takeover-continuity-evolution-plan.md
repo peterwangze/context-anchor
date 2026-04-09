@@ -294,6 +294,10 @@
   - `Suggested resume` 现在还会显式输出 `Suggested inputs`
   - 当前用户可以直接看到系统代入了哪个候选值，以及它为何被作为当前排序第一建议
   - 已补充自动化测试，覆盖 suggested inputs 的文本可见性与内容摘要
+- `2026-04-10`
+  - `Suggested resume` 现在已开始支持用有效候选替换失效路径或不匹配旧值
+  - 当前如果 resume command 里的 profile / skills-root 已失效，但系统已有可用候选，会直接给出替换后的建议命令
+  - 已补充自动化测试，覆盖 invalid path replacement 的 suggested resume
 - `2026-04-09`
   - `Recovered Continuity` 对 reference-only completed task 的说明已进一步收口
   - 当前会明确显示这是“已完成任务的参考连续性”，并说明不会恢复旧 goal / next step 为活动任务
