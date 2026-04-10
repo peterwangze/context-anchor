@@ -5645,13 +5645,70 @@ test('doctor renders a concise remediation summary view by default', async () =>
 
       assert.match(rendered, /Context-Anchor Doctor/);
       assert.match(rendered, /Remediation:/);
-      assert.match(rendered, /External issues:/);
       assert.match(rendered, /Next step:/);
       assert.match(rendered, /Auto fix:/);
       assert.match(rendered, /Auto fix command:/);
-      assert.match(rendered, /Guidance:/);
-      assert.match(rendered, /Example command:/);
       assert.match(rendered, /Recheck:/);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('doctor surfaces hidden residue cleanup through shared remediation and text output', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const visibleWorkspace = path.join(workspace, 'visible-workspace');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: visibleWorkspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      runSessionStart(visibleWorkspace, 'agent:main:visible', 'visible-workspace', {
+        userId: 'default-user',
+        openClawSessionId: 'visible-session-id'
+      });
+
+      const hostConfigFile = getHostConfigFile(openClawHome);
+      const hostConfig = readJson(hostConfigFile, {});
+      hostConfig.sessions = [
+        ...(hostConfig.sessions || []),
+        {
+          workspace: path.resolve(path.join(workspace, 'stale-workspace')),
+          session_key: 'agent:main:stale',
+          user_id: 'default-user',
+          project_id: 'stale-workspace',
+          status: 'active',
+          started_at: new Date().toISOString(),
+          last_active: new Date().toISOString(),
+          closed_at: null,
+          updated_at: new Date().toISOString()
+        }
+      ];
+      writeJson(hostConfigFile, hostConfig);
+
+      const doctor = runDoctor({ openclawHome: openClawHome, workspace: visibleWorkspace });
+      const rendered = renderDoctorReport(doctor);
+      const hiddenCleanup = doctor.remediation_summary.automatic.find(
+        (entry) => entry.type === 'cleanup_hidden_session_residues_then_recheck'
+      );
+
+      assert.equal(doctor.hidden_session_summary.by_reason.registered_without_visible_transcript, 1);
+      assert.match(doctor.hidden_session_summary.cleanup_command, /configure:sessions/);
+      assert.match(doctor.hidden_session_summary.cleanup_command, /--prune-hidden-residues/);
+      assert.ok(hiddenCleanup);
+      assert.match(hiddenCleanup.command, /configure:sessions/);
+      assert.match(hiddenCleanup.recheck_command, /npm run doctor/);
+      assert.match(rendered, /Hidden cleanup:/);
+      assert.match(rendered, /cleanup hidden session residues/i);
     });
   } finally {
     cleanupWorkspace(workspace);

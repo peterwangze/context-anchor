@@ -287,6 +287,7 @@ node scripts/doctor.js --openclaw-home "D:/openclaw-home" --skills-root "D:/open
 - `memory_sources.last_legacy_sync_at`
 - `memory_sources.health.status`
 - `host_takeover_audit`
+- `hidden_session_summary`
 - `paths.external_memory_watch_script`
 - `commands.external_memory_watch`
 
@@ -402,6 +403,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 `install-one-click.js` 聚合后的 `verification.repair_strategies` 现在也会按 `automatic` / `manual` 分类，方便在长流程结束后直接判断自助修复边界。
 同时聚合结果里也会继续拆出 `manual_confirm_only` 和 `manual_external_environment`，便于后续自动化或 UI 侧直接按风险类型分类展示。
 本轮开始，`doctor.js`、`sessions-status.js` / `sessions-diagnose.js`、`status-report.js`、`upgrade-sessions.js`、`install-one-click.js` 都会返回统一的 `remediation_summary` 结构，便于用一套逻辑读取 next step、automatic/manual count 和 recheck commands。
+现在 `doctor.js` 也会把高置信 hidden residue cleanup 接进这套 shared remediation 语义：当 profile 里存在可直接清理的 `stale host-only`、`closed managed residue`、`unbound managed residue` 时，doctor 的 remediation 与文本视图会直接给出 cleanup 命令，而不只是显示过滤摘要。
 现在 `sessions-status.js` / `sessions-diagnose.js` 以及 install/upgrade 的进度输出，也会直接把 `remediation_summary.next_step` 渲染出来，用户不用再自己从多条 strategy 里猜下一步。
 对于可自动执行的修复路径，文本输出现在还会直接给出 `Auto fix command`；执行这条命令后，会按 `repair -> follow-up -> recheck` 顺序自动跑完整条闭环。
 `auto-fix` 现在还会做风险分级：默认只在高风险步骤（例如 host 配置或 scheduler 变更）前做逐步确认，低风险和中风险步骤尽量减少打断；如果你已经确认环境，也可以显式加 `--yes` 跳过这些确认。

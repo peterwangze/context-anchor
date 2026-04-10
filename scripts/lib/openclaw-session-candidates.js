@@ -183,6 +183,42 @@ function summarizeHiddenSessionCandidates(entries = []) {
   };
 }
 
+function buildHiddenSessionRemediationAction(summary = {}, options = {}) {
+  if (!summary?.cleanup_recommended || !options.cleanupCommand || !options.recheckCommand) {
+    return null;
+  }
+
+  const reasonLabel =
+    HIDDEN_REASON_LABELS[String(summary.next_step_reason || '')] || HIDDEN_REASON_LABELS.other_hidden_reason;
+  const affectedTargets = Array.isArray(summary.reasons)
+    ? summary.reasons.flatMap((entry) => entry.examples || []).filter(Boolean)
+    : [];
+  const affectedTargetsSummary = affectedTargets.length > 0 ? affectedTargets.join(' | ') : summary.summary || null;
+
+  return {
+    type: 'cleanup_hidden_session_residues',
+    summary:
+      options.summary ||
+      `Filtered hidden session residues still need cleanup; current dominant residue type is ${reasonLabel}.`,
+    command: options.cleanupCommand,
+    follow_up_command: options.inspectCommand || null,
+    recheck_command: options.recheckCommand,
+    repair_strategy: {
+      type: 'cleanup_hidden_session_residues_then_recheck',
+      label: options.label || 'cleanup hidden session residues',
+      execution_mode: 'automatic',
+      requires_manual_confirmation: false,
+      summary:
+        options.strategySummary ||
+        'Remove high-confidence hidden session residues from host config, then rerun status checks.',
+      resolution_hint: summary.next_step_hint || null,
+      command_examples: [options.cleanupCommand, options.inspectCommand, options.recheckCommand].filter(Boolean),
+      affected_targets: affectedTargets,
+      affected_targets_summary: affectedTargetsSummary
+    }
+  };
+}
+
 function hasManagedSessionArtifacts(workspace, sessionKey) {
   if (!workspace || !sessionKey) {
     return false;
@@ -364,6 +400,7 @@ function collectSessionCandidates(openClawHome, options = {}) {
 module.exports = {
   collectHiddenSessionReasons,
   collectSessionCandidates,
+  buildHiddenSessionRemediationAction,
   findUniqueHostSessionByKey,
   isEphemeralSubagentSession,
   isPrunableHiddenReason: (reason) => PRUNABLE_HIDDEN_REASONS.has(String(reason || '')),

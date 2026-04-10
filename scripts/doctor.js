@@ -5,6 +5,10 @@ const path = require('path');
 const { createPaths, getOpenClawHome, readJson } = require('./lib/context-anchor');
 const { getHostConfigFile, readHostConfig, summarizeHostConfig } = require('./lib/host-config');
 const {
+  buildHiddenSessionRemediationAction,
+  collectSessionCandidates
+} = require('./lib/openclaw-session-candidates');
+const {
   classifyMemorySourceHealth,
   summarizeExternalMemorySources
 } = require('./legacy-memory-sync');
@@ -93,6 +97,9 @@ function buildNpmScriptCommand(scriptName, options = {}) {
   }
   if (options.yes) {
     forwarded.push('--yes');
+  }
+  if (Array.isArray(options.extraArgs)) {
+    options.extraArgs.filter(Boolean).forEach((arg) => forwarded.push(arg));
   }
 
   return forwarded.length > 0
@@ -1212,6 +1219,21 @@ function renderDoctorReport(report) {
       { kind: report.host_takeover_audit.status === 'warning' || report.profile_takeover_audit.status === 'warning' ? 'warning' : 'info' }
     )
   );
+  if (report.hidden_session_summary?.total > 0) {
+    lines.push(field('Hidden sessions', Number(report.hidden_session_summary.total), { kind: 'muted' }));
+    if (report.hidden_session_summary.summary) {
+      lines.push(field('Hidden filter', report.hidden_session_summary.summary, { kind: 'muted' }));
+    }
+    if (report.hidden_session_summary.next_step_hint) {
+      lines.push(field('Hidden next step', report.hidden_session_summary.next_step_hint, { kind: 'muted' }));
+    }
+    if (report.hidden_session_summary.inspect_command) {
+      lines.push(field('Hidden inspect', command(report.hidden_session_summary.inspect_command), { kind: 'command' }));
+    }
+    if (report.hidden_session_summary.cleanup_command) {
+      lines.push(field('Hidden cleanup', command(report.hidden_session_summary.cleanup_command), { kind: 'command' }));
+    }
+  }
   lines.push(...renderDoctorRemediationSummary(report.remediation_summary));
   lines.push('');
   lines.push(field('Config path', report.paths.config_file, { kind: 'muted' }));
@@ -1294,6 +1316,32 @@ function runDoctor(options = {}) {
         'skills-root': skillsRoot
       })
     : null;
+  const hiddenSessionCollected = collectSessionCandidates(openClawHome, {
+    includeSubagents: false,
+    includeHiddenSessions: false
+  });
+  const hiddenSessionSummary = {
+    ...(hiddenSessionCollected.hidden_session_summary || {}),
+    inspect_command:
+      Number(hiddenSessionCollected.hidden_session_summary?.total || 0) > 0
+        ? buildNpmScriptCommand('diagnose:sessions', {
+            workspace,
+            openclawHome: openClawHome,
+            skillsRoot,
+            extraArgs: ['--include-hidden-sessions']
+          })
+        : null,
+    cleanup_command:
+      hiddenSessionCollected.hidden_session_summary?.cleanup_recommended
+        ? buildNpmScriptCommand('configure:sessions', {
+            workspace,
+            openclawHome: openClawHome,
+            skillsRoot,
+            yes: true,
+            extraArgs: ['--prune-hidden-residues']
+          })
+        : null
+  };
   const skillsRootRegistrationRequired = path.resolve(skillsRoot) !== path.resolve(defaultManagedSkillsRoot);
 
   const installation = {
@@ -1461,8 +1509,26 @@ function runDoctor(options = {}) {
         ? 'Memory takeover is enforced for this profile: context-anchor is the intended canonical memory manager.'
         : 'Memory takeover is NOT enforced for this profile: some models or profiles may still manage their own memory files, which can fragment memory and weaken continuity.'
     ],
+    hidden_session_summary: hiddenSessionSummary,
     remediation_summary: buildRemediationSummary(
       [
+        hiddenSessionSummary.cleanup_command
+          ? {
+              source: 'hidden_session_residues',
+              action: buildHiddenSessionRemediationAction(hiddenSessionSummary, {
+                cleanupCommand: hiddenSessionSummary.cleanup_command,
+                inspectCommand: hiddenSessionSummary.inspect_command,
+                recheckCommand: buildNpmScriptCommand('doctor', {
+                  workspace,
+                  openclawHome: openClawHome,
+                  skillsRoot
+                }),
+                label: 'cleanup hidden session residues',
+                summary: 'Hidden session residues are still registered in this profile and can be safely cleaned up.',
+                strategySummary: 'Remove high-confidence hidden session residues from host config, then rerun doctor.'
+              })
+            }
+          : null,
         {
           source: 'memory_sources',
           action: {
@@ -1507,7 +1573,7 @@ function runDoctor(options = {}) {
             }
           }
         }
-      ],
+      ].filter(Boolean),
       {
         auto_fix_options: {
           workspace,
