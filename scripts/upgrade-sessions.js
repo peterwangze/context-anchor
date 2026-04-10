@@ -10,7 +10,7 @@ const {
   sessionStateFile
 } = require('./lib/context-anchor');
 const { buildBootstrapCacheContent, buildBootstrapCachePath, writeBootstrapCache } = require('./lib/bootstrap-cache');
-const { buildOpenClawSessionStatusReport } = require('./lib/openclaw-session-status');
+const { buildHiddenSessionInspectCommand, buildOpenClawSessionStatusReport } = require('./lib/openclaw-session-status');
 const {
   ensureWorkspaceRegistration,
   findSession,
@@ -851,7 +851,22 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
     selected_sessions: candidates.length,
     excluded_subagent_sessions: collected.excluded_subagent_sessions.length,
     excluded_hidden_sessions: collected.excluded_hidden_sessions.length,
-    hidden_session_summary: collected.hidden_session_summary,
+    hidden_session_summary: {
+      ...(collected.hidden_session_summary || {}),
+      inspect_command:
+        Number(collected.hidden_session_summary?.total || 0) > 0
+          ? buildHiddenSessionInspectCommand(
+              {
+                workspace: options.workspace || null,
+                sessionKey: options.sessionKey || null
+              },
+              {
+                openclawHome: openClawHome,
+                skillsRoot
+              }
+            )
+          : null
+    },
     upgraded_sessions: results.filter((entry) => entry.action === 'upgraded').length,
     skipped_sessions: results.filter((entry) => entry.action === 'skipped').length,
     unresolved_sessions: results.filter((entry) => entry.reason === 'workspace_unresolved').length,
@@ -928,6 +943,9 @@ function renderUpgradeReport(result) {
     lines.push(field('Filtered', `Subagents ${Number(result.excluded_subagent_sessions || 0)} | Hidden ${Number(result.excluded_hidden_sessions || 0)}`, { kind: 'muted' }));
     if (result.hidden_session_summary?.summary) {
       lines.push(field('Hidden filter', result.hidden_session_summary.summary, { kind: 'muted' }));
+    }
+    if (result.hidden_session_summary?.inspect_command) {
+      lines.push(field('Hidden inspect', command(result.hidden_session_summary.inspect_command), { kind: 'command' }));
     }
   }
   if (result.scheduler_cleanup?.status === 'cleaned') {

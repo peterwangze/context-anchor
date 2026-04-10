@@ -715,6 +715,16 @@ function buildActionCommands(scope, options = {}) {
   };
 }
 
+function buildHiddenSessionInspectCommand(scope, options = {}) {
+  return buildNpmCommand('diagnose:sessions', {
+    workspace: scope?.workspace || null,
+    sessionKey: scope?.sessionKey || null,
+    openclawHome: options.openclawHome || null,
+    skillsRoot: options.skillsRoot || null,
+    extraArgs: ['--include-hidden-sessions']
+  });
+}
+
 function buildSchedulerDescriptor(openClawHome, workspace, currentPlatform = process.platform) {
   const workspacePath = path.resolve(workspace);
   const launcherId = crypto.createHash('sha1').update(workspacePath).digest('hex').slice(0, 8);
@@ -1193,7 +1203,16 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
     total_sessions: sessions.length,
     excluded_subagent_sessions: collected.excluded_subagent_sessions.length,
     excluded_hidden_sessions: collected.excluded_hidden_sessions.length,
-    hidden_session_summary: collected.hidden_session_summary,
+    hidden_session_summary: {
+      ...(collected.hidden_session_summary || {}),
+      inspect_command:
+        Number(collected.hidden_session_summary?.total || 0) > 0
+          ? buildHiddenSessionInspectCommand(scope, {
+              openclawHome: resolvedOpenClawHome,
+              skillsRoot
+            })
+          : null
+    },
     workspaces: groups.length,
     skill_ready_sessions: sessions.filter((entry) => entry.classification.skill === 'ready').length,
     ready_sessions: sessions.filter((entry) => entry.classification.overall === 'ready').length,
@@ -1484,6 +1503,9 @@ function renderOpenClawSessionStatusReport(report) {
     lines.push(field('Excluded hidden sessions', report.summary.excluded_hidden_sessions, { kind: 'muted' }));
     if (report.summary.hidden_session_summary?.summary) {
       lines.push(field('Hidden filter', report.summary.hidden_session_summary.summary, { kind: 'muted' }));
+    }
+    if (report.summary.hidden_session_summary?.inspect_command) {
+      lines.push(field('Hidden inspect', command(report.summary.hidden_session_summary.inspect_command), { kind: 'command' }));
     }
   }
   lines.push(
@@ -1895,6 +1917,7 @@ module.exports = {
   probeLaunchctlRuntime,
   probeSystemdRuntime,
   probeWindowsScheduler,
+  buildHiddenSessionInspectCommand,
   quoteCommandArg,
   renderOpenClawSessionStatusReport,
   renderOpenClawSessionDiagnosisReport,

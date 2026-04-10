@@ -313,6 +313,11 @@
   - 当前即使不显式打开 `--include-hidden-sessions`，用户也能先低噪声看见本轮主要过滤的是 `workspace unresolved`、`stale host-only` 等哪类残留
   - hidden filter 摘要已复用共享可见性收集器生成，避免状态视图与升级视图各自维护不同口径
   - 已补充自动化测试，覆盖 hidden filter summary 在 status 与 upgrade 中的可见性
+- `2026-04-10`
+  - `sessions-status / sessions-diagnose / upgrade-sessions` 现在还会对 hidden filter 直接给出低噪声 `Hidden inspect` 跟进命令
+  - 当前用户不需要自己重新拼 `--include-hidden-sessions` 和 profile/workspace 上下文，就可以直接进入下一步排查
+  - hidden inspect 命令已复用共享 command builder 生成，避免状态与升级链路再次分叉
+  - 已补充自动化测试，覆盖 hidden inspect command 在 status 与 upgrade 中的可见性
 - `2026-04-09`
   - `Recovered Continuity` 对 reference-only completed task 的说明已进一步收口
   - 当前会明确显示这是“已完成任务的参考连续性”，并说明不会恢复旧 goal / next step 为活动任务

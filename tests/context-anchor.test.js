@@ -3585,8 +3585,11 @@ test('session status summarizes hidden session reasons in the default overview',
 
       assert.equal(report.summary.excluded_hidden_sessions, 1);
       assert.equal(report.summary.hidden_session_summary.by_reason.workspace_unresolved, 1);
+      assert.match(report.summary.hidden_session_summary.inspect_command, /diagnose:sessions/);
+      assert.match(report.summary.hidden_session_summary.inspect_command, /--include-hidden-sessions/);
       assert.match(rendered, /Excluded hidden sessions: 1/);
       assert.match(rendered, /Hidden filter: workspace unresolved 1/);
+      assert.match(rendered, /Hidden inspect: .*diagnose:sessions/);
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -3655,10 +3658,13 @@ test('registered host-only stale sessions are hidden by default from status and 
       assert.equal(statusReport.summary.total_sessions, 1);
       assert.equal(statusReport.summary.excluded_hidden_sessions, 1);
       assert.equal(statusReport.summary.hidden_session_summary.by_reason.registered_without_visible_transcript, 1);
+      assert.match(statusReport.summary.hidden_session_summary.inspect_command, /diagnose:sessions/);
       assert.equal(upgradeResult.selected_sessions, 1);
       assert.equal(upgradeResult.excluded_hidden_sessions, 1);
       assert.equal(upgradeResult.hidden_session_summary.by_reason.registered_without_visible_transcript, 1);
+      assert.match(upgradeResult.hidden_session_summary.inspect_command, /diagnose:sessions/);
       assert.match(renderedUpgrade, /Hidden filter: stale host-only 1/);
+      assert.match(renderedUpgrade, /Hidden inspect: .*diagnose:sessions/);
     });
   } finally {
     cleanupWorkspace(workspace);
