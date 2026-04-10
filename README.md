@@ -251,6 +251,18 @@ node scripts/configure-sessions.js
 
 `configure-sessions.js` 会扫描 `~/.openclaw/agents/*/sessions/sessions.json`，按 session 逐个询问是否跳过、配置或重新配置；`--yes` 可自动批量接管全部可解析的 session。默认自动接管模式下，它会优先做轻量级 workspace 自动登记，只在你明确要求重新配置时才重跑整套 host 配置。
 
+如果你只是想清理 host config 里已经失效的 hidden residue，而不是重新接管所有 session，现在还可以直接执行：
+
+```bash
+node scripts/configure-sessions.js --yes --prune-hidden-residues
+```
+
+这个清理入口当前只会处理高置信残留类型，例如：
+
+- `stale host-only`
+- `closed managed residue`
+- `unbound managed residue`
+
 ### 检查、诊断与更新
 
 检查安装和配置状态：
@@ -317,6 +329,7 @@ node scripts/sessions-diagnose.js
 如果这轮确实过滤掉了 hidden session，状态视图现在还会额外显示一条低噪声 `Hidden filter` 摘要，例如 `workspace unresolved 1` 或 `stale host-only 1`，帮助你快速判断被过滤的是哪类残留，而不必立刻切到 `--include-hidden-sessions`。
 同时状态视图现在还会直接给出 `Hidden inspect` 命令，默认指向带 `--include-hidden-sessions` 的 `sessions-diagnose`，方便你在保持当前 workspace / session / profile 上下文的前提下继续排查。
 如果 hidden filter 的主因比较明确，状态视图现在还会额外给出一条 `Hidden next step` 提示，例如提醒你优先恢复缺失 workspace，或清理/重配 stale host-only registration。
+如果当前 hidden residue 属于高置信、可直接清理的类型（例如 `stale host-only`、`closed managed residue`、`unbound managed residue`），状态视图和升级报告现在还会额外给出 `Hidden cleanup` 命令，直接指向 `configure-sessions --prune-hidden-residues --yes`。
 如果你确实要排查这类隐藏候选，可以显式加：
 
 ```bash
@@ -455,6 +468,7 @@ node scripts/upgrade-sessions.js --include-subagents
 如果升级阶段确实过滤掉了 hidden session，报告现在也会额外显示 `Hidden filter` 摘要，帮助你在不展开隐藏候选列表的前提下先看懂“这次跳过的主要是什么”。
 升级报告也会同步给出 `Hidden inspect` 命令，直接指向带当前 profile 上下文的 `sessions-diagnose --include-hidden-sessions`，减少你自己重新拼排查命令的成本。
 如果本轮 hidden filter 的主因已经比较明确，升级报告也会同步显示 `Hidden next step`，先告诉你这一批隐藏残留更适合“恢复缺失路径”还是“清理/重配 stale 注册”。
+如果这些 hidden residue 已经属于高置信可清理类型，升级报告也会同步显示 `Hidden cleanup`，让你直接清掉 host config 里的残留注册，而不必自己再找配置文件动手。
 如果你确实需要排查这些隐藏候选，可以显式加：
 
 ```bash

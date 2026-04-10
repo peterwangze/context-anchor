@@ -328,6 +328,11 @@
   - 当前仅有 `context-anchor` managed artifacts、但缺少有效 OpenClaw `session id` 的残留，不再进入主列表或升级目标，而会回到 hidden/filter 路径
   - 对仍然可见且由持久化绑定维持的 managed session，系统现在会直接回填并显示绑定的 `session id`，避免主列表再出现误导性的 `-`
   - 已补充自动化测试，覆盖 unbound managed residue hiding、closed managed residue hiding、bound managed session visibility 与 session-id backfill
+- `2026-04-11`
+  - `sessions-status / upgrade-sessions` 对高置信 hidden residue 现在已开始直接给出 `Hidden cleanup`
+  - 当前如果主因属于 `stale host-only`、`closed managed residue`、`unbound managed residue`，用户可以直接执行 `configure-sessions --prune-hidden-residues --yes` 清理 host config 残留
+  - `configure-sessions` 已新增 `--prune-hidden-residues`，可按当前 scope 批量清理高置信 hidden residue，而不需要重新接管全部 session
+  - 已补充自动化测试，覆盖 hidden cleanup command 可见性与 prune-hidden-residues 的实际清理行为
 - `2026-04-09`
   - `Recovered Continuity` 对 reference-only completed task 的说明已进一步收口
   - 当前会明确显示这是“已完成任务的参考连续性”，并说明不会恢复旧 goal / next step 为活动任务

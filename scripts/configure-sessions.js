@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 const { buildOpenClawSessionStatusReport } = require('./lib/openclaw-session-status');
+const { collectSessionCandidates, selectPrimaryHiddenReason } = require('./lib/openclaw-session-candidates');
 const { runConfigureHost } = require('./configure-host');
 const { runDoctor } = require('./doctor');
 const { runInstallHostAssets } = require('./install-host-assets');
@@ -13,7 +14,8 @@ const {
   readHostConfig,
   findSession,
   getWorkspaceRegistrationStatus,
-  resolveOwnership
+  resolveOwnership,
+  writeHostConfig
 } = require('./lib/host-config');
 const { discoverOpenClawSessions } = require('./lib/openclaw-session-discovery');
 const { getOpenClawHome, sanitizeKey } = require('./lib/context-anchor');
@@ -27,7 +29,8 @@ function parseArgs(argv) {
     assumeYes: false,
     json: false,
     workspace: null,
-    sessionKey: null
+    sessionKey: null,
+    pruneHiddenResidues: false
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -64,6 +67,11 @@ function parseArgs(argv) {
 
     if (arg === '--json') {
       options.json = true;
+      continue;
+    }
+
+    if (arg === '--prune-hidden-residues') {
+      options.pruneHiddenResidues = true;
     }
   }
 
@@ -330,6 +338,77 @@ function classifySession(session, openClawHome) {
   };
 }
 
+const PRUNABLE_HIDDEN_REASONS = new Set([
+  'closed_managed_session',
+  'managed_session_binding_missing',
+  'registered_without_visible_transcript'
+]);
+
+function pruneHiddenSessionResidues(openClawHome, options = {}) {
+  const hostConfig = readHostConfig(openClawHome);
+  const collected = collectSessionCandidates(openClawHome, {
+    includeSubagents: false,
+    includeHiddenSessions: false
+  });
+  const filteredHidden = (collected.excluded_hidden_sessions || []).filter((entry) => {
+    if (options.workspace && path.resolve(entry.workspace || '') !== path.resolve(options.workspace)) {
+      return false;
+    }
+    if (options.sessionKey && sanitizeKey(entry.session_key) !== sanitizeKey(options.sessionKey)) {
+      return false;
+    }
+    return PRUNABLE_HIDDEN_REASONS.has(selectPrimaryHiddenReason(entry));
+  });
+  if (filteredHidden.length === 0) {
+    return {
+      status: 'noop',
+      removed_count: 0,
+      removed_sessions: [],
+      removed_reasons: {}
+    };
+  }
+
+  const removalKeys = new Set(
+    filteredHidden
+      .filter((entry) => entry.workspace && entry.session_key)
+      .map((entry) => `${normalizeWorkspaceKey(entry.workspace)}::${sanitizeKey(entry.session_key)}`)
+  );
+  const removedSessions = filteredHidden.map((entry) => ({
+    workspace: entry.workspace || null,
+    session_key: entry.session_key,
+    reason: selectPrimaryHiddenReason(entry)
+  }));
+  const nextSessions = (hostConfig.sessions || []).filter(
+    (entry) => !removalKeys.has(`${normalizeWorkspaceKey(entry.workspace)}::${sanitizeKey(entry.session_key)}`)
+  );
+
+  if (nextSessions.length === (hostConfig.sessions || []).length) {
+    return {
+      status: 'noop',
+      removed_count: 0,
+      removed_sessions: [],
+      removed_reasons: {}
+    };
+  }
+
+  writeHostConfig(openClawHome, {
+    ...hostConfig,
+    sessions: nextSessions
+  });
+
+  const removedReasons = removedSessions.reduce((acc, entry) => {
+    acc[entry.reason] = Number(acc[entry.reason] || 0) + 1;
+    return acc;
+  }, {});
+
+  return {
+    status: 'pruned',
+    removed_count: removedSessions.length,
+    removed_sessions: removedSessions,
+    removed_reasons: removedReasons
+  };
+}
+
 async function configureWorkspaceForSession({
   openClawHome,
   skillsRoot,
@@ -388,10 +467,6 @@ async function runConfigureSessions(openClawHomeArg, skillsRootArg, options = {}
   );
   const assumeYes = Boolean(options.assumeYes);
   const ask = options.ask || null;
-  const beforeSessionReport = buildOpenClawSessionStatusReport(openClawHome, skillsRoot, {
-    workspace: options.workspace || null,
-    sessionKey: options.sessionKey || null
-  });
 
   let doctor = runDoctor({ openclawHome: openClawHome, skillsRoot });
   let repair = null;
@@ -418,6 +493,21 @@ async function runConfigureSessions(openClawHomeArg, skillsRootArg, options = {}
       doctor = runDoctor({ openclawHome: openClawHome, skillsRoot });
     }
   }
+
+  const hiddenResidueCleanup = options.pruneHiddenResidues
+    ? pruneHiddenSessionResidues(openClawHome, {
+        workspace: options.workspace || null,
+        sessionKey: options.sessionKey || null
+      })
+    : null;
+  if (hiddenResidueCleanup?.status === 'pruned') {
+    doctor = runDoctor({ openclawHome: openClawHome, skillsRoot });
+  }
+
+  const beforeSessionReport = buildOpenClawSessionStatusReport(openClawHome, skillsRoot, {
+    workspace: options.workspace || null,
+    sessionKey: options.sessionKey || null
+  });
 
   const discoveredSessions = discoverOpenClawSessions(openClawHome);
   const filteredSessions = discoveredSessions.filter((session) => {
@@ -561,7 +651,8 @@ async function runConfigureSessions(openClawHomeArg, skillsRootArg, options = {}
     verification,
     verification_report: verificationReport,
     doctor,
-    repair
+    repair,
+    hidden_residue_cleanup: hiddenResidueCleanup
   };
 }
 
@@ -599,6 +690,15 @@ function renderConfigureSessionsReport(result) {
   );
   if (result.repair) {
     lines.push(field('Runtime repair', 'Host assets/configuration were refreshed before onboarding sessions.', { kind: 'info' }));
+  }
+  if (result.hidden_residue_cleanup?.status === 'pruned') {
+    lines.push(
+      field(
+        'Hidden residue cleanup',
+        `Removed ${Number(result.hidden_residue_cleanup.removed_count || 0)} hidden registration(s) before session onboarding.`,
+        { kind: 'info' }
+      )
+    );
   }
   lines.push(
     field(

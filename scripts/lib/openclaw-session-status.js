@@ -725,6 +725,17 @@ function buildHiddenSessionInspectCommand(scope, options = {}) {
   });
 }
 
+function buildHiddenSessionCleanupCommand(scope, options = {}) {
+  return buildNpmCommand('configure:sessions', {
+    workspace: scope?.workspace || null,
+    sessionKey: scope?.sessionKey || null,
+    openclawHome: options.openclawHome || null,
+    skillsRoot: options.skillsRoot || null,
+    yes: true,
+    extraArgs: ['--prune-hidden-residues']
+  });
+}
+
 function buildSchedulerDescriptor(openClawHome, workspace, currentPlatform = process.platform) {
   const workspacePath = path.resolve(workspace);
   const launcherId = crypto.createHash('sha1').update(workspacePath).digest('hex').slice(0, 8);
@@ -1211,6 +1222,13 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
               openclawHome: resolvedOpenClawHome,
               skillsRoot
             })
+          : null,
+      cleanup_command:
+        collected.hidden_session_summary?.cleanup_recommended
+          ? buildHiddenSessionCleanupCommand(scope, {
+              openclawHome: resolvedOpenClawHome,
+              skillsRoot
+            })
           : null
     },
     workspaces: groups.length,
@@ -1509,6 +1527,9 @@ function renderOpenClawSessionStatusReport(report) {
     }
     if (report.summary.hidden_session_summary?.inspect_command) {
       lines.push(field('Hidden inspect', command(report.summary.hidden_session_summary.inspect_command), { kind: 'command' }));
+    }
+    if (report.summary.hidden_session_summary?.cleanup_command) {
+      lines.push(field('Hidden cleanup', command(report.summary.hidden_session_summary.cleanup_command), { kind: 'command' }));
     }
   }
   lines.push(
@@ -1910,6 +1931,7 @@ function renderOpenClawSessionDiagnosisReport(report) {
 
 module.exports = {
   buildActionCommands,
+  buildHiddenSessionCleanupCommand,
   buildOpenClawSessionStatusReport,
   buildSchedulerDescriptor,
   classifySessionStatus,

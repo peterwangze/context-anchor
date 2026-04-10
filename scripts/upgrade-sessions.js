@@ -10,7 +10,11 @@ const {
   sessionStateFile
 } = require('./lib/context-anchor');
 const { buildBootstrapCacheContent, buildBootstrapCachePath, writeBootstrapCache } = require('./lib/bootstrap-cache');
-const { buildHiddenSessionInspectCommand, buildOpenClawSessionStatusReport } = require('./lib/openclaw-session-status');
+const {
+  buildHiddenSessionCleanupCommand,
+  buildHiddenSessionInspectCommand,
+  buildOpenClawSessionStatusReport
+} = require('./lib/openclaw-session-status');
 const {
   ensureWorkspaceRegistration,
   findSession,
@@ -865,6 +869,19 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
                 skillsRoot
               }
             )
+          : null,
+      cleanup_command:
+        collected.hidden_session_summary?.cleanup_recommended
+          ? buildHiddenSessionCleanupCommand(
+              {
+                workspace: options.workspace || null,
+                sessionKey: options.sessionKey || null
+              },
+              {
+                openclawHome: openClawHome,
+                skillsRoot
+              }
+            )
           : null
     },
     upgraded_sessions: results.filter((entry) => entry.action === 'upgraded').length,
@@ -949,6 +966,9 @@ function renderUpgradeReport(result) {
     }
     if (result.hidden_session_summary?.inspect_command) {
       lines.push(field('Hidden inspect', command(result.hidden_session_summary.inspect_command), { kind: 'command' }));
+    }
+    if (result.hidden_session_summary?.cleanup_command) {
+      lines.push(field('Hidden cleanup', command(result.hidden_session_summary.cleanup_command), { kind: 'command' }));
     }
   }
   if (result.scheduler_cleanup?.status === 'cleaned') {

@@ -3592,6 +3592,7 @@ test('session status summarizes hidden session reasons in the default overview',
       assert.match(report.summary.hidden_session_summary.next_step_hint, /restore the missing workspace path|unresolved residue/i);
       assert.match(report.summary.hidden_session_summary.inspect_command, /diagnose:sessions/);
       assert.match(report.summary.hidden_session_summary.inspect_command, /--include-hidden-sessions/);
+      assert.equal(report.summary.hidden_session_summary.cleanup_command, null);
       assert.match(rendered, /Excluded hidden sessions: 1/);
       assert.match(rendered, /Hidden filter: workspace unresolved 1/);
       assert.match(rendered, /Hidden next step: .*workspace/i);
@@ -3666,14 +3667,18 @@ test('registered host-only stale sessions are hidden by default from status and 
       assert.equal(statusReport.summary.hidden_session_summary.by_reason.registered_without_visible_transcript, 1);
       assert.match(statusReport.summary.hidden_session_summary.next_step_hint, /stale host-only registrations|reconfigure/i);
       assert.match(statusReport.summary.hidden_session_summary.inspect_command, /diagnose:sessions/);
+      assert.match(statusReport.summary.hidden_session_summary.cleanup_command, /configure:sessions/);
+      assert.match(statusReport.summary.hidden_session_summary.cleanup_command, /--prune-hidden-residues/);
       assert.equal(upgradeResult.selected_sessions, 1);
       assert.equal(upgradeResult.excluded_hidden_sessions, 1);
       assert.equal(upgradeResult.hidden_session_summary.by_reason.registered_without_visible_transcript, 1);
       assert.match(upgradeResult.hidden_session_summary.next_step_hint, /stale host-only registrations|reconfigure/i);
       assert.match(upgradeResult.hidden_session_summary.inspect_command, /diagnose:sessions/);
+      assert.match(upgradeResult.hidden_session_summary.cleanup_command, /configure:sessions/);
       assert.match(renderedUpgrade, /Hidden filter: stale host-only 1/);
       assert.match(renderedUpgrade, /Hidden next step: .*stale host-only/i);
       assert.match(renderedUpgrade, /Hidden inspect: .*diagnose:sessions/);
+      assert.match(renderedUpgrade, /Hidden cleanup: .*configure:sessions/);
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -3825,6 +3830,89 @@ test('status and upgrade hide closed managed sessions by default', async () => {
       assert.equal(upgradeResult.selected_sessions, 0);
       assert.equal(upgradeResult.excluded_hidden_sessions, 1);
       assert.equal(upgradeResult.hidden_session_summary.by_reason.closed_managed_session, 1);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('configure-sessions can prune hidden session residues from host config', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const visibleWorkspace = path.join(workspace, 'visible-workspace');
+  const managedWorkspace = path.join(workspace, 'managed-workspace');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        assumeYes: true,
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'peter',
+        defaultWorkspace: visibleWorkspace,
+        addUsers: [],
+        addWorkspaces: [
+          {
+            workspace: managedWorkspace,
+            userId: 'peter',
+            projectId: 'managed-workspace'
+          }
+        ]
+      });
+
+      runSessionStart(visibleWorkspace, 'agent:main:visible', 'visible-workspace', {
+        userId: 'peter',
+        openClawSessionId: 'visible-session-id'
+      });
+      runSessionStart(managedWorkspace, 'managed-hidden', 'managed-workspace', {
+        userId: 'peter'
+      });
+
+      const hostConfigFile = getHostConfigFile(openClawHome);
+      const hostConfig = readJson(hostConfigFile, {});
+      hostConfig.sessions = [
+        ...(hostConfig.sessions || []),
+        {
+          workspace: path.resolve(path.join(workspace, 'stale-workspace')),
+          session_key: 'agent:main:stale',
+          user_id: 'peter',
+          project_id: 'stale-workspace',
+          status: 'active',
+          started_at: new Date().toISOString(),
+          last_active: new Date().toISOString(),
+          closed_at: null,
+          updated_at: new Date().toISOString()
+        }
+      ];
+      writeJson(hostConfigFile, hostConfig);
+
+      const agentSessionsDir = path.join(openClawHome, 'agents', 'main', 'sessions');
+      fs.mkdirSync(agentSessionsDir, { recursive: true });
+      const visibleTranscript = path.join(agentSessionsDir, 'visible.jsonl');
+      const sessionsIndex = path.join(agentSessionsDir, 'sessions.json');
+      writeSessionTranscript(visibleTranscript, visibleWorkspace, 'visible-session-id');
+      writeJson(sessionsIndex, {
+        'agent:main:visible': {
+          sessionId: 'visible-session-id',
+          sessionFile: visibleTranscript,
+          updatedAt: 1774705704043,
+          chatType: 'direct'
+        }
+      });
+
+      const result = await runConfigureSessions(openClawHome, path.join(openClawHome, 'skills'), {
+        assumeYes: true,
+        pruneHiddenResidues: true
+      });
+      const afterConfig = readJson(hostConfigFile, {});
+      const remainingKeys = (afterConfig.sessions || []).map((entry) => entry.session_key).sort();
+
+      assert.equal(result.hidden_residue_cleanup.status, 'pruned');
+      assert.equal(result.hidden_residue_cleanup.removed_count, 2);
+      assert.equal(result.hidden_residue_cleanup.removed_reasons.managed_session_binding_missing, 1);
+      assert.equal(result.hidden_residue_cleanup.removed_reasons.registered_without_visible_transcript, 1);
+      assert.deepEqual(remainingKeys, ['agent-main-visible']);
     });
   } finally {
     cleanupWorkspace(workspace);

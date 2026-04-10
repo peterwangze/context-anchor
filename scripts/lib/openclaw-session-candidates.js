@@ -48,6 +48,12 @@ const HIDDEN_REASON_HINTS = {
     'Inspect the hidden sessions once to understand whether these residues still need attention.'
 };
 
+const PRUNABLE_HIDDEN_REASONS = new Set([
+  'closed_managed_session',
+  'managed_session_binding_missing',
+  'registered_without_visible_transcript'
+]);
+
 function normalizeWorkspaceKey(workspace) {
   const resolved = path.resolve(workspace);
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
@@ -172,7 +178,8 @@ function summarizeHiddenSessionCandidates(entries = []) {
     reasons,
     summary: reasons.length > 0 ? reasons.map((entry) => `${entry.label} ${entry.count}`).join(' | ') : null,
     next_step_reason: primaryReason?.reason || null,
-    next_step_hint: primaryReason ? HIDDEN_REASON_HINTS[primaryReason.reason] || HIDDEN_REASON_HINTS.other_hidden_reason : null
+    next_step_hint: primaryReason ? HIDDEN_REASON_HINTS[primaryReason.reason] || HIDDEN_REASON_HINTS.other_hidden_reason : null,
+    cleanup_recommended: reasons.some((entry) => PRUNABLE_HIDDEN_REASONS.has(entry.reason))
   };
 }
 
@@ -359,6 +366,7 @@ module.exports = {
   collectSessionCandidates,
   findUniqueHostSessionByKey,
   isEphemeralSubagentSession,
+  isPrunableHiddenReason: (reason) => PRUNABLE_HIDDEN_REASONS.has(String(reason || '')),
   isUserVisibleSession,
   normalizeWorkspaceKey,
   selectPrimaryHiddenReason,
