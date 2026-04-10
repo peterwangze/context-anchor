@@ -3538,6 +3538,61 @@ test('session status can include hidden sessions when explicitly requested', asy
   }
 });
 
+test('session status summarizes hidden session reasons in the default overview', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const configuredWorkspace = path.join(workspace, 'configured-workspace');
+  const agentSessionsDir = path.join(openClawHome, 'agents', 'main', 'sessions');
+  const configuredReadyTranscript = path.join(agentSessionsDir, 'configured-ready.jsonl');
+  const sessionsIndex = path.join(agentSessionsDir, 'sessions.json');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        assumeYes: true,
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'peter',
+        defaultWorkspace: configuredWorkspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      runSessionStart(configuredWorkspace, 'agent:main:main', 'configured-workspace', {
+        userId: 'peter',
+        openClawSessionId: 'ready-session-id'
+      });
+
+      fs.mkdirSync(agentSessionsDir, { recursive: true });
+      writeSessionTranscript(configuredReadyTranscript, configuredWorkspace, 'ready-session-id');
+      writeJson(sessionsIndex, {
+        'agent:main:main': {
+          sessionId: 'ready-session-id',
+          sessionFile: configuredReadyTranscript,
+          updatedAt: 1774705704043,
+          chatType: 'direct'
+        },
+        'agent:main:ghost': {
+          sessionId: 'ghost-session-id',
+          updatedAt: 1774705707043,
+          chatType: 'direct'
+        }
+      });
+
+      const report = buildOpenClawSessionStatusReport(openClawHome, path.join(openClawHome, 'skills'));
+      const rendered = renderOpenClawSessionStatusReport(report);
+
+      assert.equal(report.summary.excluded_hidden_sessions, 1);
+      assert.equal(report.summary.hidden_session_summary.by_reason.workspace_unresolved, 1);
+      assert.match(rendered, /Excluded hidden sessions: 1/);
+      assert.match(rendered, /Hidden filter: workspace unresolved 1/);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('registered host-only stale sessions are hidden by default from status and upgrade', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');
@@ -3595,11 +3650,15 @@ test('registered host-only stale sessions are hidden by default from status and 
 
       const statusReport = buildOpenClawSessionStatusReport(openClawHome, path.join(openClawHome, 'skills'));
       const upgradeResult = runUpgradeSessions(openClawHome, path.join(openClawHome, 'skills'));
+      const renderedUpgrade = renderUpgradeReport(upgradeResult);
 
       assert.equal(statusReport.summary.total_sessions, 1);
       assert.equal(statusReport.summary.excluded_hidden_sessions, 1);
+      assert.equal(statusReport.summary.hidden_session_summary.by_reason.registered_without_visible_transcript, 1);
       assert.equal(upgradeResult.selected_sessions, 1);
       assert.equal(upgradeResult.excluded_hidden_sessions, 1);
+      assert.equal(upgradeResult.hidden_session_summary.by_reason.registered_without_visible_transcript, 1);
+      assert.match(renderedUpgrade, /Hidden filter: stale host-only 1/);
     });
   } finally {
     cleanupWorkspace(workspace);

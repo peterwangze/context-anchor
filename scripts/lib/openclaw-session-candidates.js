@@ -4,6 +4,25 @@ const { createPaths, runtimeStateFile, sanitizeKey, sessionStateFile, sessionSum
 const { findSession, readHostConfig } = require('./host-config');
 const { discoverOpenClawSessions } = require('./openclaw-session-discovery');
 
+const HIDDEN_REASON_PRIORITY = [
+  'registered_without_visible_transcript',
+  'workspace_unresolved',
+  'missing_transcript',
+  'system_sent',
+  'aborted_last_run',
+  'not_registered_or_discovered'
+];
+
+const HIDDEN_REASON_LABELS = {
+  registered_without_visible_transcript: 'stale host-only',
+  workspace_unresolved: 'workspace unresolved',
+  missing_transcript: 'missing transcript',
+  system_sent: 'system-generated',
+  aborted_last_run: 'aborted residue',
+  not_registered_or_discovered: 'orphaned candidate',
+  other_hidden_reason: 'other hidden reason'
+};
+
 function normalizeWorkspaceKey(workspace) {
   const resolved = path.resolve(workspace);
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
@@ -60,6 +79,53 @@ function isUserVisibleSession(candidate = {}) {
   }
 
   return false;
+}
+
+function selectPrimaryHiddenReason(candidate = {}) {
+  const reasons = Array.isArray(candidate.hidden_reasons) ? candidate.hidden_reasons : [];
+  for (const reason of HIDDEN_REASON_PRIORITY) {
+    if (reasons.includes(reason)) {
+      return reason;
+    }
+  }
+  return reasons[0] || 'other_hidden_reason';
+}
+
+function summarizeHiddenSessionCandidates(entries = []) {
+  const groups = new Map();
+
+  (Array.isArray(entries) ? entries : []).forEach((entry) => {
+    const reason = selectPrimaryHiddenReason(entry);
+    const existing = groups.get(reason) || {
+      reason,
+      label: HIDDEN_REASON_LABELS[reason] || HIDDEN_REASON_LABELS.other_hidden_reason,
+      count: 0,
+      examples: []
+    };
+    existing.count += 1;
+    if (existing.examples.length < 3 && entry?.session_key) {
+      existing.examples.push(String(entry.session_key));
+    }
+    groups.set(reason, existing);
+  });
+
+  const reasons = [...groups.values()].sort((left, right) => {
+    const countDelta = Number(right.count || 0) - Number(left.count || 0);
+    if (countDelta !== 0) {
+      return countDelta;
+    }
+    return String(left.label || left.reason).localeCompare(String(right.label || right.reason));
+  });
+
+  return {
+    total: Array.isArray(entries) ? entries.length : 0,
+    by_reason: reasons.reduce((acc, entry) => {
+      acc[entry.reason] = Number(entry.count || 0);
+      return acc;
+    }, {}),
+    reasons,
+    summary: reasons.length > 0 ? reasons.map((entry) => `${entry.label} ${entry.count}`).join(' | ') : null
+  };
 }
 
 function hasManagedSessionArtifacts(workspace, sessionKey) {
@@ -198,7 +264,8 @@ function collectSessionCandidates(openClawHome, options = {}) {
       ? (options.includeHiddenSessions ? allCandidates : visibleCandidates.filter((entry) => !entry.ephemeral_subagent))
       : (options.includeHiddenSessions ? allCandidates.filter((entry) => !entry.ephemeral_subagent) : visibleCandidates.filter((entry) => !entry.ephemeral_subagent)),
     excluded_subagent_sessions: excludedSubagentSessions,
-    excluded_hidden_sessions: excludedHiddenSessions
+    excluded_hidden_sessions: excludedHiddenSessions,
+    hidden_session_summary: summarizeHiddenSessionCandidates(excludedHiddenSessions)
   };
 }
 
@@ -209,5 +276,7 @@ module.exports = {
   isEphemeralSubagentSession,
   isUserVisibleSession,
   normalizeWorkspaceKey,
+  selectPrimaryHiddenReason,
+  summarizeHiddenSessionCandidates,
   upsertCandidate
 };

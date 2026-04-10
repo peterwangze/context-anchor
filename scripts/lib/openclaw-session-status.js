@@ -1193,6 +1193,7 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
     total_sessions: sessions.length,
     excluded_subagent_sessions: collected.excluded_subagent_sessions.length,
     excluded_hidden_sessions: collected.excluded_hidden_sessions.length,
+    hidden_session_summary: collected.hidden_session_summary,
     workspaces: groups.length,
     skill_ready_sessions: sessions.filter((entry) => entry.classification.skill === 'ready').length,
     ready_sessions: sessions.filter((entry) => entry.classification.overall === 'ready').length,
@@ -1481,6 +1482,9 @@ function renderOpenClawSessionStatusReport(report) {
   }
   if (report.summary.excluded_hidden_sessions > 0) {
     lines.push(field('Excluded hidden sessions', report.summary.excluded_hidden_sessions, { kind: 'muted' }));
+    if (report.summary.hidden_session_summary?.summary) {
+      lines.push(field('Hidden filter', report.summary.hidden_session_summary.summary, { kind: 'muted' }));
+    }
   }
   lines.push(
     field(

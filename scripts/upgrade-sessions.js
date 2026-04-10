@@ -851,6 +851,7 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
     selected_sessions: candidates.length,
     excluded_subagent_sessions: collected.excluded_subagent_sessions.length,
     excluded_hidden_sessions: collected.excluded_hidden_sessions.length,
+    hidden_session_summary: collected.hidden_session_summary,
     upgraded_sessions: results.filter((entry) => entry.action === 'upgraded').length,
     skipped_sessions: results.filter((entry) => entry.action === 'skipped').length,
     unresolved_sessions: results.filter((entry) => entry.reason === 'workspace_unresolved').length,
@@ -925,6 +926,9 @@ function renderUpgradeReport(result) {
   );
   if (result.excluded_subagent_sessions || result.excluded_hidden_sessions) {
     lines.push(field('Filtered', `Subagents ${Number(result.excluded_subagent_sessions || 0)} | Hidden ${Number(result.excluded_hidden_sessions || 0)}`, { kind: 'muted' }));
+    if (result.hidden_session_summary?.summary) {
+      lines.push(field('Hidden filter', result.hidden_session_summary.summary, { kind: 'muted' }));
+    }
   }
   if (result.scheduler_cleanup?.status === 'cleaned') {
     lines.push(
