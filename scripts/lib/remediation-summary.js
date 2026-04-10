@@ -1,6 +1,7 @@
 const fs = require('fs');
 
 const { buildAutoFixCommand } = require('./auto-fix');
+const { getResumePreferenceStats } = require('./resume-preferences');
 
 const RESUME_INPUT_FLAGS = {
   workspace: '--workspace',
@@ -134,55 +135,70 @@ function isPathLikeResumeInput(input) {
   return ['workspace', 'openclaw-home', 'skills-root'].includes(String(input || '').toLowerCase());
 }
 
-function sortResumeCandidates(input, values = []) {
-  const entries = uniqueStringList(values);
-  if (!isPathLikeResumeInput(input)) {
-    return entries;
-  }
+function resolveResumePreferences(context = {}) {
+  return context.resumePreferences || context.resume_preferences || null;
+}
 
-  return entries.sort((left, right) => {
-    const leftExists = fs.existsSync(left);
-    const rightExists = fs.existsSync(right);
-    if (leftExists !== rightExists) {
-      return leftExists ? -1 : 1;
-    }
-    return left.localeCompare(right);
-  });
+function sortResumeCandidates(input, values = [], resumePreferences = null) {
+  return uniqueStringList(values)
+    .map((value, index) => ({
+      value,
+      index,
+      exists: isPathLikeResumeInput(input) ? fs.existsSync(value) : null,
+      preference: getResumePreferenceStats(resumePreferences, input, value)
+    }))
+    .sort((left, right) => {
+      if (isPathLikeResumeInput(input) && left.exists !== right.exists) {
+        return left.exists ? -1 : 1;
+      }
+      const countDelta = Number(right.preference?.count || 0) - Number(left.preference?.count || 0);
+      if (countDelta !== 0) {
+        return countDelta;
+      }
+      const rightTs = Date.parse(right.preference?.last_selected_at || 0) || 0;
+      const leftTs = Date.parse(left.preference?.last_selected_at || 0) || 0;
+      if (rightTs !== leftTs) {
+        return rightTs - leftTs;
+      }
+      return left.index - right.index;
+    })
+    .map((entry) => entry.value);
 }
 
 function buildResumeInputCandidates(input, context = {}) {
   const key = String(input || '').toLowerCase();
+  const resumePreferences = resolveResumePreferences(context);
   switch (key) {
     case 'workspace':
       return sortResumeCandidates(key, [
         context.workspace,
         ...(Array.isArray(context.candidateWorkspaces) ? context.candidateWorkspaces : [])
-      ]).slice(0, 3);
+      ], resumePreferences).slice(0, 3);
     case 'session-key':
-      return uniqueStringList([
+      return sortResumeCandidates(key, [
         context.sessionKey,
         ...(Array.isArray(context.candidateSessionKeys) ? context.candidateSessionKeys : [])
-      ]).slice(0, 3);
+      ], resumePreferences).slice(0, 3);
     case 'project-id':
-      return uniqueStringList([
+      return sortResumeCandidates(key, [
         context.projectId,
         ...(Array.isArray(context.candidateProjectIds) ? context.candidateProjectIds : [])
-      ]).slice(0, 3);
+      ], resumePreferences).slice(0, 3);
     case 'user-id':
-      return uniqueStringList([
+      return sortResumeCandidates(key, [
         context.userId,
         ...(Array.isArray(context.candidateUserIds) ? context.candidateUserIds : [])
-      ]).slice(0, 3);
+      ], resumePreferences).slice(0, 3);
     case 'openclaw-home':
       return sortResumeCandidates(key, [
         context.openclawHome,
         ...(Array.isArray(context.candidateOpenClawHomes) ? context.candidateOpenClawHomes : [])
-      ]).slice(0, 3);
+      ], resumePreferences).slice(0, 3);
     case 'skills-root':
       return sortResumeCandidates(key, [
         context.skillsRoot,
         ...(Array.isArray(context.candidateSkillsRoots) ? context.candidateSkillsRoots : [])
-      ]).slice(0, 3);
+      ], resumePreferences).slice(0, 3);
     default:
       return [];
   }
@@ -339,9 +355,11 @@ function buildSuggestedResumePlan(command = '', details = [], context = {}) {
   }
 
   const suggestionContext = { ...(context || {}) };
+  const resumePreferences = resolveResumePreferences(context);
   let changed = false;
   let singleCandidateCount = 0;
   let multiCandidateCount = 0;
+  let preferredCandidateCount = 0;
   const suggestedInputs = [];
 
   (Array.isArray(details) ? details : []).forEach((entry) => {
@@ -366,13 +384,19 @@ function buildSuggestedResumePlan(command = '', details = [], context = {}) {
     if (!contextKey) {
       return;
     }
+    const preference = getResumePreferenceStats(resumePreferences, entry.label, candidatePool[0]);
+    const usesPreference = candidatePool.length > 1 && Number(preference.count || 0) > 0;
     suggestionContext[contextKey] = candidatePool[0];
     changed = true;
     suggestedInputs.push({
       label: entry.label,
       value: candidatePool[0],
       reason:
-        isPathLikeResumeInput(entry.label) && fs.existsSync(candidatePool[0])
+        usesPreference
+          ? entry?.value
+            ? 'preferred_candidate_replacement'
+            : 'preferred_candidate'
+          : isPathLikeResumeInput(entry.label) && fs.existsSync(candidatePool[0])
           ? entry?.value
             ? 'existing_path_replacement'
             : 'existing_path'
@@ -386,6 +410,9 @@ function buildSuggestedResumePlan(command = '', details = [], context = {}) {
       singleCandidateCount += 1;
     } else {
       multiCandidateCount += 1;
+    }
+    if (usesPreference) {
+      preferredCandidateCount += 1;
     }
   });
 
@@ -412,6 +439,10 @@ function buildSuggestedResumePlan(command = '', details = [], context = {}) {
         ? `${entry.label}=${entry.value} (only candidate)`
         : entry.reason === 'only_candidate_replacement'
         ? `${entry.label}=${entry.value} (replaces invalid value with the only candidate)`
+        : entry.reason === 'preferred_candidate'
+        ? `${entry.label}=${entry.value} (preferred candidate from confirmed history)`
+        : entry.reason === 'preferred_candidate_replacement'
+        ? `${entry.label}=${entry.value} (replaces invalid value with the preferred confirmed candidate)`
         : entry.reason === 'existing_path'
         ? `${entry.label}=${entry.value} (existing path)`
         : entry.reason === 'existing_path_replacement'
@@ -426,10 +457,13 @@ function buildSuggestedResumePlan(command = '', details = [], context = {}) {
       ? 'needs_review'
       : validation.status,
     validation_summary: needsReview
-      ? `Suggested resume 已代入排序第一的候选值；其中 ${multiCandidateCount} 个输入仍建议先确认后再重跑。`
+      ? preferredCandidateCount > 0
+        ? `Suggested resume 已优先代入与你最近确认历史更一致的候选值；其中 ${multiCandidateCount} 个输入仍建议先确认后再重跑。`
+        : `Suggested resume 已代入排序第一的候选值；其中 ${multiCandidateCount} 个输入仍建议先确认后再重跑。`
       : validation.summary,
     single_candidate_count: singleCandidateCount,
     multi_candidate_count: multiCandidateCount,
+    preferred_candidate_count: preferredCandidateCount,
     suggested_inputs: suggestedInputs,
     suggested_inputs_summary: suggestedInputsSummary
   };
@@ -463,9 +497,24 @@ function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
     return 0;
   };
   const rankForEffort = (entry) => {
-    const unresolvedPlaceholders = countPlaceholderTokens(entry);
+    const filledEntry = fillTemplateCommand(entry, resumeContext);
+    const unresolvedPlaceholders = countPlaceholderTokens(filledEntry || entry);
     const flagCount = countCommandFlags(entry);
     return unresolvedPlaceholders * 100 + flagCount;
+  };
+  const rankForContextCoverage = (entry) => {
+    const checks = [
+      ['workspace', /--workspace\b|<workspace>/i],
+      ['sessionKey', /--session-key\b|<session-key>/i],
+      ['projectId', /--project-id\b|<project-id>/i],
+      ['userId', /--user-id\b|<user-id>/i],
+      ['openclawHome', /--openclaw-home\b|<openclaw-home>/i],
+      ['skillsRoot', /--skills-root\b|<skills-root>/i]
+    ];
+    return checks.reduce(
+      (total, [contextKey, pattern]) => (resumeContext[contextKey] && pattern.test(entry) ? total + 1 : total),
+      0
+    );
   };
   const firstMatchingCommand = (predicate) => {
     if (typeof predicate !== 'function') {
@@ -480,6 +529,10 @@ function inferConfirmOnlyRequirement(source, action = {}, strategy = {}) {
         const sourceDelta = rankForSource(left) - rankForSource(right);
         if (sourceDelta !== 0) {
           return sourceDelta;
+        }
+        const coverageDelta = rankForContextCoverage(right) - rankForContextCoverage(left);
+        if (coverageDelta !== 0) {
+          return coverageDelta;
         }
         const effortDelta = rankForEffort(left) - rankForEffort(right);
         if (effortDelta !== 0) {

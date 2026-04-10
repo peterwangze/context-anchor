@@ -298,6 +298,11 @@
   - `Suggested resume` 现在已开始支持用有效候选替换失效路径或不匹配旧值
   - 当前如果 resume command 里的 profile / skills-root 已失效，但系统已有可用候选，会直接给出替换后的建议命令
   - 已补充自动化测试，覆盖 invalid path replacement 的 suggested resume
+- `2026-04-10`
+  - `manual/confirm_only` 的多候选 `Suggested resume` 已开始参考用户最近确认过的 `workspace`、`session-key` 与 profile 选择
+  - 当前如果某个候选与确认历史更一致，系统会优先把它作为 preferred candidate，并在 `Suggested inputs` / `Suggested checks` 中显式说明原因
+  - 偏好记录现已落在 user metadata，而不是普通 `user_preferences`，避免内部恢复排序信息继续注入 bootstrap 上下文
+  - 已补充自动化测试，覆盖 confirmed-history candidate ranking 与 metadata-only persistence
 - `2026-04-09`
   - `Recovered Continuity` 对 reference-only completed task 的说明已进一步收口
   - 当前会明确显示这是“已完成任务的参考连续性”，并说明不会恢复旧 goal / next step 为活动任务

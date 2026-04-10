@@ -2,13 +2,14 @@
 
 const fs = require('fs');
 const path = require('path');
-const { getOpenClawHome, readJson } = require('./lib/context-anchor');
+const { createPaths, getOpenClawHome, readJson } = require('./lib/context-anchor');
 const { getHostConfigFile, readHostConfig, summarizeHostConfig } = require('./lib/host-config');
 const {
   classifyMemorySourceHealth,
   summarizeExternalMemorySources
 } = require('./legacy-memory-sync');
 const { buildRemediationSummary } = require('./lib/remediation-summary');
+const { recordResumeSelections } = require('./lib/resume-preferences');
 const {
   command,
   field,
@@ -1285,6 +1286,14 @@ function runDoctor(options = {}) {
     : hostConfig.defaults.workspace
       ? path.resolve(hostConfig.defaults.workspace)
       : null;
+  const doctorPaths = createPaths(workspace || process.cwd());
+  const resumePreferences = hostConfig.defaults?.user_id
+    ? recordResumeSelections(doctorPaths, hostConfig.defaults.user_id, {
+        workspace,
+        'openclaw-home': openClawHome,
+        'skills-root': skillsRoot
+      })
+    : null;
   const skillsRootRegistrationRequired = path.resolve(skillsRoot) !== path.resolve(defaultManagedSkillsRoot);
 
   const installation = {
@@ -1463,7 +1472,8 @@ function runDoctor(options = {}) {
               userId: hostConfig.defaults?.user_id || null,
               openClawHome,
               skillsRoot,
-              candidateWorkspaces: registeredWorkspaceCandidates
+              candidateWorkspaces: registeredWorkspaceCandidates,
+              resumePreferences
             }
           }
         },
@@ -1476,7 +1486,8 @@ function runDoctor(options = {}) {
               userId: hostConfig.defaults?.user_id || null,
               openClawHome,
               skillsRoot,
-              candidateWorkspaces: registeredWorkspaceCandidates
+              candidateWorkspaces: registeredWorkspaceCandidates,
+              resumePreferences
             }
           }
         },
@@ -1491,7 +1502,8 @@ function runDoctor(options = {}) {
               skillsRoot,
               candidateWorkspaces: registeredWorkspaceCandidates,
               candidateOpenClawHomes: [openClawHome],
-              candidateSkillsRoots: [skillsRoot]
+              candidateSkillsRoots: [skillsRoot],
+              resumePreferences
             }
           }
         }

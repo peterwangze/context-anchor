@@ -21,6 +21,7 @@ const { collectSessionCandidates, normalizeWorkspaceKey } = require('./lib/openc
 const { buildHostPaths, cleanupWindowsSchedulerState, runConfigureHost } = require('./configure-host');
 const { buildTakeoverAudit, runDoctor } = require('./doctor');
 const { buildRemediationSummary } = require('./lib/remediation-summary');
+const { recordResumeSelections } = require('./lib/resume-preferences');
 const { runMirrorRebuild } = require('./mirror-rebuild');
 const { runSessionStart } = require('./session-start');
 const { runStorageGovernance } = require('./storage-governance');
@@ -340,6 +341,14 @@ function buildUpgradeVerification({
     projectId: options.projectId || null,
     userId: options.userId || null
   });
+  const resumePreferences = autoFixOwnership.userId
+    ? recordResumeSelections(createPaths(autoFixWorkspace || process.cwd()), autoFixOwnership.userId, {
+        workspace: autoFixWorkspace,
+        'session-key': options.sessionKey || upgradedResults[0]?.session_key || null,
+        'openclaw-home': openClawHome,
+        'skills-root': skillsRoot
+      })
+    : null;
   const candidateWorkspaces = collectUpgradeCandidateWorkspaces(openClawHome, options, results, autoFixWorkspace);
   const candidateSessionKeys = collectUpgradeCandidateSessionKeys(options, results);
   const upgradedKeys = new Set(upgradedResults.map((entry) => sanitizeKey(entry.session_key)));
@@ -448,7 +457,8 @@ function buildUpgradeVerification({
               openclawHome: openClawHome,
               skillsRoot,
               candidateWorkspaces,
-              candidateSessionKeys
+              candidateSessionKeys,
+              resumePreferences
             },
             repair_strategy: buildUpgradeRepairStrategy({
               remaining_attention_sessions: remainingAttention.length,

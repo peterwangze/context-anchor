@@ -13,6 +13,7 @@ const {
 } = require('./context-anchor');
 const { summarizeCatalogDatabase } = require('./context-anchor-db');
 const { buildRemediationSummary } = require('./remediation-summary');
+const { recordResumeSelections } = require('./resume-preferences');
 const { assessTaskStateHealth, buildTaskStateFields, buildTaskStateSummary } = require('./task-state');
 const { buildTaskStateRepairProfile } = require('./task-state-remediation');
 const {
@@ -1029,6 +1030,14 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
     sessionKey: options.sessionKey ? sanitizeKey(options.sessionKey) : null,
     userId: hostConfig?.defaults?.user_id || null
   };
+  const resumePreferences = scope.userId
+    ? recordResumeSelections(createPaths(scope.workspace || process.cwd()), scope.userId, {
+        workspace: scope.workspace,
+        'session-key': scope.sessionKey,
+        'openclaw-home': resolvedOpenClawHome,
+        'skills-root': skillsRoot
+      })
+    : null;
   const doctor = runDoctor({ openclawHome: resolvedOpenClawHome, skillsRoot });
   const collected = collectSessionCandidates(resolvedOpenClawHome, {
     includeSubagents: Boolean(options.includeSubagents),
@@ -1151,7 +1160,8 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
                 skillsRoot,
                 candidateSessionKeys: sortedSessions.map((entry) => entry.session_key).filter(Boolean),
                 candidateWorkspaces: [commandScope.workspace].filter(Boolean),
-                candidateProjectIds: sortedSessions.map((entry) => entry.project_id).filter(Boolean)
+                candidateProjectIds: sortedSessions.map((entry) => entry.project_id).filter(Boolean),
+                resumePreferences
               }
             }
           }
@@ -1226,7 +1236,8 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
               openclawHome: resolvedOpenClawHome,
               skillsRoot,
               candidateSessionKeys: sessions.map((entry) => entry.session_key).filter(Boolean),
-              candidateWorkspaces: groups.map((entry) => entry.workspace).filter(Boolean)
+              candidateWorkspaces: groups.map((entry) => entry.workspace).filter(Boolean),
+              resumePreferences
             }
           }
         }

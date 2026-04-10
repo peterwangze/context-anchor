@@ -413,6 +413,8 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 如果某个缺失输入当前只有一个高置信候选值，系统现在还会直接给出 `Suggested resume`，把这个唯一候选自动代入成一条可直接重跑的命令，进一步减少手工补参成本。
 如果缺失输入有多个候选值，系统现在也会基于当前排序第一的候选生成 `Suggested resume`，同时用 `Suggested checks` 明确提示“这仍是建议值、建议先确认”，在低打断和低误导之间保持平衡。
 同时还会额外显示 `Suggested inputs`，让你直接看到这条建议命令到底替你选了哪个候选值，以及它为什么会被当成当前排序第一的建议。
+从这一轮开始，`Suggested resume` 的多候选排序还会参考你最近已经确认过的 `workspace`、`session-key` 和 profile 选择：如果系统发现某个候选更接近你的确认历史，会优先把它放到前面，并在 `Suggested inputs` / `Suggested checks` 里明确提示这是“基于确认历史的 preferred candidate”。
+这类偏好信息现在保存在内部 metadata，而不是普通 `user_preferences`，因此不会额外进入 bootstrap 注入上下文，也不会把内部恢复排序细节暴露成用户记忆内容。
 如果当前预填的是失效路径或明显不匹配的旧值，而系统手里已经有可用候选，`Suggested resume` 现在还会直接给出“替换旧值后的建议命令”，进一步降低从无效配置恢复的成本。
 对于 `upgrade-sessions.js` 里这类“session 已发现但 workspace 还没明确”的 unresolved target，如果当前 profile 下已经存在候选 workspace，系统现在会优先按 `confirm_only` 处理：直接给出 `Resume command`、候选 workspace 和 `Resume checks`，而不再一律退化成笼统的外部环境问题。
 `sessions-diagnose.js` 现在也会把 remediation 的 `Guidance` 和 `Example command` 直接显示出来；`status-report.js` 的 `recommended_action` 也会带这两类字段，方便上层直接展示。

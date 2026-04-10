@@ -43,6 +43,7 @@ const {
 const { describeCollectionFile, readLatestGovernanceRun } = require('./lib/context-anchor-db');
 const { resolveOwnership } = require('./lib/host-config');
 const { buildRemediationSummary } = require('./lib/remediation-summary');
+const { recordResumeSelections } = require('./lib/resume-preferences');
 const { assessTaskStateHealth, buildTaskStateSummary } = require('./lib/task-state');
 const { buildTaskStateRepairProfile } = require('./lib/task-state-remediation');
 const {
@@ -343,6 +344,11 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
     touch: false
   });
   const userId = resolveUserId(userIdArg || existingSessionState?.user_id || ownership.userId || DEFAULTS.userId);
+  const resumePreferences = recordResumeSelections(paths, userId, {
+    workspace: paths.workspace,
+    'session-key': sessionKey,
+    'openclaw-home': paths.openClawHome
+  });
 
   const projectState = readMirroredDocumentSnapshot(projectStateFile(paths, projectId), {
     project_id: projectId,
@@ -623,7 +629,8 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
               sessionKey,
               projectId,
               userId,
-              openclawHome: paths.openClawHome
+              openclawHome: paths.openClawHome,
+              resumePreferences
             }
           }
         }

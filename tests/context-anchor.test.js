@@ -17,6 +17,7 @@ const {
   projectFactsFile,
   loadRankedCollection,
   loadSessionState,
+  loadUserState,
   loadUserMemories,
   readJson,
   runtimeStateFile,
@@ -92,6 +93,7 @@ const { runPerfBenchmark } = require('../scripts/perf-benchmark');
 const { runSkillReconcile } = require('../scripts/skill-reconcile');
 const { renderStatusReportText, runStatusReport } = require('../scripts/status-report');
 const { buildRemediationSummary } = require('../scripts/lib/remediation-summary');
+const { loadResumePreferences, recordResumeSelections } = require('../scripts/lib/resume-preferences');
 const { calculateRetentionScore, compareGovernanceEntries, governCollection } = require('../scripts/storage-governance');
 const { runSkillSupersede } = require('../scripts/skill-supersede');
 const { runSessionClose } = require('../scripts/session-close');
@@ -4739,6 +4741,89 @@ test('resume guidance can suggest a top-ranked command when missing input has mu
   assert.match(summary.next_step.auto_fix_resume_suggested_validation_summary, /排序第一的候选值/);
   assert.match(summary.next_step.auto_fix_resume_suggested_inputs_summary, /session-key=agent:main:checkout-fix/);
   assert.match(summary.next_step.auto_fix_resume_suggested_inputs_summary, /top-ranked candidate/);
+});
+
+test('resume guidance prefers candidates from confirmed history when multiple choices exist', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      const paths = createPaths(workspace);
+      const resumePreferences = recordResumeSelections(paths, 'alice', {
+        workspace,
+        'session-key': 'agent:main:review'
+      });
+      const summary = buildRemediationSummary(
+        [
+          {
+            source: 'sessions',
+            action: {
+              type: 'session_select',
+              recheck_command: `npm run status:sessions -- --workspace "${workspace}" --session-key "<session-key>"`,
+              resume_context: {
+                workspace,
+                candidateSessionKeys: ['agent:main:checkout-fix', 'agent:main:review'],
+                resumePreferences
+              },
+              repair_strategy: {
+                type: 'select_session_then_recheck',
+                label: 'select session -> recheck',
+                execution_mode: 'manual',
+                manual_subtype: 'confirm_only',
+                requires_manual_confirmation: true,
+                summary: 'Pick the target session first, then rerun status.',
+                command_examples: [`npm run status:sessions -- --workspace "${workspace}" --session-key "<session-key>"`]
+              }
+            }
+          }
+        ],
+        {
+          auto_fix_options: {
+            workspace,
+            userId: 'alice'
+          }
+        }
+      );
+
+      assert.deepEqual(summary.next_step.auto_fix_resume_input_details[0].candidates, [
+        'agent:main:review',
+        'agent:main:checkout-fix'
+      ]);
+      assert.match(summary.next_step.auto_fix_resume_suggested_command, /--session-key "agent:main:review"/i);
+      assert.equal(summary.next_step.auto_fix_resume_suggested_validation_status, 'needs_review');
+      assert.match(summary.next_step.auto_fix_resume_suggested_validation_summary, /最近确认历史更一致/);
+      assert.match(summary.next_step.auto_fix_resume_suggested_inputs_summary, /preferred candidate from confirmed history/);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('resume preference history is stored in user metadata instead of injected user preferences', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      const paths = createPaths(workspace);
+      recordResumeSelections(paths, 'alice', {
+        workspace,
+        'session-key': 'agent:main:checkout-fix',
+        'openclaw-home': path.join(workspace, 'openclaw-home')
+      });
+      const userState = loadUserState(paths, 'alice');
+      const resumePreferences = loadResumePreferences(paths, 'alice');
+
+      assert.equal(userState.preferences.resume_candidate_preferences, undefined);
+      assert.equal(
+        userState.metadata.resume_candidate_preferences.inputs['session-key'].values['agent:main:checkout-fix'].count,
+        1
+      );
+      assert.ok(resumePreferences.inputs.workspace);
+      assert.ok(resumePreferences.inputs['openclaw-home']);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
 });
 
 test('resume validation summarizes missing inputs when candidates are already available', () => {
