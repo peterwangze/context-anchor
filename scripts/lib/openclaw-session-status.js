@@ -1504,6 +1504,9 @@ function renderOpenClawSessionStatusReport(report) {
     if (report.summary.hidden_session_summary?.summary) {
       lines.push(field('Hidden filter', report.summary.hidden_session_summary.summary, { kind: 'muted' }));
     }
+    if (report.summary.hidden_session_summary?.next_step_hint) {
+      lines.push(field('Hidden next step', report.summary.hidden_session_summary.next_step_hint, { kind: 'muted' }));
+    }
     if (report.summary.hidden_session_summary?.inspect_command) {
       lines.push(field('Hidden inspect', command(report.summary.hidden_session_summary.inspect_command), { kind: 'command' }));
     }

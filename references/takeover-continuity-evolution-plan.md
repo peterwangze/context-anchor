@@ -318,6 +318,11 @@
   - 当前用户不需要自己重新拼 `--include-hidden-sessions` 和 profile/workspace 上下文，就可以直接进入下一步排查
   - hidden inspect 命令已复用共享 command builder 生成，避免状态与升级链路再次分叉
   - 已补充自动化测试，覆盖 hidden inspect command 在 status 与 upgrade 中的可见性
+- `2026-04-10`
+  - hidden filter 现在还会继续输出共享的 `Hidden next step` 提示
+  - 当前如果主因是 `workspace unresolved` 或 `stale host-only` 等高置信类型，用户无需先展开隐藏候选列表，也能直接知道更适合“恢复缺失路径”还是“清理/重配残留注册”
+  - next-step 提示已复用共享 hidden reason 模型生成，避免状态与升级链路分别维护不同文案
+  - 已补充自动化测试，覆盖 hidden next-step hint 在 status 与 upgrade 中的可见性
 - `2026-04-09`
   - `Recovered Continuity` 对 reference-only completed task 的说明已进一步收口
   - 当前会明确显示这是“已完成任务的参考连续性”，并说明不会恢复旧 goal / next step 为活动任务

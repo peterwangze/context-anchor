@@ -944,6 +944,9 @@ function renderUpgradeReport(result) {
     if (result.hidden_session_summary?.summary) {
       lines.push(field('Hidden filter', result.hidden_session_summary.summary, { kind: 'muted' }));
     }
+    if (result.hidden_session_summary?.next_step_hint) {
+      lines.push(field('Hidden next step', result.hidden_session_summary.next_step_hint, { kind: 'muted' }));
+    }
     if (result.hidden_session_summary?.inspect_command) {
       lines.push(field('Hidden inspect', command(result.hidden_session_summary.inspect_command), { kind: 'command' }));
     }

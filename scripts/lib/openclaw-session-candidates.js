@@ -23,6 +23,23 @@ const HIDDEN_REASON_LABELS = {
   other_hidden_reason: 'other hidden reason'
 };
 
+const HIDDEN_REASON_HINTS = {
+  registered_without_visible_transcript:
+    'Inspect the hidden sessions once, then remove or reconfigure the stale host-only registrations you no longer want to keep.',
+  workspace_unresolved:
+    'Inspect the hidden sessions once, then restore the missing workspace path or ignore the unresolved residue if it is no longer needed.',
+  missing_transcript:
+    'Inspect the hidden sessions once, then restore the missing transcript or ignore the residue if the session is no longer useful.',
+  system_sent:
+    'Inspect the hidden sessions only if this count looks unexpected; system-generated residues are often safe to leave hidden.',
+  aborted_last_run:
+    'Inspect the hidden sessions once, then decide whether to rerun or ignore the aborted residue.',
+  not_registered_or_discovered:
+    'Inspect the hidden sessions once, then decide whether the orphaned candidate should be restored or ignored.',
+  other_hidden_reason:
+    'Inspect the hidden sessions once to understand whether these residues still need attention.'
+};
+
 function normalizeWorkspaceKey(workspace) {
   const resolved = path.resolve(workspace);
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
@@ -116,6 +133,7 @@ function summarizeHiddenSessionCandidates(entries = []) {
     }
     return String(left.label || left.reason).localeCompare(String(right.label || right.reason));
   });
+  const primaryReason = reasons[0] || null;
 
   return {
     total: Array.isArray(entries) ? entries.length : 0,
@@ -124,7 +142,9 @@ function summarizeHiddenSessionCandidates(entries = []) {
       return acc;
     }, {}),
     reasons,
-    summary: reasons.length > 0 ? reasons.map((entry) => `${entry.label} ${entry.count}`).join(' | ') : null
+    summary: reasons.length > 0 ? reasons.map((entry) => `${entry.label} ${entry.count}`).join(' | ') : null,
+    next_step_reason: primaryReason?.reason || null,
+    next_step_hint: primaryReason ? HIDDEN_REASON_HINTS[primaryReason.reason] || HIDDEN_REASON_HINTS.other_hidden_reason : null
   };
 }
 

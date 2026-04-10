@@ -316,6 +316,7 @@ node scripts/sessions-diagnose.js
 但如果某个 session 虽然暂时没有 OpenClaw transcript，却已经有 `context-anchor` 管理态产物（例如 session state / runtime state / summary），它现在仍会继续被当作用户可感知 session 保留下来，不会再被误隐藏。  
 如果这轮确实过滤掉了 hidden session，状态视图现在还会额外显示一条低噪声 `Hidden filter` 摘要，例如 `workspace unresolved 1` 或 `stale host-only 1`，帮助你快速判断被过滤的是哪类残留，而不必立刻切到 `--include-hidden-sessions`。
 同时状态视图现在还会直接给出 `Hidden inspect` 命令，默认指向带 `--include-hidden-sessions` 的 `sessions-diagnose`，方便你在保持当前 workspace / session / profile 上下文的前提下继续排查。
+如果 hidden filter 的主因比较明确，状态视图现在还会额外给出一条 `Hidden next step` 提示，例如提醒你优先恢复缺失 workspace，或清理/重配 stale host-only registration。
 如果你确实要排查这类隐藏候选，可以显式加：
 
 ```bash
@@ -453,6 +454,7 @@ node scripts/upgrade-sessions.js --include-subagents
 但已经由 `context-anchor` 管理、只是暂时缺少 transcript 的存量 session，现在仍会默认纳入升级与状态统计，避免把真实可升级 session 误当成 hidden。  
 如果升级阶段确实过滤掉了 hidden session，报告现在也会额外显示 `Hidden filter` 摘要，帮助你在不展开隐藏候选列表的前提下先看懂“这次跳过的主要是什么”。
 升级报告也会同步给出 `Hidden inspect` 命令，直接指向带当前 profile 上下文的 `sessions-diagnose --include-hidden-sessions`，减少你自己重新拼排查命令的成本。
+如果本轮 hidden filter 的主因已经比较明确，升级报告也会同步显示 `Hidden next step`，先告诉你这一批隐藏残留更适合“恢复缺失路径”还是“清理/重配 stale 注册”。
 如果你确实需要排查这些隐藏候选，可以显式加：
 
 ```bash
