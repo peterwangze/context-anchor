@@ -303,6 +303,11 @@
   - 当前如果某个候选与确认历史更一致，系统会优先把它作为 preferred candidate，并在 `Suggested inputs` / `Suggested checks` 中显式说明原因
   - 偏好记录现已落在 user metadata，而不是普通 `user_preferences`，避免内部恢复排序信息继续注入 bootstrap 上下文
   - 已补充自动化测试，覆盖 confirmed-history candidate ranking 与 metadata-only persistence
+- `2026-04-10`
+  - `sessions-status / sessions-diagnose / upgrade-sessions` 的 hidden session 判定已进一步收口
+  - 当前如果某个 session 已有 `context-anchor` 管理态产物（如 session state / runtime state / summary），即使暂时没有 OpenClaw transcript，也会继续按用户可感知 session 保留
+  - host-only stale session 仍会默认隐藏，避免把系统残留误算成真实 session
+  - 已补充自动化测试，覆盖 managed session visibility 与 stale hidden session filtering
 - `2026-04-09`
   - `Recovered Continuity` 对 reference-only completed task 的说明已进一步收口
   - 当前会明确显示这是“已完成任务的参考连续性”，并说明不会恢复旧 goal / next step 为活动任务

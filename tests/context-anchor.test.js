@@ -30,6 +30,7 @@ const {
   writeJson
 } = require('../scripts/lib/context-anchor');
 const { buildBootstrapCacheContent } = require('../scripts/lib/bootstrap-cache');
+const { collectSessionCandidates } = require('../scripts/lib/openclaw-session-candidates');
 const {
   buildAutoFixCommand,
   classifyAutoFixRisk,
@@ -3599,6 +3600,41 @@ test('registered host-only stale sessions are hidden by default from status and 
       assert.equal(statusReport.summary.excluded_hidden_sessions, 1);
       assert.equal(upgradeResult.selected_sessions, 1);
       assert.equal(upgradeResult.excluded_hidden_sessions, 1);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('registered managed sessions without OpenClaw transcripts remain visible by default', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const managedWorkspace = path.join(workspace, 'managed-workspace');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        assumeYes: true,
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'peter',
+        defaultWorkspace: managedWorkspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      runSessionStart(managedWorkspace, 'managed-session', 'managed-workspace', {
+        userId: 'peter'
+      });
+
+      const collected = collectSessionCandidates(openClawHome);
+      const managedSession = collected.candidates.find((entry) => entry.session_key === 'managed-session');
+
+      assert.equal(collected.excluded_hidden_sessions.length, 0);
+      assert.ok(managedSession);
+      assert.equal(managedSession.managed_artifacts_visible, true);
+      assert.equal(managedSession.transcript_exists, false);
     });
   } finally {
     cleanupWorkspace(workspace);

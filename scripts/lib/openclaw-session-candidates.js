@@ -1,5 +1,6 @@
+const fs = require('fs');
 const path = require('path');
-const { sanitizeKey } = require('./context-anchor');
+const { createPaths, runtimeStateFile, sanitizeKey, sessionStateFile, sessionSummaryFile } = require('./context-anchor');
 const { findSession, readHostConfig } = require('./host-config');
 const { discoverOpenClawSessions } = require('./openclaw-session-discovery');
 
@@ -31,7 +32,7 @@ function collectHiddenSessionReasons(candidate = {}) {
   if (!candidate.registered && !candidate.discovered) {
     reasons.push('not_registered_or_discovered');
   }
-  if (candidate.registered && !hasVisibleTranscript) {
+  if (candidate.registered && !hasVisibleTranscript && !candidate.managed_artifacts_visible) {
     reasons.push('registered_without_visible_transcript');
   }
   if (!candidate.registered && !candidate.transcript_exists) {
@@ -54,11 +55,22 @@ function isUserVisibleSession(candidate = {}) {
     return true;
   }
 
-  if (candidate.registered && candidate.discovered === true && candidate.transcript_exists === true) {
+  if (candidate.registered && candidate.managed_artifacts_visible) {
     return true;
   }
 
   return false;
+}
+
+function hasManagedSessionArtifacts(workspace, sessionKey) {
+  if (!workspace || !sessionKey) {
+    return false;
+  }
+
+  const paths = createPaths(workspace);
+  return [sessionStateFile(paths, sessionKey), runtimeStateFile(paths, sessionKey), sessionSummaryFile(paths, sessionKey)].some(
+    (file) => fs.existsSync(file)
+  );
 }
 
 function upsertCandidate(map, candidate) {
@@ -83,6 +95,7 @@ function upsertCandidate(map, candidate) {
     registered: false,
     system_sent: false,
     aborted_last_run: false,
+    managed_artifacts_visible: false,
     hidden_reasons: [],
     sources: []
   };
@@ -104,6 +117,10 @@ function upsertCandidate(map, candidate) {
     registered: Boolean(candidate.registered || existing.registered),
     system_sent: Boolean(candidate.system_sent || existing.system_sent),
     aborted_last_run: Boolean(candidate.aborted_last_run || existing.aborted_last_run),
+    managed_artifacts_visible:
+      typeof candidate.managed_artifacts_visible === 'boolean'
+        ? candidate.managed_artifacts_visible || existing.managed_artifacts_visible
+        : existing.managed_artifacts_visible,
     sources: [...new Set([...(existing.sources || []), ...(candidate.sources || [])])]
   };
   next.hidden_reasons = collectHiddenSessionReasons(next);
@@ -128,6 +145,7 @@ function collectSessionCandidates(openClawHome, options = {}) {
       project_id: entry.project_id,
       host_status: entry.status || 'active',
       ephemeral_subagent: isEphemeralSubagentSession(entry),
+      managed_artifacts_visible: hasManagedSessionArtifacts(entry.workspace, entry.session_key),
       registered: true,
       sources: ['host_config']
     });
@@ -150,6 +168,7 @@ function collectSessionCandidates(openClawHome, options = {}) {
       transcript_exists: entry.transcript_exists,
       system_sent: entry.system_sent,
       aborted_last_run: entry.aborted_last_run,
+      managed_artifacts_visible: hasManagedSessionArtifacts(entry.workspace || uniqueHostSession?.workspace || null, entry.session_key),
       discovered: true,
       registered: Boolean(uniqueHostSession),
       agent: entry.agent,

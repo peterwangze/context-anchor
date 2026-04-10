@@ -313,6 +313,7 @@ node scripts/sessions-diagnose.js
 
 默认会尽量只显示用户真正可感知的 session。  
 像没有 transcript、没有 workspace、系统残留但用户无感知的 hidden session，会默认从状态和升级口径里排除，避免 session 数量明显失真。  
+但如果某个 session 虽然暂时没有 OpenClaw transcript，却已经有 `context-anchor` 管理态产物（例如 session state / runtime state / summary），它现在仍会继续被当作用户可感知 session 保留下来，不会再被误隐藏。  
 如果你确实要排查这类隐藏候选，可以显式加：
 
 ```bash
@@ -447,6 +448,7 @@ node scripts/upgrade-sessions.js --include-subagents
 ```
 
 同样地，默认升级也会跳过用户无感知的 hidden session，避免把系统残留或无 workspace 的候选算进升级数量。  
+但已经由 `context-anchor` 管理、只是暂时缺少 transcript 的存量 session，现在仍会默认纳入升级与状态统计，避免把真实可升级 session 误当成 hidden。  
 如果你确实需要排查这些隐藏候选，可以显式加：
 
 ```bash
