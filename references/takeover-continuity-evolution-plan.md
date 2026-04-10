@@ -323,6 +323,11 @@
   - 当前如果主因是 `workspace unresolved` 或 `stale host-only` 等高置信类型，用户无需先展开隐藏候选列表，也能直接知道更适合“恢复缺失路径”还是“清理/重配残留注册”
   - next-step 提示已复用共享 hidden reason 模型生成，避免状态与升级链路分别维护不同文案
   - 已补充自动化测试，覆盖 hidden next-step hint 在 status 与 upgrade 中的可见性
+- `2026-04-10`
+  - `sessions-status / upgrade-sessions` 的默认可见 session 规则已按“用户可感知的有效 session”重新收紧
+  - 当前仅有 `context-anchor` managed artifacts、但缺少有效 OpenClaw `session id` 的残留，不再进入主列表或升级目标，而会回到 hidden/filter 路径
+  - 对仍然可见且由持久化绑定维持的 managed session，系统现在会直接回填并显示绑定的 `session id`，避免主列表再出现误导性的 `-`
+  - 已补充自动化测试，覆盖 unbound managed residue hiding、closed managed residue hiding、bound managed session visibility 与 session-id backfill
 - `2026-04-09`
   - `Recovered Continuity` 对 reference-only completed task 的说明已进一步收口
   - 当前会明确显示这是“已完成任务的参考连续性”，并说明不会恢复旧 goal / next step 为活动任务

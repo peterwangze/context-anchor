@@ -313,7 +313,7 @@ node scripts/sessions-diagnose.js
 
 默认会尽量只显示用户真正可感知的 session。  
 像没有 transcript、没有 workspace、系统残留但用户无感知的 hidden session，会默认从状态和升级口径里排除，避免 session 数量明显失真。  
-但如果某个 session 虽然暂时没有 OpenClaw transcript，却已经有 `context-anchor` 管理态产物（例如 session state / runtime state / summary），它现在仍会继续被当作用户可感知 session 保留下来，不会再被误隐藏。  
+只有在能证明这个 session 仍然有有效 OpenClaw 绑定时，缺 transcript 的 managed session 才会继续保留在主列表里；如果只剩 `context-anchor` 管理态产物、但已经没有可用 `session id`，现在会默认回到 hidden/filter 路径，不再混进用户主列表。  
 如果这轮确实过滤掉了 hidden session，状态视图现在还会额外显示一条低噪声 `Hidden filter` 摘要，例如 `workspace unresolved 1` 或 `stale host-only 1`，帮助你快速判断被过滤的是哪类残留，而不必立刻切到 `--include-hidden-sessions`。
 同时状态视图现在还会直接给出 `Hidden inspect` 命令，默认指向带 `--include-hidden-sessions` 的 `sessions-diagnose`，方便你在保持当前 workspace / session / profile 上下文的前提下继续排查。
 如果 hidden filter 的主因比较明确，状态视图现在还会额外给出一条 `Hidden next step` 提示，例如提醒你优先恢复缺失 workspace，或清理/重配 stale host-only registration。

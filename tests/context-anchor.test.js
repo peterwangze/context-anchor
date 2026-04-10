@@ -2632,7 +2632,7 @@ test('install-one-click CLI stays quiet on stderr when no session upgrade is req
   }
 });
 
-test('upgrade-sessions refreshes registered active sessions and skips closed sessions by default', async () => {
+test('upgrade-sessions refreshes registered active sessions and hides closed managed residues by default', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');
   const activeWorkspace = path.join(workspace, 'active-project');
@@ -2660,7 +2660,8 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
       });
 
       runSessionStart(activeWorkspace, 'active-session', 'active-project', {
-        userId: 'peter'
+        userId: 'peter',
+        openClawSessionId: 'active-openclaw-session-id'
       });
       runMemorySave(
         activeWorkspace,
@@ -2683,7 +2684,8 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
       syncRuntimeStateFixture(activeWorkspace, 'active-session', 'active-project');
 
       runSessionStart(closedWorkspace, 'closed-session', 'closed-project', {
-        userId: 'peter'
+        userId: 'peter',
+        openClawSessionId: 'closed-openclaw-session-id'
       });
       runSessionClose(closedWorkspace, 'closed-session', {
         reason: 'manual-close'
@@ -2735,11 +2737,14 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
       );
 
       assert.equal(result.status, 'warning');
-      assert.equal(result.selected_sessions, 2);
+      assert.equal(result.selected_sessions, 1);
       assert.equal(result.excluded_subagent_sessions, 2);
+      assert.equal(result.excluded_hidden_sessions, 1);
       assert.equal(statusReport.summary.total_sessions, result.selected_sessions);
       assert.equal(statusReport.summary.excluded_subagent_sessions, result.excluded_subagent_sessions);
+      assert.equal(statusReport.summary.excluded_hidden_sessions, result.excluded_hidden_sessions);
       assert.equal(result.upgraded_sessions, 1);
+      assert.equal(result.skipped_sessions, 0);
       assert.equal(result.mirror_rebuild.status, 'ok');
       assert.deepEqual(result.governance_runs, []);
       assert.equal(result.takeover_audit.status, 'warning');
@@ -2762,9 +2767,8 @@ test('upgrade-sessions refreshes registered active sessions and skips closed ses
       assert.match(result.verification.recheck_command, /status:sessions/);
       assert.ok(result.mirror_rebuild.workspaces_processed.some((entry) => entry === activeWorkspace));
       assert.equal(activeResult.action, 'upgraded');
-      assert.equal(closedResult.action, 'skipped');
+      assert.equal(closedResult, undefined);
       assert.equal(subagentResult, undefined);
-      assert.equal(closedResult.reason, 'closed_session');
       assert.ok(fs.existsSync(activeBootstrap));
       assert.match(fs.readFileSync(activeBootstrap, 'utf8'), /refresh the active session/);
       assert.equal(
@@ -3676,7 +3680,7 @@ test('registered host-only stale sessions are hidden by default from status and 
   }
 });
 
-test('registered managed sessions without OpenClaw transcripts remain visible by default', async () => {
+test('registered managed sessions without OpenClaw session bindings stay hidden by default', async () => {
   const workspace = makeWorkspace();
   const openClawHome = path.join(workspace, 'openclaw-home');
   const managedWorkspace = path.join(workspace, 'managed-workspace');
@@ -3699,12 +3703,128 @@ test('registered managed sessions without OpenClaw transcripts remain visible by
       });
 
       const collected = collectSessionCandidates(openClawHome);
+      const managedHidden = collected.excluded_hidden_sessions.find((entry) => entry.session_key === 'managed-session');
+
+      assert.ok(managedHidden);
+      assert.equal(managedHidden.managed_artifacts_visible, true);
+      assert.equal(managedHidden.transcript_exists, false);
+      assert.equal(managedHidden.managed_openclaw_session_id, null);
+      assert.equal(collected.candidates.find((entry) => entry.session_key === 'managed-session'), undefined);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('registered managed sessions with a persisted OpenClaw session id remain visible without transcripts', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const managedWorkspace = path.join(workspace, 'managed-workspace');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        assumeYes: true,
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'peter',
+        defaultWorkspace: managedWorkspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      runSessionStart(managedWorkspace, 'managed-session', 'managed-workspace', {
+        userId: 'peter',
+        openClawSessionId: 'managed-openclaw-session-id'
+      });
+
+      const collected = collectSessionCandidates(openClawHome);
       const managedSession = collected.candidates.find((entry) => entry.session_key === 'managed-session');
 
-      assert.equal(collected.excluded_hidden_sessions.length, 0);
       assert.ok(managedSession);
       assert.equal(managedSession.managed_artifacts_visible, true);
       assert.equal(managedSession.transcript_exists, false);
+      assert.equal(managedSession.managed_openclaw_session_id, 'managed-openclaw-session-id');
+      assert.equal(managedSession.session_id, 'managed-openclaw-session-id');
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('status and upgrade hide managed residues that lack OpenClaw session ids', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const managedWorkspace = path.join(workspace, 'managed-workspace');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        assumeYes: true,
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'peter',
+        defaultWorkspace: managedWorkspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      runSessionStart(managedWorkspace, 'managed-session', 'managed-workspace', {
+        userId: 'peter'
+      });
+
+      const statusReport = buildOpenClawSessionStatusReport(openClawHome, path.join(openClawHome, 'skills'));
+      const upgradeResult = runUpgradeSessions(openClawHome, path.join(openClawHome, 'skills'));
+
+      assert.equal(statusReport.summary.total_sessions, 0);
+      assert.equal(statusReport.summary.excluded_hidden_sessions, 1);
+      assert.equal(statusReport.summary.hidden_session_summary.by_reason.managed_session_binding_missing, 1);
+      assert.equal(upgradeResult.selected_sessions, 0);
+      assert.equal(upgradeResult.excluded_hidden_sessions, 1);
+      assert.equal(upgradeResult.hidden_session_summary.by_reason.managed_session_binding_missing, 1);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
+test('status and upgrade hide closed managed sessions by default', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const managedWorkspace = path.join(workspace, 'managed-workspace');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        assumeYes: true,
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'peter',
+        defaultWorkspace: managedWorkspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      runSessionStart(managedWorkspace, 'managed-session', 'managed-workspace', {
+        userId: 'peter',
+        openClawSessionId: 'managed-openclaw-session-id'
+      });
+      runSessionClose(managedWorkspace, 'managed-session', {
+        reason: 'manual-close'
+      });
+
+      const statusReport = buildOpenClawSessionStatusReport(openClawHome, path.join(openClawHome, 'skills'));
+      const upgradeResult = runUpgradeSessions(openClawHome, path.join(openClawHome, 'skills'));
+
+      assert.equal(statusReport.summary.total_sessions, 0);
+      assert.equal(statusReport.summary.excluded_hidden_sessions, 1);
+      assert.equal(statusReport.summary.hidden_session_summary.by_reason.closed_managed_session, 1);
+      assert.equal(upgradeResult.selected_sessions, 0);
+      assert.equal(upgradeResult.excluded_hidden_sessions, 1);
+      assert.equal(upgradeResult.hidden_session_summary.by_reason.closed_managed_session, 1);
     });
   } finally {
     cleanupWorkspace(workspace);

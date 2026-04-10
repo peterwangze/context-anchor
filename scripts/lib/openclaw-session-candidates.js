@@ -1,10 +1,12 @@
 const fs = require('fs');
 const path = require('path');
-const { createPaths, runtimeStateFile, sanitizeKey, sessionStateFile, sessionSummaryFile } = require('./context-anchor');
+const { createPaths, readJson, runtimeStateFile, sanitizeKey, sessionStateFile, sessionSummaryFile } = require('./context-anchor');
 const { findSession, readHostConfig } = require('./host-config');
 const { discoverOpenClawSessions } = require('./openclaw-session-discovery');
 
 const HIDDEN_REASON_PRIORITY = [
+  'closed_managed_session',
+  'managed_session_binding_missing',
   'registered_without_visible_transcript',
   'workspace_unresolved',
   'missing_transcript',
@@ -14,6 +16,8 @@ const HIDDEN_REASON_PRIORITY = [
 ];
 
 const HIDDEN_REASON_LABELS = {
+  closed_managed_session: 'closed managed residue',
+  managed_session_binding_missing: 'unbound managed residue',
   registered_without_visible_transcript: 'stale host-only',
   workspace_unresolved: 'workspace unresolved',
   missing_transcript: 'missing transcript',
@@ -24,6 +28,10 @@ const HIDDEN_REASON_LABELS = {
 };
 
 const HIDDEN_REASON_HINTS = {
+  closed_managed_session:
+    'Inspect the hidden sessions once, then keep closed managed residues hidden unless you intentionally want to reopen them.',
+  managed_session_binding_missing:
+    'Inspect the hidden sessions once, then remove or rebind the managed residues that no longer have a valid OpenClaw session id.',
   registered_without_visible_transcript:
     'Inspect the hidden sessions once, then remove or reconfigure the stale host-only registrations you no longer want to keep.',
   workspace_unresolved:
@@ -65,6 +73,20 @@ function isEphemeralSubagentSession(candidate = {}) {
 function collectHiddenSessionReasons(candidate = {}) {
   const reasons = [];
   const hasVisibleTranscript = candidate.discovered === true && candidate.transcript_exists === true;
+  if (
+    candidate.registered &&
+    candidate.managed_artifacts_visible &&
+    (candidate.host_status === 'closed' || Boolean(candidate.managed_closed_at))
+  ) {
+    reasons.push('closed_managed_session');
+  }
+  if (
+    candidate.registered &&
+    candidate.managed_artifacts_visible &&
+    !candidate.managed_openclaw_session_id
+  ) {
+    reasons.push('managed_session_binding_missing');
+  }
   if (!candidate.registered && !candidate.discovered) {
     reasons.push('not_registered_or_discovered');
   }
@@ -87,11 +109,17 @@ function collectHiddenSessionReasons(candidate = {}) {
 }
 
 function isUserVisibleSession(candidate = {}) {
-  if (candidate.discovered === true && candidate.transcript_exists === true) {
+  if (candidate.discovered === true && candidate.transcript_exists === true && candidate.session_id) {
     return true;
   }
 
-  if (candidate.registered && candidate.managed_artifacts_visible) {
+  if (
+    candidate.registered &&
+    candidate.managed_artifacts_visible &&
+    candidate.managed_openclaw_session_id &&
+    candidate.host_status !== 'closed' &&
+    !candidate.managed_closed_at
+  ) {
     return true;
   }
 
@@ -159,6 +187,30 @@ function hasManagedSessionArtifacts(workspace, sessionKey) {
   );
 }
 
+function readManagedSessionBinding(workspace, sessionKey) {
+  if (!workspace || !sessionKey) {
+    return {
+      managed_openclaw_session_id: null,
+      managed_closed_at: null
+    };
+  }
+
+  const paths = createPaths(workspace);
+  const stateFile = sessionStateFile(paths, sessionKey);
+  if (!fs.existsSync(stateFile)) {
+    return {
+      managed_openclaw_session_id: null,
+      managed_closed_at: null
+    };
+  }
+
+  const state = readJson(stateFile, null);
+  return {
+    managed_openclaw_session_id: state?.metadata?.openclaw_session_id || null,
+    managed_closed_at: state?.closed_at || null
+  };
+}
+
 function upsertCandidate(map, candidate) {
   const identity = candidateIdentity(
     candidate.workspace,
@@ -182,6 +234,8 @@ function upsertCandidate(map, candidate) {
     system_sent: false,
     aborted_last_run: false,
     managed_artifacts_visible: false,
+    managed_openclaw_session_id: null,
+    managed_closed_at: null,
     hidden_reasons: [],
     sources: []
   };
@@ -203,12 +257,17 @@ function upsertCandidate(map, candidate) {
     registered: Boolean(candidate.registered || existing.registered),
     system_sent: Boolean(candidate.system_sent || existing.system_sent),
     aborted_last_run: Boolean(candidate.aborted_last_run || existing.aborted_last_run),
+    managed_openclaw_session_id: candidate.managed_openclaw_session_id || existing.managed_openclaw_session_id || null,
+    managed_closed_at: candidate.managed_closed_at || existing.managed_closed_at || null,
     managed_artifacts_visible:
       typeof candidate.managed_artifacts_visible === 'boolean'
         ? candidate.managed_artifacts_visible || existing.managed_artifacts_visible
         : existing.managed_artifacts_visible,
     sources: [...new Set([...(existing.sources || []), ...(candidate.sources || [])])]
   };
+  if (!next.session_id && next.managed_openclaw_session_id) {
+    next.session_id = next.managed_openclaw_session_id;
+  }
   next.hidden_reasons = collectHiddenSessionReasons(next);
   map.set(identity, next);
 }
@@ -224,6 +283,7 @@ function collectSessionCandidates(openClawHome, options = {}) {
   const candidates = new Map();
 
   (config.sessions || []).forEach((entry) => {
+    const binding = readManagedSessionBinding(entry.workspace, entry.session_key);
     upsertCandidate(candidates, {
       session_key: entry.session_key,
       workspace: entry.workspace,
@@ -231,6 +291,8 @@ function collectSessionCandidates(openClawHome, options = {}) {
       project_id: entry.project_id,
       host_status: entry.status || 'active',
       ephemeral_subagent: isEphemeralSubagentSession(entry),
+      managed_openclaw_session_id: binding.managed_openclaw_session_id,
+      managed_closed_at: binding.managed_closed_at,
       managed_artifacts_visible: hasManagedSessionArtifacts(entry.workspace, entry.session_key),
       registered: true,
       sources: ['host_config']
@@ -241,6 +303,7 @@ function collectSessionCandidates(openClawHome, options = {}) {
     const uniqueHostSession = entry.workspace
       ? findSession(config, entry.workspace, entry.session_key)
       : findUniqueHostSessionByKey(config, entry.session_key);
+    const binding = readManagedSessionBinding(entry.workspace || uniqueHostSession?.workspace || null, entry.session_key);
     upsertCandidate(candidates, {
       session_key: entry.session_key,
       workspace: entry.workspace || uniqueHostSession?.workspace || null,
@@ -254,6 +317,8 @@ function collectSessionCandidates(openClawHome, options = {}) {
       transcript_exists: entry.transcript_exists,
       system_sent: entry.system_sent,
       aborted_last_run: entry.aborted_last_run,
+      managed_openclaw_session_id: binding.managed_openclaw_session_id,
+      managed_closed_at: binding.managed_closed_at,
       managed_artifacts_visible: hasManagedSessionArtifacts(entry.workspace || uniqueHostSession?.workspace || null, entry.session_key),
       discovered: true,
       registered: Boolean(uniqueHostSession),
