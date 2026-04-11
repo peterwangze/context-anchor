@@ -348,6 +348,10 @@
   - 当前如果某个 workspace 的主要后续动作就是清理高置信 hidden residue，`status-report` 会直接把 `Next step` 切到 cleanup
   - hidden residue cleanup 现在已同时进入 `doctor / sessions-status / upgrade-sessions / status-report` 的 shared remediation 语义
   - 已补充自动化测试，覆盖 status-report hidden cleanup 的 remediation 集成与文本可见性
+- `2026-04-11`
+  - `sessions-diagnose` 现在也已接入 hidden residue summary / inspect / cleanup / next-step 输出，不再只看 visible session 的异常
+  - 当前即使 visible session 本身已经健康，只要 profile 里还存在 hidden residue，诊断结果也不会再误报 `No session anomalies detected.`
+  - 已补充自动化测试，覆盖 hidden inspect-only 与 hidden cleanup 场景下 diagnose 的用户可见行为
 - `2026-04-09`
   - `Recovered Continuity` 对 reference-only completed task 的说明已进一步收口
   - 当前会明确显示这是“已完成任务的参考连续性”，并说明不会恢复旧 goal / next step 为活动任务

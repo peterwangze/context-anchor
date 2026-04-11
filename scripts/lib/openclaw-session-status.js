@@ -1501,6 +1501,31 @@ function renderAutoFixPath(remediationSummary) {
     .join(' | ');
 }
 
+function renderHiddenSessionSummary(hiddenSessionSummary, {
+  count = 0,
+  countLabel = 'Hidden sessions',
+  indent = 0
+} = {}) {
+  if (!hiddenSessionSummary || Number(count || 0) <= 0) {
+    return [];
+  }
+
+  const lines = [field(countLabel, Number(count || 0), { indent, kind: 'muted' })];
+  if (hiddenSessionSummary.summary) {
+    lines.push(field('Hidden filter', hiddenSessionSummary.summary, { indent, kind: 'muted' }));
+  }
+  if (hiddenSessionSummary.next_step_hint) {
+    lines.push(field('Hidden next step', hiddenSessionSummary.next_step_hint, { indent, kind: 'muted' }));
+  }
+  if (hiddenSessionSummary.inspect_command) {
+    lines.push(field('Hidden inspect', command(hiddenSessionSummary.inspect_command), { indent, kind: 'command' }));
+  }
+  if (hiddenSessionSummary.cleanup_command) {
+    lines.push(field('Hidden cleanup', command(hiddenSessionSummary.cleanup_command), { indent, kind: 'command' }));
+  }
+  return lines;
+}
+
 function renderOpenClawSessionStatusReport(report) {
   const lines = [];
   lines.push(section('Context-Anchor Session Overview'));
@@ -1531,21 +1556,12 @@ function renderOpenClawSessionStatusReport(report) {
   if (report.summary.excluded_subagent_sessions > 0) {
     lines.push(field('Excluded subagent sessions', report.summary.excluded_subagent_sessions, { kind: 'muted' }));
   }
-  if (report.summary.excluded_hidden_sessions > 0) {
-    lines.push(field('Excluded hidden sessions', report.summary.excluded_hidden_sessions, { kind: 'muted' }));
-    if (report.summary.hidden_session_summary?.summary) {
-      lines.push(field('Hidden filter', report.summary.hidden_session_summary.summary, { kind: 'muted' }));
-    }
-    if (report.summary.hidden_session_summary?.next_step_hint) {
-      lines.push(field('Hidden next step', report.summary.hidden_session_summary.next_step_hint, { kind: 'muted' }));
-    }
-    if (report.summary.hidden_session_summary?.inspect_command) {
-      lines.push(field('Hidden inspect', command(report.summary.hidden_session_summary.inspect_command), { kind: 'command' }));
-    }
-    if (report.summary.hidden_session_summary?.cleanup_command) {
-      lines.push(field('Hidden cleanup', command(report.summary.hidden_session_summary.cleanup_command), { kind: 'command' }));
-    }
-  }
+  lines.push(
+    ...renderHiddenSessionSummary(report.summary.hidden_session_summary, {
+      count: report.summary.excluded_hidden_sessions,
+      countLabel: 'Excluded hidden sessions'
+    })
+  );
   lines.push(
     field(
       'Memory sources',
@@ -1706,14 +1722,58 @@ function renderOpenClawSessionStatusReport(report) {
 
 function renderOpenClawSessionDiagnosisReport(report) {
   const lines = [];
+  const hiddenSessionCount = Number(report.summary?.excluded_hidden_sessions || 0);
+  const hasHiddenSessionResidues = hiddenSessionCount > 0;
+  const hiddenCleanupNextStep =
+    report.remediation_summary?.next_step?.source === 'hidden_session_residues'
+      ? report.remediation_summary.next_step
+      : null;
   lines.push(section('Context-Anchor Session Diagnosis'));
   lines.push(field('OpenClaw home', report.openclaw_home, { kind: 'muted' }));
   lines.push(...renderCommandSummary(report));
   lines.push('');
+  if (hasHiddenSessionResidues) {
+    lines.push(
+      ...renderHiddenSessionSummary(report.summary?.hidden_session_summary, {
+        count: hiddenSessionCount,
+        countLabel: 'Excluded hidden sessions'
+      })
+    );
+    const hiddenCleanupRemediation = hiddenCleanupNextStep
+      ? { ...report.remediation_summary, next_step: hiddenCleanupNextStep }
+      : null;
+    const summaryNextStepLine = renderRemediationNextStep(hiddenCleanupRemediation);
+    if (summaryNextStepLine) {
+      lines.push(field('Next step', summaryNextStepLine.replace(/^Next step:\s*/, ''), { kind: 'info' }));
+    }
+    if (hiddenCleanupNextStep?.affected_targets_summary) {
+      lines.push(field('Affected targets', hiddenCleanupNextStep.affected_targets_summary, { kind: 'muted' }));
+    }
+    const summaryAutoFixPath = renderAutoFixPath(hiddenCleanupRemediation);
+    if (summaryAutoFixPath) {
+      lines.push(field('Auto fix path', summaryAutoFixPath, { kind: 'command' }));
+    }
+    if (hiddenCleanupNextStep?.auto_fix_command) {
+      lines.push(field('Auto fix command', command(hiddenCleanupNextStep.auto_fix_command), { kind: 'command' }));
+    }
+    renderRemediationGuidance(hiddenCleanupRemediation).forEach((line) => {
+      const [label, ...rest] = line.split(': ');
+      lines.push(field(label, rest.join(': '), { kind: label === 'Example command' ? 'command' : 'muted' }));
+    });
+    lines.push('');
+  }
 
   const problemGroups = report.groups.filter((group) => group.issues.length > 0);
   if (problemGroups.length === 0) {
-    lines.push(field('Status', 'No session anomalies detected.', { kind: 'success' }));
+    lines.push(
+      field(
+        'Status',
+        hasHiddenSessionResidues
+          ? 'Visible sessions are healthy, but hidden session residues still need attention.'
+          : 'No session anomalies detected.',
+        { kind: hasHiddenSessionResidues ? 'warning' : 'success' }
+      )
+    );
     lines.push('');
     for (const group of report.groups) {
       lines.push(section(`Workspace: ${group.workspace || 'unresolved'}`, { kind: 'success' }));

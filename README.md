@@ -332,6 +332,7 @@ node scripts/sessions-diagnose.js
 如果 hidden filter 的主因比较明确，状态视图现在还会额外给出一条 `Hidden next step` 提示，例如提醒你优先恢复缺失 workspace，或清理/重配 stale host-only registration。
 如果当前 hidden residue 属于高置信、可直接清理的类型（例如 `stale host-only`、`closed managed residue`、`unbound managed residue`），状态视图和升级报告现在还会额外给出 `Hidden cleanup` 命令，直接指向 `configure-sessions --prune-hidden-residues --yes`。
 现在这类 hidden cleanup 也开始接入 `status:sessions` 和 `upgrade-sessions` 的 shared `remediation_summary` 主链路：如果当前 profile 的主要后续动作就是清理 hidden residue，`Next step` 也会直接切到 cleanup，而不再只是停留在附加提示。
+`sessions-diagnose` 现在也会同步显示同一组 hidden filter / inspect / cleanup / next-step 信息；如果当前可见 session 本身没异常、但 profile 里仍有 hidden residue，诊断结果也不会再误报成 “No session anomalies detected.”。
 如果你确实要排查这类隐藏候选，可以显式加：
 
 ```bash

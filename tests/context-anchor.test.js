@@ -3586,6 +3586,7 @@ test('session status summarizes hidden session reasons in the default overview',
 
       const report = buildOpenClawSessionStatusReport(openClawHome, path.join(openClawHome, 'skills'));
       const rendered = renderOpenClawSessionStatusReport(report);
+      const diagnosisRendered = renderOpenClawSessionDiagnosisReport(report);
 
       assert.equal(report.summary.excluded_hidden_sessions, 1);
       assert.equal(report.summary.hidden_session_summary.by_reason.workspace_unresolved, 1);
@@ -3597,6 +3598,9 @@ test('session status summarizes hidden session reasons in the default overview',
       assert.match(rendered, /Hidden filter: workspace unresolved 1/);
       assert.match(rendered, /Hidden next step: .*workspace/i);
       assert.match(rendered, /Hidden inspect: .*diagnose:sessions/);
+      assert.doesNotMatch(diagnosisRendered, /No session anomalies detected/);
+      assert.match(diagnosisRendered, /Hidden filter: workspace unresolved 1/);
+      assert.match(diagnosisRendered, /Hidden inspect: .*diagnose:sessions/);
     });
   } finally {
     cleanupWorkspace(workspace);
@@ -3660,6 +3664,7 @@ test('registered host-only stale sessions are hidden by default from status and 
 
       const statusReport = buildOpenClawSessionStatusReport(openClawHome, path.join(openClawHome, 'skills'));
       const upgradeResult = runUpgradeSessions(openClawHome, path.join(openClawHome, 'skills'));
+      const renderedDiagnosis = renderOpenClawSessionDiagnosisReport(statusReport);
       const renderedUpgrade = renderUpgradeReport(upgradeResult);
 
       assert.equal(statusReport.summary.total_sessions, 1);
@@ -3677,6 +3682,11 @@ test('registered host-only stale sessions are hidden by default from status and 
       assert.match(upgradeResult.hidden_session_summary.inspect_command, /diagnose:sessions/);
       assert.match(upgradeResult.hidden_session_summary.cleanup_command, /configure:sessions/);
       assert.equal(upgradeResult.verification.remediation_summary.next_step.label, 'cleanup hidden session residues');
+      assert.match(renderedDiagnosis, /Hidden filter: stale host-only 1/);
+      assert.match(renderedDiagnosis, /Hidden inspect: .*diagnose:sessions/);
+      assert.match(renderedDiagnosis, /Hidden cleanup: .*configure:sessions/);
+      assert.match(renderedDiagnosis, /Next step: \[auto\] cleanup hidden session residues/i);
+      assert.doesNotMatch(renderedDiagnosis, /No session anomalies detected/);
       assert.match(renderedUpgrade, /Hidden filter: stale host-only 1/);
       assert.match(renderedUpgrade, /Hidden next step: .*stale host-only/i);
       assert.match(renderedUpgrade, /Hidden inspect: .*diagnose:sessions/);
