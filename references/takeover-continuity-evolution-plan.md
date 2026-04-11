@@ -338,6 +338,11 @@
   - 当前如果 profile 里存在可直接清理的 hidden residue，doctor 文本视图和 remediation 数据都会直接给出 cleanup 命令与统一的 next-step 语义
   - `doctor / sessions-status / upgrade-sessions` 对 hidden residue cleanup 的感知与主修复路径已进一步收敛到同一套结构
   - 已补充自动化测试，覆盖 doctor hidden cleanup 的 remediation 集成与文本可见性
+- `2026-04-11`
+  - `sessions-status / upgrade-sessions` 现在也已把 hidden residue cleanup 接入 shared `remediation_summary.next_step` 选择
+  - 当前如果 profile 的主要后续动作就是清理高置信 hidden residue，`Next step` 会直接切到 cleanup，而不再只作为 hidden filter 的附加提示存在
+  - hidden residue cleanup 现在已同时进入 `doctor / sessions-status / upgrade-sessions` 的 shared remediation 语义
+  - 已补充自动化测试，覆盖 status / upgrade 将 hidden cleanup 选为 shared next-step 的行为
 - `2026-04-09`
   - `Recovered Continuity` 对 reference-only completed task 的说明已进一步收口
   - 当前会明确显示这是“已完成任务的参考连续性”，并说明不会恢复旧 goal / next step 为活动任务

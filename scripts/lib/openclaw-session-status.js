@@ -14,6 +14,7 @@ const {
 const { summarizeCatalogDatabase } = require('./context-anchor-db');
 const { buildRemediationSummary } = require('./remediation-summary');
 const { recordResumeSelections } = require('./resume-preferences');
+const { buildHiddenSessionRemediationAction } = require('./openclaw-session-candidates');
 const { assessTaskStateHealth, buildTaskStateFields, buildTaskStateSummary } = require('./task-state');
 const { buildTaskStateRepairProfile } = require('./task-state-remediation');
 const {
@@ -1259,6 +1260,19 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
     commands: globalCommands,
     remediation_summary: buildRemediationSummary(
       [
+        summary.hidden_session_summary?.cleanup_command
+          ? {
+              source: 'hidden_session_residues',
+              action: buildHiddenSessionRemediationAction(summary.hidden_session_summary, {
+                cleanupCommand: summary.hidden_session_summary.cleanup_command,
+                inspectCommand: summary.hidden_session_summary.inspect_command,
+                recheckCommand: globalCommands.recheck_command,
+                label: 'cleanup hidden session residues',
+                summary: 'Hidden session residues are still registered in this profile and can be safely cleaned up.',
+                strategySummary: 'Remove high-confidence hidden session residues from host config, then rerun session status.'
+              })
+            }
+          : null,
         {
           source: 'session_status_global',
           action: {
@@ -1279,7 +1293,7 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
             }
           }
         }
-      ],
+      ].filter(Boolean),
       {
         auto_fix_options: {
           workspace: scope.workspace,

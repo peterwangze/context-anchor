@@ -3669,12 +3669,14 @@ test('registered host-only stale sessions are hidden by default from status and 
       assert.match(statusReport.summary.hidden_session_summary.inspect_command, /diagnose:sessions/);
       assert.match(statusReport.summary.hidden_session_summary.cleanup_command, /configure:sessions/);
       assert.match(statusReport.summary.hidden_session_summary.cleanup_command, /--prune-hidden-residues/);
+      assert.equal(statusReport.remediation_summary.next_step.label, 'cleanup hidden session residues');
       assert.equal(upgradeResult.selected_sessions, 1);
       assert.equal(upgradeResult.excluded_hidden_sessions, 1);
       assert.equal(upgradeResult.hidden_session_summary.by_reason.registered_without_visible_transcript, 1);
       assert.match(upgradeResult.hidden_session_summary.next_step_hint, /stale host-only registrations|reconfigure/i);
       assert.match(upgradeResult.hidden_session_summary.inspect_command, /diagnose:sessions/);
       assert.match(upgradeResult.hidden_session_summary.cleanup_command, /configure:sessions/);
+      assert.equal(upgradeResult.verification.remediation_summary.next_step.label, 'cleanup hidden session residues');
       assert.match(renderedUpgrade, /Hidden filter: stale host-only 1/);
       assert.match(renderedUpgrade, /Hidden next step: .*stale host-only/i);
       assert.match(renderedUpgrade, /Hidden inspect: .*diagnose:sessions/);

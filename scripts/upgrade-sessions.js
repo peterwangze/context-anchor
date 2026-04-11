@@ -25,6 +25,7 @@ const { collectSessionCandidates, normalizeWorkspaceKey } = require('./lib/openc
 const { buildHostPaths, cleanupWindowsSchedulerState, runConfigureHost } = require('./configure-host');
 const { buildTakeoverAudit, runDoctor } = require('./doctor');
 const { buildRemediationSummary } = require('./lib/remediation-summary');
+const { buildHiddenSessionRemediationAction } = require('./lib/openclaw-session-candidates');
 const { recordResumeSelections } = require('./lib/resume-preferences');
 const { runMirrorRebuild } = require('./mirror-rebuild');
 const { runSessionStart } = require('./session-start');
@@ -330,6 +331,7 @@ function buildUpgradeVerification({
   skillsRoot,
   options,
   results,
+  hiddenSessionSummary,
   beforeSessionReport,
   sessionReport
 }) {
@@ -444,6 +446,22 @@ function buildUpgradeVerification({
     session_report_status: sessionReport.status,
     remediation_summary: buildRemediationSummary(
       [
+        hiddenSessionSummary?.cleanup_command
+          ? {
+              source: 'hidden_session_residues',
+              action: buildHiddenSessionRemediationAction(hiddenSessionSummary, {
+                cleanupCommand: hiddenSessionSummary.cleanup_command,
+                inspectCommand: hiddenSessionSummary.inspect_command,
+                recheckCommand: buildUpgradeRecheckCommand(openClawHome, skillsRoot, {
+                  workspace: options.workspace || null,
+                  sessionKey: options.sessionKey || null
+                }),
+                label: 'cleanup hidden session residues',
+                summary: 'Hidden session residues are still registered in this profile and can be safely cleaned up.',
+                strategySummary: 'Remove high-confidence hidden session residues from host config, then rerun upgrade verification.'
+              })
+            }
+          : null,
         {
           source: 'upgrade_verification',
           action: {
@@ -475,7 +493,7 @@ function buildUpgradeVerification({
             })
           }
         }
-      ],
+      ].filter(Boolean),
       {
         auto_fix_options: {
           workspace: autoFixWorkspace,
@@ -842,6 +860,35 @@ function runUpgradeSessions(openClawHomeArg, skillsRootArg, options = {}) {
     skillsRoot,
     options,
     results,
+    hiddenSessionSummary: {
+      ...(collected.hidden_session_summary || {}),
+      inspect_command:
+        Number(collected.hidden_session_summary?.total || 0) > 0
+          ? buildHiddenSessionInspectCommand(
+              {
+                workspace: options.workspace || null,
+                sessionKey: options.sessionKey || null
+              },
+              {
+                openclawHome: openClawHome,
+                skillsRoot
+              }
+            )
+          : null,
+      cleanup_command:
+        collected.hidden_session_summary?.cleanup_recommended
+          ? buildHiddenSessionCleanupCommand(
+              {
+                workspace: options.workspace || null,
+                sessionKey: options.sessionKey || null
+              },
+              {
+                openclawHome: openClawHome,
+                skillsRoot
+              }
+            )
+          : null
+    },
     beforeSessionReport,
     sessionReport: verificationReport
   });
