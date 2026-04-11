@@ -52,6 +52,10 @@ const {
   buildHiddenSessionInspectCommand
 } = require('./lib/openclaw-session-status');
 const { buildRemediationSummary } = require('./lib/remediation-summary');
+const {
+  renderHiddenSessionSummaryLines,
+  renderRemediationNextStepLines
+} = require('./lib/remediation-report');
 const { recordResumeSelections } = require('./lib/resume-preferences');
 const { assessTaskStateHealth, buildTaskStateSummary } = require('./lib/task-state');
 const { buildTaskStateRepairProfile } = require('./lib/task-state-remediation');
@@ -172,97 +176,13 @@ function renderStatusReportText(report) {
   if (report.session.last_benefit_summary?.visible) {
     lines.push(field('Last benefit', report.session.last_benefit_summary.summary, { kind: 'success' }));
   }
-  if (report.hidden_session_summary?.total > 0) {
-    lines.push(field('Hidden sessions', Number(report.hidden_session_summary.total), { kind: 'muted' }));
-    if (report.hidden_session_summary.summary) {
-      lines.push(field('Hidden filter', report.hidden_session_summary.summary, { kind: 'muted' }));
-    }
-    if (report.hidden_session_summary.next_step_hint) {
-      lines.push(field('Hidden next step', report.hidden_session_summary.next_step_hint, { kind: 'muted' }));
-    }
-    if (report.hidden_session_summary.inspect_command) {
-      lines.push(field('Hidden inspect', command(report.hidden_session_summary.inspect_command), { kind: 'command' }));
-    }
-    if (report.hidden_session_summary.cleanup_command) {
-      lines.push(field('Hidden cleanup', command(report.hidden_session_summary.cleanup_command), { kind: 'command' }));
-    }
-  }
-  if (report.remediation_summary?.next_step?.label) {
-    lines.push(field(
-      'Next step',
-      `${report.remediation_summary.next_step.label}` +
-        `${report.remediation_summary.next_step.summary ? ` - ${report.remediation_summary.next_step.summary}` : ''}`,
-      { kind: report.remediation_summary.next_step.execution_mode === 'manual' ? 'warning' : 'info' }
-    ));
-    if (report.remediation_summary.next_step.affected_targets_summary) {
-      lines.push(field('Affected targets', report.remediation_summary.next_step.affected_targets_summary, { kind: 'muted' }));
-    }
-  }
-  if (
-    report.remediation_summary?.next_step?.execution_mode !== 'manual' &&
-    Array.isArray(report.remediation_summary?.next_step?.command_sequence) &&
-    report.remediation_summary.next_step.command_sequence.length > 0
-  ) {
-    lines.push(field(
-      'Auto fix',
-      report.remediation_summary.next_step.command_sequence
-        .map((entry, index) => `${index + 1}) ${entry.step}: ${command(entry.command)}`)
-        .join(' | '),
-      { kind: 'command' }
-    ));
-  }
-  if (report.remediation_summary?.next_step?.auto_fix_command) {
-    lines.push(field('Auto fix command', command(report.remediation_summary.next_step.auto_fix_command), { kind: 'command' }));
-  } else if (report.remediation_summary?.next_step?.auto_fix_blocked_reason) {
-    lines.push(field('Auto fix unavailable', report.remediation_summary.next_step.auto_fix_blocked_reason, { kind: 'warning' }));
-    if (report.remediation_summary?.next_step?.auto_fix_resume_hint) {
-      lines.push(field('Auto fix resume', report.remediation_summary.next_step.auto_fix_resume_hint, { kind: 'muted' }));
-    }
-    if (report.remediation_summary?.next_step?.auto_fix_resume_command) {
-      lines.push(field('Resume command', command(report.remediation_summary.next_step.auto_fix_resume_command), { kind: 'command' }));
-    }
-    if (report.remediation_summary?.next_step?.auto_fix_resume_suggested_command) {
-      lines.push(field('Suggested resume', command(report.remediation_summary.next_step.auto_fix_resume_suggested_command), { kind: 'command' }));
-    }
-    if (report.remediation_summary?.next_step?.auto_fix_resume_suggested_inputs_summary) {
-      lines.push(field('Suggested inputs', report.remediation_summary.next_step.auto_fix_resume_suggested_inputs_summary, { kind: 'muted' }));
-    }
-    if (report.remediation_summary?.next_step?.auto_fix_resume_validation_summary) {
-      lines.push(field(
-        'Resume checks',
-        report.remediation_summary.next_step.auto_fix_resume_validation_summary,
-        {
-          kind:
-            report.remediation_summary.next_step.auto_fix_resume_validation_status === 'ready'
-              ? 'success'
-              : 'warning'
-        }
-      ));
-    }
-    if (report.remediation_summary?.next_step?.auto_fix_resume_suggested_validation_summary) {
-      lines.push(field(
-        'Suggested checks',
-        report.remediation_summary.next_step.auto_fix_resume_suggested_validation_summary,
-        {
-          kind:
-            report.remediation_summary.next_step.auto_fix_resume_suggested_validation_status === 'ready'
-              ? 'success'
-              : 'warning'
-        }
-      ));
-    }
-    if (Array.isArray(report.remediation_summary?.next_step?.auto_fix_resume_missing_inputs) && report.remediation_summary.next_step.auto_fix_resume_missing_inputs.length > 0) {
-      lines.push(field('Resume inputs', report.remediation_summary.next_step.auto_fix_resume_missing_inputs.join(', '), { kind: 'warning' }));
-    }
-    if (Array.isArray(report.remediation_summary?.next_step?.auto_fix_resume_input_details) && report.remediation_summary.next_step.auto_fix_resume_input_details.length > 0) {
-      report.remediation_summary.next_step.auto_fix_resume_input_details.forEach((entry) => {
-        lines.push(field(`Input ${entry.label}`, `${entry.description}${entry.validation_summary ? ` | check=${entry.validation_summary}` : ''}${entry.example ? ` | example=${entry.example}` : ''}`, { kind: 'muted' }));
-        if (Array.isArray(entry.candidates) && entry.candidates.length > 0) {
-          lines.push(field(`Input ${entry.label} options`, entry.candidates.join(' | '), { kind: 'muted' }));
-        }
-      });
-    }
-  }
+  lines.push(
+    ...renderHiddenSessionSummaryLines(report.hidden_session_summary, {
+      count: report.hidden_session_summary?.total,
+      countLabel: 'Hidden sessions'
+    })
+  );
+  lines.push(...renderRemediationNextStepLines(report.remediation_summary));
   if (report.recommended_action?.resolution_hint) {
     lines.push(field('Guidance', report.recommended_action.resolution_hint, { kind: 'muted' }));
   }

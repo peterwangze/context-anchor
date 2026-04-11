@@ -59,6 +59,7 @@ const {
   buildHostPaths,
   cleanupWindowsSchedulerState,
   computeSchedulerLauncherId,
+  renderConfigureHostReport,
   runConfigureHost,
   summarizeConfigureHostHealthStatus
 } = require('../scripts/configure-host');
@@ -100,7 +101,11 @@ const { runSkillSupersede } = require('../scripts/skill-supersede');
 const { runSessionClose } = require('../scripts/session-close');
 const { runSessionCompact } = require('../scripts/session-compact');
 const { runSessionStart } = require('../scripts/session-start');
-const { runConfigureSessions, summarizeConfigureSessionsHealthStatus } = require('../scripts/configure-sessions');
+const {
+  renderConfigureSessionsReport,
+  runConfigureSessions,
+  summarizeConfigureSessionsHealthStatus
+} = require('../scripts/configure-sessions');
 const { renderUpgradeReport, runUpgradeSessions, summarizeUpgradeRunStatus } = require('../scripts/upgrade-sessions');
 const { runSkillStatusUpdate } = require('../scripts/skill-status-update');
 const { runSkillCreate } = require('../scripts/skill-create');
@@ -5478,6 +5483,84 @@ test('doctor reports installed absolute paths and wrapper returns a helpful payl
   }
 });
 
+test('configure reports render remediation resume guidance consistently', () => {
+  const remediationSummary = {
+    next_step: {
+      label: 'select workspace -> recheck',
+      summary: 'Choose the user-visible workspace before rerunning verification.',
+      execution_mode: 'manual',
+      affected_targets_summary: 'workspace D:/demo',
+      auto_fix_blocked_reason: 'An explicit workspace selection is still required.',
+      auto_fix_resume_hint: 'Re-run the suggested command with an explicit --workspace, then auto-fix can resume on the resolved workspace.',
+      auto_fix_resume_command: 'npm run configure:sessions -- --workspace "<workspace>" --yes',
+      auto_fix_resume_suggested_command: 'npm run configure:sessions -- --workspace "D:/demo" --yes',
+      auto_fix_resume_suggested_inputs_summary: 'workspace=D:/demo (top-ranked candidate)',
+      auto_fix_resume_validation_status: 'needs_input',
+      auto_fix_resume_validation_summary: 'workspace input is still missing.',
+      auto_fix_resume_suggested_validation_status: 'needs_review',
+      auto_fix_resume_suggested_validation_summary: 'Suggested resume uses the top-ranked candidate and should be confirmed once.',
+      auto_fix_resume_missing_inputs: ['workspace'],
+      auto_fix_resume_input_details: [
+        {
+          label: 'workspace',
+          description: '当前需要修复或回检的工作区路径。',
+          validation_summary: 'still missing',
+          example: 'D:/demo',
+          candidates: ['D:/demo', 'D:/demo-alt']
+        }
+      ]
+    }
+  };
+
+  const hostRendered = renderConfigureHostReport({
+    status: 'warning',
+    health_status: 'warning',
+    memory_takeover: { mode: 'enforced', limitations: [] },
+    verification: {
+      status: 'needs_attention',
+      summary: 'Workspace selection is still required.',
+      remediation_summary: remediationSummary,
+      recheck_command: 'npm run doctor'
+    },
+    scheduler: { status: 'skipped' },
+    paths: {
+      config_file: 'D:/openclaw/openclaw.json',
+      openclaw_home: 'D:/openclaw'
+    }
+  });
+  const sessionsRendered = renderConfigureSessionsReport({
+    status: 'warning',
+    health_status: 'warning',
+    discovered_sessions: 2,
+    selected_sessions: 1,
+    configured_sessions: 0,
+    skipped_sessions: 1,
+    unresolved_sessions: 1,
+    verification: {
+      status: 'needs_attention',
+      summary: 'Workspace selection is still required.',
+      remediation_summary: remediationSummary,
+      recheck_command: 'npm run status:sessions -- --workspace "D:/demo"'
+    },
+    results: []
+  });
+
+  [hostRendered, sessionsRendered].forEach((rendered) => {
+    assert.match(rendered, /Next step: select workspace -> recheck - Choose the user-visible workspace before rerunning verification\./);
+    assert.match(rendered, /Affected targets: workspace D:\/demo/);
+    assert.match(rendered, /Auto fix unavailable: An explicit workspace selection is still required\./);
+    assert.match(rendered, /Auto fix resume: Re-run the suggested command with an explicit --workspace/);
+    assert.match(rendered, /Resume command: npm run configure:sessions -- --workspace "<workspace>" --yes/);
+    assert.match(rendered, /Suggested resume: npm run configure:sessions -- --workspace "D:\/demo" --yes/);
+    assert.match(rendered, /Suggested inputs: workspace=D:\/demo \(top-ranked candidate\)/);
+    assert.match(rendered, /Resume checks: workspace input is still missing\./);
+    assert.match(rendered, /Suggested checks: Suggested resume uses the top-ranked candidate and should be confirmed once\./);
+    assert.match(rendered, /Resume inputs: workspace/);
+    assert.match(rendered, /Input workspace: 当前需要修复或回检的工作区路径。 \| check=still missing \| example=D:\/demo/);
+    assert.match(rendered, /Input workspace options: D:\/demo \| D:\/demo-alt/);
+  });
+});
+
 test('doctor status summary distinguishes ok, notice, and warning states', () => {
   assert.equal(
     summarizeDoctorRunStatus({
@@ -8833,7 +8916,7 @@ test('status report renders a concise remediation-aware text view', () => {
       const rendered = renderStatusReportText(report);
 
       assert.match(rendered, /Context-Anchor Status Report/);
-      assert.match(rendered, /Memory health:/);
+      assert.match(rendered, /Health:/);
       assert.match(rendered, /Next step:/);
       assert.match(rendered, /Auto fix:/);
       assert.match(rendered, /Auto fix command:/);

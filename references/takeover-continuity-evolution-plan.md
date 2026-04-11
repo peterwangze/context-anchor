@@ -352,6 +352,11 @@
   - `sessions-diagnose` 现在也已接入 hidden residue summary / inspect / cleanup / next-step 输出，不再只看 visible session 的异常
   - 当前即使 visible session 本身已经健康，只要 profile 里还存在 hidden residue，诊断结果也不会再误报 `No session anomalies detected.`
   - 已补充自动化测试，覆盖 hidden inspect-only 与 hidden cleanup 场景下 diagnose 的用户可见行为
+- `2026-04-11`
+  - `configure-host / configure-sessions / status-report / upgrade-sessions` 的 remediation 文本渲染现在已进一步收敛到共享实现
+  - 当前 `Next step / Auto fix / Auto fix unavailable / Resume command / Suggested resume / Resume checks` 等标签会在这些入口保持一致，降低跨命令切换时的阅读负担
+  - `doctor / sessions-status / sessions-diagnose / status-report / upgrade-sessions` 的 hidden session 摘要现在也已开始复用同一套共享渲染，减少后续修复只改到单个入口的回归风险
+  - 已补充自动化测试，覆盖 `configure-host / configure-sessions` 的 remediation resume 文本一致性，以及既有 hidden cleanup / hidden summary 入口的回归验证
 - `2026-04-09`
   - `Recovered Continuity` 对 reference-only completed task 的说明已进一步收口
   - 当前会明确显示这是“已完成任务的参考连续性”，并说明不会恢复旧 goal / next step 为活动任务

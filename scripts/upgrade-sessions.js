@@ -25,6 +25,10 @@ const { collectSessionCandidates, normalizeWorkspaceKey } = require('./lib/openc
 const { buildHostPaths, cleanupWindowsSchedulerState, runConfigureHost } = require('./configure-host');
 const { buildTakeoverAudit, runDoctor } = require('./doctor');
 const { buildRemediationSummary } = require('./lib/remediation-summary');
+const {
+  renderHiddenSessionSummaryLines,
+  renderRemediationNextStepLines
+} = require('./lib/remediation-report');
 const { buildHiddenSessionRemediationAction } = require('./lib/openclaw-session-candidates');
 const { recordResumeSelections } = require('./lib/resume-preferences');
 const { runMirrorRebuild } = require('./mirror-rebuild');
@@ -1005,18 +1009,12 @@ function renderUpgradeReport(result) {
   );
   if (result.excluded_subagent_sessions || result.excluded_hidden_sessions) {
     lines.push(field('Filtered', `Subagents ${Number(result.excluded_subagent_sessions || 0)} | Hidden ${Number(result.excluded_hidden_sessions || 0)}`, { kind: 'muted' }));
-    if (result.hidden_session_summary?.summary) {
-      lines.push(field('Hidden filter', result.hidden_session_summary.summary, { kind: 'muted' }));
-    }
-    if (result.hidden_session_summary?.next_step_hint) {
-      lines.push(field('Hidden next step', result.hidden_session_summary.next_step_hint, { kind: 'muted' }));
-    }
-    if (result.hidden_session_summary?.inspect_command) {
-      lines.push(field('Hidden inspect', command(result.hidden_session_summary.inspect_command), { kind: 'command' }));
-    }
-    if (result.hidden_session_summary?.cleanup_command) {
-      lines.push(field('Hidden cleanup', command(result.hidden_session_summary.cleanup_command), { kind: 'command' }));
-    }
+    lines.push(
+      ...renderHiddenSessionSummaryLines(result.hidden_session_summary, {
+        count: result.excluded_hidden_sessions,
+        countLabel: 'Hidden sessions'
+      })
+    );
   }
   if (result.scheduler_cleanup?.status === 'cleaned') {
     lines.push(
@@ -1037,79 +1035,7 @@ function renderUpgradeReport(result) {
   if (verification.recheck_command) {
     lines.push(field('Recheck', command(verification.recheck_command), { kind: 'command' }));
   }
-  if (verification.remediation_summary?.next_step?.label) {
-    lines.push(field('Next step', `${verification.remediation_summary.next_step.label}${verification.remediation_summary.next_step.summary ? ` - ${verification.remediation_summary.next_step.summary}` : ''}`, { kind: verification.remediation_summary.next_step.execution_mode === 'manual' ? 'warning' : 'info' }));
-    if (verification.remediation_summary.next_step.affected_targets_summary) {
-      lines.push(field('Affected targets', verification.remediation_summary.next_step.affected_targets_summary, { kind: 'muted' }));
-    }
-  }
-  if (
-    verification.remediation_summary?.next_step?.execution_mode !== 'manual' &&
-    Array.isArray(verification.remediation_summary?.next_step?.command_sequence) &&
-    verification.remediation_summary.next_step.command_sequence.length > 0
-  ) {
-    lines.push(
-      field(
-        'Auto fix',
-        verification.remediation_summary.next_step.command_sequence
-          .map((entry, index) => `${index + 1}) ${entry.step}: ${command(entry.command)}`)
-          .join(' | '),
-        { kind: 'command' }
-      )
-    );
-  }
-  if (verification.remediation_summary?.next_step?.auto_fix_command) {
-    lines.push(field('Auto fix command', command(verification.remediation_summary.next_step.auto_fix_command), { kind: 'command' }));
-  } else if (verification.remediation_summary?.next_step?.auto_fix_blocked_reason) {
-    lines.push(field('Auto fix unavailable', verification.remediation_summary.next_step.auto_fix_blocked_reason, { kind: 'warning' }));
-    if (verification.remediation_summary?.next_step?.auto_fix_resume_hint) {
-      lines.push(field('Auto fix resume', verification.remediation_summary.next_step.auto_fix_resume_hint, { kind: 'muted' }));
-    }
-    if (verification.remediation_summary?.next_step?.auto_fix_resume_command) {
-      lines.push(field('Resume command', command(verification.remediation_summary.next_step.auto_fix_resume_command), { kind: 'command' }));
-    }
-    if (verification.remediation_summary?.next_step?.auto_fix_resume_suggested_command) {
-      lines.push(field('Suggested resume', command(verification.remediation_summary.next_step.auto_fix_resume_suggested_command), { kind: 'command' }));
-    }
-    if (verification.remediation_summary?.next_step?.auto_fix_resume_suggested_inputs_summary) {
-      lines.push(field('Suggested inputs', verification.remediation_summary.next_step.auto_fix_resume_suggested_inputs_summary, { kind: 'muted' }));
-    }
-    if (verification.remediation_summary?.next_step?.auto_fix_resume_validation_summary) {
-      lines.push(field(
-        'Resume checks',
-        verification.remediation_summary.next_step.auto_fix_resume_validation_summary,
-        {
-          kind:
-            verification.remediation_summary.next_step.auto_fix_resume_validation_status === 'ready'
-              ? 'success'
-              : 'warning'
-        }
-      ));
-    }
-    if (verification.remediation_summary?.next_step?.auto_fix_resume_suggested_validation_summary) {
-      lines.push(field(
-        'Suggested checks',
-        verification.remediation_summary.next_step.auto_fix_resume_suggested_validation_summary,
-        {
-          kind:
-            verification.remediation_summary.next_step.auto_fix_resume_suggested_validation_status === 'ready'
-              ? 'success'
-              : 'warning'
-        }
-      ));
-    }
-    if (Array.isArray(verification.remediation_summary?.next_step?.auto_fix_resume_missing_inputs) && verification.remediation_summary.next_step.auto_fix_resume_missing_inputs.length > 0) {
-      lines.push(field('Resume inputs', verification.remediation_summary.next_step.auto_fix_resume_missing_inputs.join(', '), { kind: 'warning' }));
-    }
-    if (Array.isArray(verification.remediation_summary?.next_step?.auto_fix_resume_input_details) && verification.remediation_summary.next_step.auto_fix_resume_input_details.length > 0) {
-      verification.remediation_summary.next_step.auto_fix_resume_input_details.forEach((entry) => {
-        lines.push(field(`Input ${entry.label}`, `${entry.description}${entry.validation_summary ? ` | check=${entry.validation_summary}` : ''}${entry.example ? ` | example=${entry.example}` : ''}`, { kind: 'muted' }));
-        if (Array.isArray(entry.candidates) && entry.candidates.length > 0) {
-          lines.push(field(`Input ${entry.label} options`, entry.candidates.join(' | '), { kind: 'muted' }));
-        }
-      });
-    }
-  }
+  lines.push(...renderRemediationNextStepLines(verification.remediation_summary));
 
   return lines.join('\n');
 }

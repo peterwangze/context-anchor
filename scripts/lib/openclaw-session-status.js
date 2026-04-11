@@ -13,6 +13,7 @@ const {
 } = require('./context-anchor');
 const { summarizeCatalogDatabase } = require('./context-anchor-db');
 const { buildRemediationSummary } = require('./remediation-summary');
+const { renderHiddenSessionSummaryLines } = require('./remediation-report');
 const { recordResumeSelections } = require('./resume-preferences');
 const { buildHiddenSessionRemediationAction } = require('./openclaw-session-candidates');
 const { assessTaskStateHealth, buildTaskStateFields, buildTaskStateSummary } = require('./task-state');
@@ -1501,31 +1502,6 @@ function renderAutoFixPath(remediationSummary) {
     .join(' | ');
 }
 
-function renderHiddenSessionSummary(hiddenSessionSummary, {
-  count = 0,
-  countLabel = 'Hidden sessions',
-  indent = 0
-} = {}) {
-  if (!hiddenSessionSummary || Number(count || 0) <= 0) {
-    return [];
-  }
-
-  const lines = [field(countLabel, Number(count || 0), { indent, kind: 'muted' })];
-  if (hiddenSessionSummary.summary) {
-    lines.push(field('Hidden filter', hiddenSessionSummary.summary, { indent, kind: 'muted' }));
-  }
-  if (hiddenSessionSummary.next_step_hint) {
-    lines.push(field('Hidden next step', hiddenSessionSummary.next_step_hint, { indent, kind: 'muted' }));
-  }
-  if (hiddenSessionSummary.inspect_command) {
-    lines.push(field('Hidden inspect', command(hiddenSessionSummary.inspect_command), { indent, kind: 'command' }));
-  }
-  if (hiddenSessionSummary.cleanup_command) {
-    lines.push(field('Hidden cleanup', command(hiddenSessionSummary.cleanup_command), { indent, kind: 'command' }));
-  }
-  return lines;
-}
-
 function renderOpenClawSessionStatusReport(report) {
   const lines = [];
   lines.push(section('Context-Anchor Session Overview'));
@@ -1557,7 +1533,7 @@ function renderOpenClawSessionStatusReport(report) {
     lines.push(field('Excluded subagent sessions', report.summary.excluded_subagent_sessions, { kind: 'muted' }));
   }
   lines.push(
-    ...renderHiddenSessionSummary(report.summary.hidden_session_summary, {
+    ...renderHiddenSessionSummaryLines(report.summary.hidden_session_summary, {
       count: report.summary.excluded_hidden_sessions,
       countLabel: 'Excluded hidden sessions'
     })
@@ -1734,7 +1710,7 @@ function renderOpenClawSessionDiagnosisReport(report) {
   lines.push('');
   if (hasHiddenSessionResidues) {
     lines.push(
-      ...renderHiddenSessionSummary(report.summary?.hidden_session_summary, {
+      ...renderHiddenSessionSummaryLines(report.summary?.hidden_session_summary, {
         count: hiddenSessionCount,
         countLabel: 'Excluded hidden sessions'
       })

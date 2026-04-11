@@ -13,6 +13,7 @@ const {
   summarizeExternalMemorySources
 } = require('./legacy-memory-sync');
 const { buildRemediationSummary } = require('./lib/remediation-summary');
+const { renderHiddenSessionSummaryLines } = require('./lib/remediation-report');
 const { recordResumeSelections } = require('./lib/resume-preferences');
 const {
   command,
@@ -1219,21 +1220,12 @@ function renderDoctorReport(report) {
       { kind: report.host_takeover_audit.status === 'warning' || report.profile_takeover_audit.status === 'warning' ? 'warning' : 'info' }
     )
   );
-  if (report.hidden_session_summary?.total > 0) {
-    lines.push(field('Hidden sessions', Number(report.hidden_session_summary.total), { kind: 'muted' }));
-    if (report.hidden_session_summary.summary) {
-      lines.push(field('Hidden filter', report.hidden_session_summary.summary, { kind: 'muted' }));
-    }
-    if (report.hidden_session_summary.next_step_hint) {
-      lines.push(field('Hidden next step', report.hidden_session_summary.next_step_hint, { kind: 'muted' }));
-    }
-    if (report.hidden_session_summary.inspect_command) {
-      lines.push(field('Hidden inspect', command(report.hidden_session_summary.inspect_command), { kind: 'command' }));
-    }
-    if (report.hidden_session_summary.cleanup_command) {
-      lines.push(field('Hidden cleanup', command(report.hidden_session_summary.cleanup_command), { kind: 'command' }));
-    }
-  }
+  lines.push(
+    ...renderHiddenSessionSummaryLines(report.hidden_session_summary, {
+      count: report.hidden_session_summary?.total,
+      countLabel: 'Hidden sessions'
+    })
+  );
   lines.push(...renderDoctorRemediationSummary(report.remediation_summary));
   lines.push('');
   lines.push(field('Config path', report.paths.config_file, { kind: 'muted' }));
