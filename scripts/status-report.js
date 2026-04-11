@@ -42,6 +42,15 @@ const {
 } = require('./lib/context-anchor');
 const { describeCollectionFile, readLatestGovernanceRun } = require('./lib/context-anchor-db');
 const { resolveOwnership } = require('./lib/host-config');
+const {
+  buildHiddenSessionRemediationAction,
+  collectSessionCandidates,
+  summarizeHiddenSessionCandidates
+} = require('./lib/openclaw-session-candidates');
+const {
+  buildHiddenSessionCleanupCommand,
+  buildHiddenSessionInspectCommand
+} = require('./lib/openclaw-session-status');
 const { buildRemediationSummary } = require('./lib/remediation-summary');
 const { recordResumeSelections } = require('./lib/resume-preferences');
 const { assessTaskStateHealth, buildTaskStateSummary } = require('./lib/task-state');
@@ -85,6 +94,9 @@ function buildNpmScriptCommand(scriptName, options = {}) {
   }
   if (options.yes) {
     forwarded.push('--yes');
+  }
+  if (Array.isArray(options.extraArgs)) {
+    options.extraArgs.filter(Boolean).forEach((arg) => forwarded.push(arg));
   }
 
   return forwarded.length > 0
@@ -159,6 +171,21 @@ function renderStatusReportText(report) {
   }
   if (report.session.last_benefit_summary?.visible) {
     lines.push(field('Last benefit', report.session.last_benefit_summary.summary, { kind: 'success' }));
+  }
+  if (report.hidden_session_summary?.total > 0) {
+    lines.push(field('Hidden sessions', Number(report.hidden_session_summary.total), { kind: 'muted' }));
+    if (report.hidden_session_summary.summary) {
+      lines.push(field('Hidden filter', report.hidden_session_summary.summary, { kind: 'muted' }));
+    }
+    if (report.hidden_session_summary.next_step_hint) {
+      lines.push(field('Hidden next step', report.hidden_session_summary.next_step_hint, { kind: 'muted' }));
+    }
+    if (report.hidden_session_summary.inspect_command) {
+      lines.push(field('Hidden inspect', command(report.hidden_session_summary.inspect_command), { kind: 'command' }));
+    }
+    if (report.hidden_session_summary.cleanup_command) {
+      lines.push(field('Hidden cleanup', command(report.hidden_session_summary.cleanup_command), { kind: 'command' }));
+    }
   }
   if (report.remediation_summary?.next_step?.label) {
     lines.push(field(
@@ -414,6 +441,44 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
     status: taskStateHealth.status,
     recheckTarget: 'status-report'
   });
+  const hiddenSessionCollected = collectSessionCandidates(paths.openClawHome, {
+    includeSubagents: false,
+    includeHiddenSessions: false
+  });
+  const hiddenScopeKey = path.resolve(paths.workspace);
+  const hiddenWorkspaceSessions = (hiddenSessionCollected.excluded_hidden_sessions || []).filter((entry) => {
+    return entry.workspace && path.resolve(entry.workspace) === hiddenScopeKey;
+  });
+  const hiddenSessionSummaryBase = summarizeHiddenSessionCandidates(hiddenWorkspaceSessions);
+  const hiddenSessionSummary = {
+    ...hiddenSessionSummaryBase,
+    inspect_command:
+      hiddenWorkspaceSessions.length > 0
+        ? buildHiddenSessionInspectCommand(
+            {
+              workspace: paths.workspace,
+              sessionKey
+            },
+            {
+              openclawHome: paths.openClawHome,
+              skillsRoot: path.join(paths.openClawHome, 'skills')
+            }
+          )
+        : null,
+    cleanup_command:
+      hiddenWorkspaceSessions.length > 0 && hiddenSessionSummaryBase.cleanup_recommended
+        ? buildHiddenSessionCleanupCommand(
+            {
+              workspace: paths.workspace,
+              sessionKey
+            },
+            {
+              openclawHome: paths.openClawHome,
+              skillsRoot: path.join(paths.openClawHome, 'skills')
+            }
+          )
+        : null
+  };
   const recommendedAction =
     memorySourceHealth.status === 'drift_detected'
         ? {
@@ -619,6 +684,19 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
     recommended_action: recommendedAction,
     remediation_summary: buildRemediationSummary(
       [
+        hiddenSessionSummary.cleanup_command
+          ? {
+              source: 'hidden_session_residues',
+              action: buildHiddenSessionRemediationAction(hiddenSessionSummary, {
+                cleanupCommand: hiddenSessionSummary.cleanup_command,
+                inspectCommand: hiddenSessionSummary.inspect_command,
+                recheckCommand: buildStatusReportRecheckCommand(paths.workspace, sessionKey, projectId, userId),
+                label: 'cleanup hidden session residues',
+                summary: 'Hidden session residues are still registered under this workspace profile and can be safely cleaned up.',
+                strategySummary: 'Remove high-confidence hidden session residues from host config, then rerun status-report.'
+              })
+            }
+          : null,
         {
           source: 'status_report',
           action: {
@@ -634,7 +712,7 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
             }
           }
         }
-      ],
+      ].filter(Boolean),
       {
         auto_fix_options: {
           workspace: paths.workspace,
@@ -642,6 +720,7 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
         }
       }
     ),
+    hidden_session_summary: hiddenSessionSummary,
     storage_governance: summarizeStorageGovernance(paths, sessionKey, projectId, userId),
     skills: skillStatusCounts
   };

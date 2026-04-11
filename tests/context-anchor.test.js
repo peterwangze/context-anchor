@@ -8835,6 +8835,75 @@ test('status report renders a concise remediation-aware text view', () => {
   }
 });
 
+test('status report surfaces hidden cleanup through shared remediation and text output', async () => {
+  const workspace = makeWorkspace();
+  const openClawHome = path.join(workspace, 'openclaw-home');
+  const visibleWorkspace = path.join(workspace, 'visible-workspace');
+  const agentSessionsDir = path.join(openClawHome, 'agents', 'main', 'sessions');
+  const visibleTranscript = path.join(agentSessionsDir, 'visible.jsonl');
+  const sessionsIndex = path.join(agentSessionsDir, 'sessions.json');
+
+  try {
+    await withOpenClawHome(workspace, async () => {
+      runInstallHostAssets(openClawHome);
+      await runConfigureHost(openClawHome, path.join(openClawHome, 'skills'), {
+        assumeYes: true,
+        applyConfig: true,
+        enableScheduler: false,
+        defaultUserId: 'default-user',
+        defaultWorkspace: visibleWorkspace,
+        addUsers: [],
+        addWorkspaces: []
+      });
+
+      runSessionStart(visibleWorkspace, 'agent:main:visible', 'visible-workspace', {
+        userId: 'default-user',
+        openClawSessionId: 'visible-session-id'
+      });
+
+      const hostConfigFile = getHostConfigFile(openClawHome);
+      const hostConfig = readJson(hostConfigFile, {});
+      hostConfig.sessions = [
+        ...(hostConfig.sessions || []),
+        {
+          workspace: path.resolve(visibleWorkspace),
+          session_key: 'agent:main:stale',
+          user_id: 'default-user',
+          project_id: 'visible-workspace',
+          status: 'active',
+          started_at: new Date().toISOString(),
+          last_active: new Date().toISOString(),
+          closed_at: null,
+          updated_at: new Date().toISOString()
+        }
+      ];
+      writeJson(hostConfigFile, hostConfig);
+
+      fs.mkdirSync(agentSessionsDir, { recursive: true });
+      writeSessionTranscript(visibleTranscript, visibleWorkspace, 'visible-session-id');
+      writeJson(sessionsIndex, {
+        'agent:main:visible': {
+          sessionId: 'visible-session-id',
+          sessionFile: visibleTranscript,
+          updatedAt: 1774705704043,
+          chatType: 'direct'
+        }
+      });
+
+      const report = runStatusReport(visibleWorkspace, 'agent:main:visible', 'visible-workspace', 'default-user');
+      const rendered = renderStatusReportText(report);
+
+      assert.equal(report.hidden_session_summary.by_reason.registered_without_visible_transcript, 1);
+      assert.match(report.hidden_session_summary.cleanup_command, /configure:sessions/);
+      assert.equal(report.remediation_summary.next_step.label, 'cleanup hidden session residues');
+      assert.match(rendered, /Hidden cleanup:/);
+      assert.match(rendered, /Next step: cleanup hidden session residues/i);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('status report is read-only unless snapshot output is requested', () => {
   const workspace = makeWorkspace();
 

@@ -343,6 +343,11 @@
   - 当前如果 profile 的主要后续动作就是清理高置信 hidden residue，`Next step` 会直接切到 cleanup，而不再只作为 hidden filter 的附加提示存在
   - hidden residue cleanup 现在已同时进入 `doctor / sessions-status / upgrade-sessions` 的 shared remediation 语义
   - 已补充自动化测试，覆盖 status / upgrade 将 hidden cleanup 选为 shared next-step 的行为
+- `2026-04-11`
+  - `status-report` 现在也已把 hidden residue cleanup 接入 shared `remediation_summary.next_step` 与文本输出
+  - 当前如果某个 workspace 的主要后续动作就是清理高置信 hidden residue，`status-report` 会直接把 `Next step` 切到 cleanup
+  - hidden residue cleanup 现在已同时进入 `doctor / sessions-status / upgrade-sessions / status-report` 的 shared remediation 语义
+  - 已补充自动化测试，覆盖 status-report hidden cleanup 的 remediation 集成与文本可见性
 - `2026-04-09`
   - `Recovered Continuity` 对 reference-only completed task 的说明已进一步收口
   - 当前会明确显示这是“已完成任务的参考连续性”，并说明不会恢复旧 goal / next step 为活动任务

@@ -406,6 +406,7 @@ node scripts/upgrade-sessions.js --rebuild-mirror --run-governance
 本轮开始，`doctor.js`、`sessions-status.js` / `sessions-diagnose.js`、`status-report.js`、`upgrade-sessions.js`、`install-one-click.js` 都会返回统一的 `remediation_summary` 结构，便于用一套逻辑读取 next step、automatic/manual count 和 recheck commands。
 现在 `doctor.js` 也会把高置信 hidden residue cleanup 接进这套 shared remediation 语义：当 profile 里存在可直接清理的 `stale host-only`、`closed managed residue`、`unbound managed residue` 时，doctor 的 remediation 与文本视图会直接给出 cleanup 命令，而不只是显示过滤摘要。
 现在 `sessions-status.js` / `sessions-diagnose.js` 以及 install/upgrade 的进度输出，也会直接把 `remediation_summary.next_step` 渲染出来，用户不用再自己从多条 strategy 里猜下一步。
+现在 `status-report.js` 也已经接入同样的 hidden cleanup shared remediation：如果当前 workspace 的主要后续动作就是清理高置信 hidden residue，`Next step` 会直接切到 cleanup，而不再只是显示过滤摘要。
 对于可自动执行的修复路径，文本输出现在还会直接给出 `Auto fix command`；执行这条命令后，会按 `repair -> follow-up -> recheck` 顺序自动跑完整条闭环。
 `auto-fix` 现在还会做风险分级：默认只在高风险步骤（例如 host 配置或 scheduler 变更）前做逐步确认，低风险和中风险步骤尽量减少打断；如果你已经确认环境，也可以显式加 `--yes` 跳过这些确认。
 如果你只想执行部分自动修复链路，现在还支持批量策略参数：
