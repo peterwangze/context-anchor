@@ -2,7 +2,14 @@ const path = require('path');
 
 const { DEFAULTS, loadUserState, writeUserState } = require('./context-anchor');
 
-const TRACKED_RESUME_INPUTS = new Set(['workspace', 'session-key', 'openclaw-home', 'skills-root']);
+const TRACKED_RESUME_INPUTS = new Set([
+  'workspace',
+  'session-key',
+  'project-id',
+  'user-id',
+  'openclaw-home',
+  'skills-root'
+]);
 const MAX_VALUES_PER_INPUT = 12;
 
 function nowIso() {

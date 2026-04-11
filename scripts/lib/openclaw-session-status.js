@@ -1057,6 +1057,7 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
     ? recordResumeSelections(createPaths(scope.workspace || process.cwd()), scope.userId, {
         workspace: scope.workspace,
         'session-key': scope.sessionKey,
+        'user-id': scope.userId,
         'openclaw-home': resolvedOpenClawHome,
         'skills-root': skillsRoot
       })
@@ -1184,6 +1185,7 @@ function buildOpenClawSessionStatusReport(openClawHomeArg, skillsRootArg, option
                 candidateSessionKeys: sortedSessions.map((entry) => entry.session_key).filter(Boolean),
                 candidateWorkspaces: [commandScope.workspace].filter(Boolean),
                 candidateProjectIds: sortedSessions.map((entry) => entry.project_id).filter(Boolean),
+                candidateUserIds: sortedSessions.map((entry) => entry.user_id).filter(Boolean),
                 resumePreferences
               }
             }

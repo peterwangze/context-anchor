@@ -1304,6 +1304,7 @@ function runDoctor(options = {}) {
   const resumePreferences = hostConfig.defaults?.user_id
     ? recordResumeSelections(doctorPaths, hostConfig.defaults.user_id, {
         workspace,
+        'user-id': hostConfig.defaults.user_id,
         'openclaw-home': openClawHome,
         'skills-root': skillsRoot
       })

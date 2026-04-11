@@ -5130,6 +5130,99 @@ test('resume guidance prefers candidates from confirmed history when multiple ch
   }
 });
 
+test('resume guidance also prefers project and user candidates from confirmed history', () => {
+  const workspace = makeWorkspace();
+
+  try {
+    withOpenClawHome(workspace, () => {
+      const paths = createPaths(workspace);
+      const resumePreferences = recordResumeSelections(paths, 'alice', {
+        workspace,
+        'project-id': 'preferred-project',
+        'user-id': 'preferred-user'
+      });
+      const projectSummary = buildRemediationSummary(
+        [
+          {
+            source: 'status_report',
+            action: {
+              type: 'project_select',
+              recheck_command: `npm run status:sessions -- --workspace "${workspace}" --project-id "<project-id>"`,
+              resume_context: {
+                workspace,
+                candidateProjectIds: ['fallback-project', 'preferred-project'],
+                resumePreferences
+              },
+              repair_strategy: {
+                type: 'select_project_then_recheck',
+                label: 'select project -> recheck',
+                execution_mode: 'manual',
+                manual_subtype: 'confirm_only',
+                requires_manual_confirmation: true,
+                summary: 'Pick the target project first, then rerun status.',
+                command_examples: [`npm run status:sessions -- --workspace "${workspace}" --project-id "<project-id>"`]
+              }
+            }
+          }
+        ],
+        {
+          auto_fix_options: {
+            workspace,
+            userId: 'alice'
+          }
+        }
+      );
+      const userSummary = buildRemediationSummary(
+        [
+          {
+            source: 'status_report',
+            action: {
+              type: 'user_select',
+              recheck_command: `npm run status:sessions -- --workspace "${workspace}" --user-id "<user-id>"`,
+              resume_context: {
+                workspace,
+                candidateUserIds: ['fallback-user', 'preferred-user'],
+                resumePreferences
+              },
+              repair_strategy: {
+                type: 'select_user_then_recheck',
+                label: 'select user -> recheck',
+                execution_mode: 'manual',
+                manual_subtype: 'confirm_only',
+                requires_manual_confirmation: true,
+                summary: 'Pick the target user first, then rerun status.',
+                command_examples: [`npm run status:sessions -- --workspace "${workspace}" --user-id "<user-id>"`]
+              }
+            }
+          }
+        ],
+        {
+          auto_fix_options: {
+            workspace,
+            userId: 'alice'
+          }
+        }
+      );
+
+      assert.deepEqual(projectSummary.next_step.auto_fix_resume_input_details[0].candidates, [
+        'preferred-project',
+        'fallback-project'
+      ]);
+      assert.match(projectSummary.next_step.auto_fix_resume_suggested_command, /--project-id "preferred-project"/i);
+      assert.match(projectSummary.next_step.auto_fix_resume_suggested_inputs_summary, /preferred candidate from confirmed history/);
+
+      assert.deepEqual(userSummary.next_step.auto_fix_resume_input_details[0].candidates, [
+        'preferred-user',
+        'fallback-user'
+      ]);
+      assert.match(userSummary.next_step.auto_fix_resume_suggested_command, /--user-id "preferred-user"/i);
+      assert.match(userSummary.next_step.auto_fix_resume_suggested_inputs_summary, /preferred candidate from confirmed history/);
+    });
+  } finally {
+    cleanupWorkspace(workspace);
+  }
+});
+
 test('resume preference history is stored in user metadata instead of injected user preferences', () => {
   const workspace = makeWorkspace();
 
@@ -5139,6 +5232,8 @@ test('resume preference history is stored in user metadata instead of injected u
       recordResumeSelections(paths, 'alice', {
         workspace,
         'session-key': 'agent:main:checkout-fix',
+        'project-id': 'demo',
+        'user-id': 'alice',
         'openclaw-home': path.join(workspace, 'openclaw-home')
       });
       const userState = loadUserState(paths, 'alice');
@@ -5150,6 +5245,8 @@ test('resume preference history is stored in user metadata instead of injected u
         1
       );
       assert.ok(resumePreferences.inputs.workspace);
+      assert.ok(resumePreferences.inputs['project-id']);
+      assert.ok(resumePreferences.inputs['user-id']);
       assert.ok(resumePreferences.inputs['openclaw-home']);
     });
   } finally {

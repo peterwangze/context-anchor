@@ -357,6 +357,11 @@
   - 当前 `Next step / Auto fix / Auto fix unavailable / Resume command / Suggested resume / Resume checks` 等标签会在这些入口保持一致，降低跨命令切换时的阅读负担
   - `doctor / sessions-status / sessions-diagnose / status-report / upgrade-sessions` 的 hidden session 摘要现在也已开始复用同一套共享渲染，减少后续修复只改到单个入口的回归风险
   - 已补充自动化测试，覆盖 `configure-host / configure-sessions` 的 remediation resume 文本一致性，以及既有 hidden cleanup / hidden summary 入口的回归验证
+- `2026-04-11`
+  - manual/confirm 候选偏好现在已从 `workspace / session-key / profile` 继续扩展到 `project-id / user-id`
+  - 当前 `status-report / upgrade-sessions / doctor / sessions-status` 在记录确认历史时，会一并沉淀 `project-id / user-id` 选择，后续如果某条 resume 路径缺的是项目或用户，也会优先给出更贴近最近确认历史的建议值
+  - 偏好记录仍然保存在 metadata，不会额外进入 bootstrap 用户上下文
+  - 已补充自动化测试，覆盖 `project-id / user-id` 的 confirmed-history 排序，以及 metadata 持久化字段扩展
 - `2026-04-09`
   - `Recovered Continuity` 对 reference-only completed task 的说明已进一步收口
   - 当前会明确显示这是“已完成任务的参考连续性”，并说明不会恢复旧 goal / next step 为活动任务

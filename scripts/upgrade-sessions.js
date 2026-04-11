@@ -205,6 +205,38 @@ function collectUpgradeCandidateSessionKeys(options = {}, results = []) {
     });
 }
 
+function collectUpgradeCandidateProjectIds(options = {}, results = []) {
+  const seen = new Set();
+  return [options.projectId || null, ...(Array.isArray(results) ? results.map((entry) => entry.project_id || null) : [])]
+    .filter(Boolean)
+    .filter((entry) => {
+      const key = String(entry);
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+}
+
+function collectUpgradeCandidateUserIds(options = {}, results = [], autoFixOwnership = {}) {
+  const seen = new Set();
+  return [
+    options.userId || null,
+    autoFixOwnership.userId || null,
+    ...(Array.isArray(results) ? results.map((entry) => entry.user_id || null) : [])
+  ]
+    .filter(Boolean)
+    .filter((entry) => {
+      const key = String(entry);
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+}
+
 function buildUpgradeRepairStrategy(verification = {}) {
   if (verification.configuration_required_targets > 0) {
     return {
@@ -355,12 +387,16 @@ function buildUpgradeVerification({
     ? recordResumeSelections(createPaths(autoFixWorkspace || process.cwd()), autoFixOwnership.userId, {
         workspace: autoFixWorkspace,
         'session-key': options.sessionKey || upgradedResults[0]?.session_key || null,
+        'project-id': options.projectId || upgradedResults[0]?.project_id || null,
+        'user-id': autoFixOwnership.userId || null,
         'openclaw-home': openClawHome,
         'skills-root': skillsRoot
       })
     : null;
   const candidateWorkspaces = collectUpgradeCandidateWorkspaces(openClawHome, options, results, autoFixWorkspace);
   const candidateSessionKeys = collectUpgradeCandidateSessionKeys(options, results);
+  const candidateProjectIds = collectUpgradeCandidateProjectIds(options, results);
+  const candidateUserIds = collectUpgradeCandidateUserIds(options, results, autoFixOwnership);
   const upgradedKeys = new Set(upgradedResults.map((entry) => sanitizeKey(entry.session_key)));
   const verifiedSessions = sessionReport.sessions.filter((entry) => upgradedKeys.has(sanitizeKey(entry.session_key)));
   const remainingAttention = verifiedSessions.filter((entry) => {
@@ -479,11 +515,14 @@ function buildUpgradeVerification({
             resume_context: {
               workspace: autoFixWorkspace,
               sessionKey: options.sessionKey || upgradedResults[0]?.session_key || null,
+              projectId: options.projectId || upgradedResults[0]?.project_id || null,
               userId: autoFixOwnership.userId || null,
               openclawHome: openClawHome,
               skillsRoot,
               candidateWorkspaces,
               candidateSessionKeys,
+              candidateProjectIds,
+              candidateUserIds,
               resumePreferences
             },
             repair_strategy: buildUpgradeRepairStrategy({

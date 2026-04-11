@@ -294,7 +294,10 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
   const resumePreferences = recordResumeSelections(paths, userId, {
     workspace: paths.workspace,
     'session-key': sessionKey,
-    'openclaw-home': paths.openClawHome
+    'project-id': projectId,
+    'user-id': userId,
+    'openclaw-home': paths.openClawHome,
+    'skills-root': path.join(paths.openClawHome, 'skills')
   });
 
   const projectState = readMirroredDocumentSnapshot(projectStateFile(paths, projectId), {
@@ -628,6 +631,9 @@ function runStatusReport(workspaceArg, sessionKeyArg, projectIdArg, userIdArg, o
               projectId,
               userId,
               openclawHome: paths.openClawHome,
+              skillsRoot: path.join(paths.openClawHome, 'skills'),
+              candidateProjectIds: [projectId].filter(Boolean),
+              candidateUserIds: [userId].filter(Boolean),
               resumePreferences
             }
           }
